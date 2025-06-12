@@ -25,7 +25,7 @@ import appeng.api.storage.IStorageProvider;
 import appeng.api.storage.IStorageMounts;
 import appeng.api.storage.MEStorage;
 import com.buuz135.replication.block.tile.ReplicationMachine;
-import com.buuz135.replication.calculation.client.ClientReplicationCalculation;
+import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.MatterNetwork;
 import com.buuz135.replication.api.IMatterType;
 import com.buuz135.replication.calculation.MatterValue;
@@ -507,14 +507,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     LOGGER.debug("Bridge: Destroyed existing AE2 node before recreation");
                 }
                 
-                // Ritardo breve per assicurarsi che la distruzione sia completa
-                level.getServer().tell(new net.minecraft.server.TickTask(0, () -> {
+                // Verifica se siamo in un server dedicato
+                boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
+                
+                if (isDedicatedServer) {
+                    LOGGER.info("Bridge: Dedicated server detected, using direct node creation");
+                    // Usa il metodo diretto su server dedicati per evitare problemi di pianificazione
                     try {
-                        // Crea il nodo con priorità
+                        // Crea il nodo direttamente
                         mainNode.create(level, worldPosition);
                         nodeCreated = true;
                         
-                        // Aggiorna tutti i servizi
+                        // Aggiorna tutti i servizi immediatamente
                         ICraftingProvider.requestUpdate(mainNode);
                         IStorageProvider.requestUpdate(mainNode);
                         
@@ -522,11 +526,32 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         forceNeighborUpdates();
                         updateConnectedState();
                         
-                        LOGGER.info("Bridge: AE2 node successfully created and registered with the grid");
+                        LOGGER.info("Bridge: AE2 node successfully created and registered with the grid (direct method)");
                     } catch (Exception e) {
-                        LOGGER.error("Bridge: Failed to create AE2 node during scheduled task: {}", e.getMessage());
+                        LOGGER.error("Bridge: Failed to create AE2 node with direct method: {}", e.getMessage());
                     }
-                }));
+                } else {
+                    // Usa il metodo con task solo in singleplayer/server integrato
+                    level.getServer().tell(new net.minecraft.server.TickTask(0, () -> {
+                        try {
+                            // Crea il nodo con priorità
+                            mainNode.create(level, worldPosition);
+                            nodeCreated = true;
+                            
+                            // Aggiorna tutti i servizi
+                            ICraftingProvider.requestUpdate(mainNode);
+                            IStorageProvider.requestUpdate(mainNode);
+                            
+                            // Forza aggiornamento dei blocchi adiacenti
+                            forceNeighborUpdates();
+                            updateConnectedState();
+                            
+                            LOGGER.info("Bridge: AE2 node successfully created and registered with the grid");
+                        } catch (Exception e) {
+                            LOGGER.error("Bridge: Failed to create AE2 node during scheduled task: {}", e.getMessage());
+                        }
+                    }));
+                }
             } catch (Exception e) {
                 LOGGER.error("Bridge: Failed to initialize AE2 node: {}", e.getMessage());
             }
@@ -853,7 +878,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                             //    taskId, currentPatternRequests + count);
 
                                             // Extract the necessary matter
-                                            var matterCompound = ClientReplicationCalculation.getMatterCompound(pattern.getStack());
+                                            var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
                                             if (matterCompound != null) {
                                                 // Extract each type of matter from the network
                                                 for (MatterValue matterValue : matterCompound.getValues().values()) {
@@ -1343,7 +1368,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                 AEItemKey output = AEItemKey.of(pattern.getStack().getItem());
 
                                 // Get the matter compound for this pattern
-                                var matterCompound = ClientReplicationCalculation.getMatterCompound(pattern.getStack());
+                                var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
                                 if (matterCompound != null) {
                                     // Create the processing pattern with the actual matter requirements
                                     List<GenericStack> inputs = new ArrayList<>();
@@ -1425,7 +1450,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         boolean hasAllMatter = true;
 
                                         // Get the matter compound for this pattern
-                                        var matterCompound = ClientReplicationCalculation.getMatterCompound(pattern.getStack());
+                                        var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
                                         if (matterCompound != null) {
                                             // Check directly on the network if there is enough matter available
                                             // instead of checking the AE2 virtual inputs
@@ -1618,7 +1643,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
                             if (pattern.getStack().getItem().equals(itemKey.getItem())) {
                                 // Verifica se c'è abbastanza matter per questa quantità
-                                var matterCompound = ClientReplicationCalculation.getMatterCompound(pattern.getStack());
+                                var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
                                 if (matterCompound != null) {
                                     boolean hasEnoughMatter = true;
                                     Map<IMatterType, Long> missingMatter = new HashMap<>();
