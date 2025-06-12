@@ -90,7 +90,7 @@ public class RepAE2Bridge
         event.enqueueWork(() -> {
             // Verifichiamo se la mod Replication è caricata
             boolean replicationLoaded = ModList.get().isLoaded("replication");
-            boolean ae2Loaded = ModList.get().isLoaded("appliedenergistics2");
+            boolean ae2Loaded = ModList.get().isLoaded("appliedenergistics2") || ModList.get().isLoaded("ae2");
             
             if (replicationLoaded && ae2Loaded) {
                 LOGGER.info("Replication mod is loaded, skipping DefaultMatterNetworkElement registration to avoid conflicts");
