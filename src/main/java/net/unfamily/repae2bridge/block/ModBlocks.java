@@ -12,6 +12,7 @@ import net.unfamily.repae2bridge.block.custom.*;
 import net.unfamily.repae2bridge.item.ModItems;
 import net.unfamily.repae2bridge.RepAE2Bridge;
 import com.buuz135.replication.block.MatterPipeBlock;
+import com.mojang.logging.LogUtils;
 
 import java.util.function.Supplier;
 
@@ -47,10 +48,17 @@ public class ModBlocks {
      * Register our block in the list of blocks to which Matter Network pipes can connect
      */
     private static void registerConnectableBlocks() {
-        // Add our namespace to the list of allowed namespaces
-        MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> 
-            block instanceof RepAE2BridgeBl || 
-            (block.getClass().getName().contains("repae2bridge"))
-        );
+        try {
+            // Add our namespace to the list of allowed namespaces
+            MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> 
+                block instanceof RepAE2BridgeBl || 
+                (block.getClass().getName().contains("repae2bridge"))
+            );
+        } catch (NoClassDefFoundError | NullPointerException e) {
+            // Se la classe MatterPipeBlock non è ancora disponibile, registriamo solo i blocchi
+            // Questa registrazione verrà ripresa nel momento in cui entrambi i mod saranno caricati
+            // tramite RepAE2BridgeBl.registerWithReplicationMod()
+            LogUtils.getLogger().warn("Replication mod not fully loaded yet, connection registration will be handled later");
+        }
     }
 }

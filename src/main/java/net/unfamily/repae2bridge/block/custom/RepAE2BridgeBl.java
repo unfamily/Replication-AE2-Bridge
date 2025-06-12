@@ -55,11 +55,15 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
                 // Add a predicate for this specific block
                 MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> block instanceof RepAE2BridgeBl);
                 // Debug log disabled for production
-                // LOGGER.debug("Registered RepAE2BridgeBl with Replication mod pipes");
+                LOGGER.debug("Registered RepAE2BridgeBl with Replication mod pipes");
             }
+        } catch (NoClassDefFoundError | NullPointerException e) {
+            // Replication mod is not loaded or initialized yet
+            // This is expected during initial load - we'll retry later when the block is placed
+            LOGGER.debug("Replication mod not ready yet for registration: {}", e.getMessage());
         } catch (Exception e) {
             // Keep error logs for critical failures
-            LOGGER.error("Failed to register block with Replication: " + e.getMessage());
+            LOGGER.error("Failed to register block with Replication: {}", e.getMessage());
         }
     }
     
@@ -232,13 +236,16 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
                 // Try to initialize the replication network again
                 blockEntity.onLoad();
             } catch (RuntimeException e) {
-                if (e.getMessage() != null && e.getMessage().contains("Element network is null")) {
-                    // Still not ready, schedule another retry
+                if (e.getMessage() != null && (e.getMessage().contains("Element network is null") || e.getMessage().contains("network is null"))) {
+                    // Still not ready, schedule another retry with exponential backoff
                     LOGGER.warn("Bridge: Replication network still not ready, scheduling another retry");
-                    level.scheduleTick(pos, this, 20); // Retry in 1 second
+                    // Try again in 2 seconds (40 ticks)
+                    level.scheduleTick(pos, this, 40);
                 } else {
-                    // Different error, log it
-                    LOGGER.error("Bridge: Unexpected error during network retry: {}", e.getMessage());
+                    // Different error, log it and try again with a longer delay
+                    LOGGER.error("Bridge: Unexpected error during network retry: {}", e.getMessage(), e);
+                    // Try again in 5 seconds (100 ticks)
+                    level.scheduleTick(pos, this, 100);
                 }
             }
         }

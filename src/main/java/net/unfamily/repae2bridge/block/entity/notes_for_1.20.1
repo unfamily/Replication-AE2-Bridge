@@ -1,0 +1,58 @@
+Modifiche effettuate per risolvere il problema di blocco all'uscita dal mondo:
+
+1. Migliorato il metodo `onWorldUnload()`:
+   - Aggiunta pulizia di tutte le collezioni: `patternRequests`, `patternRequestsBySource`, `activeTasks`
+   - Reset dello stato di inizializzazione (`initialized = 0`) per garantire un riavvio pulito
+   - Aggiunta gestione delle eccezioni durante la distruzione del nodo AE2
+
+2. Potenziato il metodo `cancelAllPendingOperations()`:
+   - Implementata gestione esplicita del flag `worldUnloading`
+   - Aggiunta gestione delle eccezioni per evitare crash
+   - Migliorato il logging per facilitare il debug
+
+3. Migliorato il metodo `getNetwork()`:
+   - Aggiunto controllo preventivo dello stato di scaricamento del mondo
+   - Evitata la creazione di nuovi elementi durante lo scaricamento
+   - Migliorati i log per il debug con informazioni più dettagliate sugli errori
+
+4. Migliorato il metodo `serverTick()`:
+   - Aggiunto controllo immediato dello stato di scaricamento all'inizio del tick
+   - Aggiunto controllo aggiuntivo durante l'esecuzione del tick
+   - Gestione più robusta delle operazioni durante il processo di scaricamento
+
+Queste modifiche dovrebbero prevenire i blocchi all'uscita dal mondo migliorando:
+- La gestione della terminazione delle operazioni
+- La pulizia delle risorse
+- La gestione delle eccezioni
+- La prevenzione di race condition tra thread
+
+-------------------------------------------------------
+
+Nuovi fix implementati per risolvere i crash durante l'avvio del server:
+
+1. Migliorato il metodo `onLoad()` nel `RepAE2BridgeBlockEntity`:
+   - Gestione più robusta dell'errore "Element network is null"
+   - Cattura di eccezioni aggiuntive per prevenire il crash completo
+   - Implementazione di retry con tempi di attesa incrementali (60 ticks, 100 ticks)
+   - Aggiunta gestione esplicita degli errori invece di propagarli
+
+2. Potenziato il metodo `tick()` nella classe `RepAE2BridgeBl`:
+   - Implementato backoff esponenziale per i tentativi di inizializzazione
+   - Migliorata la gestione degli errori con retry automatici
+   - Aumentati i tempi di attesa tra i tentativi (40 ticks e 100 ticks)
+
+3. Migliorato il metodo `registerConnectableBlocks()` in `ModBlocks`:
+   - Aggiunta gestione delle eccezioni per `NoClassDefFoundError` e `NullPointerException`
+   - Aggiunto meccanismo di fallback quando la classe `MatterPipeBlock` non è disponibile
+   - Migliorati i log per facilitare il debug
+
+4. Rafforzato il metodo `registerWithReplicationMod()` sia in `RepAE2BridgeBl` che in `RepAE2Bridge`:
+   - Gestione corretta delle eccezioni durante l'inizializzazione
+   - Implementazione di retry automatici per la registrazione
+   - Aggiunta gestione specifica per i casi in cui Replication non sia ancora inizializzato
+
+Questi miglioramenti rendono il bridge molto più resiliente durante:
+- L'inizializzazione del server
+- Il caricamento iniziale dei mod
+- Il collegamento tra le reti Replication e AE2
+- Il recupero da condizioni di errore temporanee

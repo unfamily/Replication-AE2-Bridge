@@ -88,7 +88,7 @@ public class RepAE2Bridge
         // Register the network element factory for the Replication mod
         // This is crucial for making the connection to the Replication network work
         event.enqueueWork(() -> {
-            // Verifichiamo se la mod Replication è caricata
+            //verify if the replication mod is loaded
             boolean replicationLoaded = ModList.get().isLoaded("replication");
             boolean ae2Loaded = ModList.get().isLoaded("appliedenergistics2") || ModList.get().isLoaded("ae2");
             
@@ -96,23 +96,23 @@ public class RepAE2Bridge
                 LOGGER.info("Replication mod is loaded, skipping DefaultMatterNetworkElement registration to avoid conflicts");
             } else {
                 try {
-                    // Replication non è caricata, quindi registriamo noi l'elemento
+                    // Replication is not loaded, so we register the DefaultMatterNetworkElement factory
                     LOGGER.info("Replication mod not loaded, registering DefaultMatterNetworkElement factory");
                     NetworkElementRegistry.INSTANCE.addFactory(DefaultMatterNetworkElement.ID, new DefaultMatterNetworkElement.Factory());
                     LOGGER.info("Replication network integration complete");
                 } catch (Exception e) {
-                    // Se l'eccezione indica un duplicato, lo consideriamo un caso non problematico
+                    // If the exception indicates a duplicate, we consider it a non-problematic case
                     if (e.getMessage() != null && e.getMessage().contains("duplicate")) {
                         LOGGER.info("DefaultMatterNetworkElement factory already registered, using existing registration");
                     } else {
-                        // Altri tipi di errori sono ancora preoccupanti
+                        // Other types of errors are still concerning
                         LOGGER.error("Failed to register with Replication network system", e);
                     }
                 }
             }
         });
 
-        // Register our mod's namespace as an allowed namespace for Replication cables
+        // Register our mod's namespace as an allowed namespace for Replication pipes
         event.enqueueWork(() -> {
             // This ensures it runs on the main thread
             registerWithReplicationMod();
@@ -122,7 +122,7 @@ public class RepAE2Bridge
         boolean guideMeLoaded = ModList.get().isLoaded("guideme");
         if (guideMeLoaded) {
             LOGGER.info("GuideME detected, guide system will be available");
-            // Register the guide association with RepAE2Bridge blocks
+            // Register the guide association with RepAE2Bridge pipes
             event.enqueueWork(() -> {
                 registerGuideAssociation();
             });
@@ -135,12 +135,12 @@ public class RepAE2Bridge
     }
     
     /**
-     * Register the association between the guide and the blocks
+     * Register the association between the guide and the pipes
      */
     private void registerGuideAssociation() {
         LOGGER.info("Registering guide association for RepAE2Bridge");
         // The guide extension is provided through assets/rep_ae2_bridge/ae2guide/ files
-        // following the approach used by ExtendedAE
+        // following the approach used by ExtendedAE2
     }
 
     // Register bridge capabilities
@@ -214,9 +214,18 @@ public class RepAE2Bridge
      * Register the mod namespace in the list of allowed namespaces for Replication cables
      */
     private void registerWithReplicationMod() {
-        // Add the mod namespace to the list of allowed namespaces
-        MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block ->
-            block.getClass().getName().contains(MOD_ID)
-        );
+        try {
+            // Add the mod namespace to the list of allowed namespaces
+            MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block ->
+                block.getClass().getName().contains(MOD_ID)
+            );
+            LOGGER.debug("Successfully registered mod namespace with Replication");
+        } catch (NoClassDefFoundError | NullPointerException e) {
+            // Questo è normale durante l'inizializzazione, la registrazione avverrà tramite altre vie
+            LOGGER.debug("Replication mod not fully initialized yet, skipping connection registration");
+        } catch (Exception e) {
+            // Log di altri errori critici
+            LOGGER.error("Error registering with Replication mod: {}", e.getMessage());
+        }
     }
 }

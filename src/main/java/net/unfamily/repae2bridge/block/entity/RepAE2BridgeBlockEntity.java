@@ -292,16 +292,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         try {
             super.onLoad();
         } catch (RuntimeException e) {
-            if (e.getMessage() != null && e.getMessage().contains("Element network is null")) {
+            if (e.getMessage() != null && (e.getMessage().contains("Element network is null") || e.getMessage().contains("network is null"))) {
                 LOGGER.warn("Bridge: Replication network not ready during onLoad, will retry later. Error: {}", e.getMessage());
-                // Schedule a retry for the next tick
+                // Schedule a retry for the next tick but with a longer delay to give the network time to initialize
                 if (level != null && !level.isClientSide()) {
-                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 1);
+                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 60); // Retry in 3 second
                 }
                 return; // Exit early, don't initialize AE2 node yet
             } else {
-                // Re-throw other exceptions
-                throw e;
+                LOGGER.error("Bridge: Unexpected error during onLoad: {}", e.getMessage(), e);
+                // Try to continue anyway - we might be able to recover later
+                if (level != null && !level.isClientSide()) {
+                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 100); // Retry in 5 second
+                }
+                return;
             }
         }
         //LOGGER.info("Bridge: onLoad called at {}", worldPosition);
@@ -321,6 +325,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 } catch (Exception e) {
                     LOGGER.error("Failed to initialize AE2 node: {}", e.getMessage());
                     shouldReconnect = true;
+                    // Schedule another retry
+                    if (level != null) {
+                        level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
+                    }
                 }
             } else {
                 // Il nodo esiste già, aggiorna solo lo stato locale
@@ -336,6 +344,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             // LOGGER.warn("Bridge: Existing node not found, requesting reconnection");
             nodeCreated = false;
             shouldReconnect = true;
+            // Schedule a retry
+            if (level != null && !level.isClientSide()) {
+                level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
+            }
         }
     }
 
@@ -568,16 +580,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     @Override
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
-        super.serverTick(level, pos, state, blockEntity);
-
-        //LOGGER.warn("Bridge: initialization: {}", initialized);
-
-        // Check if the world is unloading
-        if (worldUnloading && initialized == 1) {
-            // Call onWorldUnload if the world is unloading and we're initialized
-            onWorldUnload();
+        // check if the world is unloading
+        if (worldUnloading) {
+            // if the world is unloading and we are still initialized,
+            // we clean up and exit immediately
+            if (initialized == 1) {
+                onWorldUnload();
+            }
             return;
         }
+
+        // call the base tick
+        super.serverTick(level, pos, state, blockEntity);
 
         // Handle reinitialization after world reload
         if (shouldReconnect && initialized == 1 && !nodeCreated) {
@@ -617,6 +631,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     IStorageProvider.requestUpdate(mainNode);
                 }
             }
+        }
+
+        // frequent check for world unloading during this tick
+        if (worldUnloading) {
+            // if the world starts unloading during this tick,
+            // we immediately stop all operations
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
         }
 
         // Try to transfer items from local inventory to AE2 every 20 ticks (1 second)
@@ -854,6 +878,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (level == null || level.isClientSide()) {
             return null;
         }
+        
+        // Se il mondo sta venendo scaricato, evitiamo di accedere alle reti
+        if (worldUnloading) {
+            return null;
+        }
+        
         try {
             NetworkManager networkManager = NetworkManager.get(level);
             if (networkManager == null) {
@@ -862,6 +892,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
             NetworkElement element = networkManager.getElement(worldPosition);
             if (element == null) {
+                // Evitiamo di creare nuovi elementi se il mondo sta venendo scaricato
+                if (worldUnloading) {
+                    return null;
+                }
+                
                 element = createElement(level, worldPosition);
                 if (element != null) {
                     networkManager.addElement(element);
@@ -872,7 +907,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 return matterNetwork;
             }
         } catch (Exception e) {
-            LOGGER.error("Error accessing Replication network: {}", e.getMessage());
+            // Log più dettagliato per aiutare il debug
+            LOGGER.error("Error accessing Replication network: {}, Stack trace: {}", 
+                e.getMessage(), e.getStackTrace().length > 0 ? e.getStackTrace()[0] : "no stack");
+            
+            // Se siamo durante lo scaricamento, è normale avere errori
+            if (worldUnloading) {
+                LOGGER.debug("Network error during world unload - this is expected");
+            }
         }
         return null;
     }
@@ -1864,9 +1906,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     public static void cancelAllPendingOperations() {
         LOGGER.info("RepAE2Bridge: Cancelling all pending operations on all bridges");
-        // Questo metodo non ha implementazione perché lo stato worldUnloading
-        // è già sufficiente per terminare le operazioni in corso.
-        // Il metodo esiste per mantenere l'API coerente con il codice nel RepAE2Bridge.java
+        // Metodo migliorato per garantire una chiusura più pulita e sicura
+        // Questo evita potenziali blocchi durante l'uscita dal mondo
+        try {
+            // Questa è una flag globale che bloccherà nuove operazioni
+            // in tutti i bridge attualmente caricati
+            worldUnloading = true;
+            
+            // Il resto della pulizia viene gestito a livello di istanza
+            // in ciascun blocco tramite il metodo onWorldUnload()
+            LOGGER.info("RepAE2Bridge: World unloading flag set, blocking new operations");
+        } catch (Exception e) {
+            // Registra l'errore ma continua comunque per evitare blocchi totali
+            LOGGER.error("RepAE2Bridge: Error during global operation cancellation: {}", e.getMessage());
+        }
     }
 
     // Method to handle world unload event
@@ -1891,16 +1944,26 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         
         // Interrompiamo eventuali richieste in corso per evitare blocchi durante lo shutdown
         requestCounters.clear();
+        patternRequests.clear();
+        patternRequestsBySource.clear();
+        activeTasks.clear();
+        
+        // Reset the initialization state to ensure clean restart
+        initialized = 0;
         
         // Instead of resetting initialized, maintain the state but do other cleanup operations
         // Debug log disabled for production
         // LOGGER.debug("Bridge: World unloading, maintaining initialization state");
 
         // Make sure the AE2 node is properly destroyed
-        if (level != null && !level.isClientSide() && mainNode != null) {
-            mainNode.destroy();
-            nodeCreated = false;
-            shouldReconnect = true; // Mark for reconnection when the world is reloaded
+        try {
+            if (level != null && !level.isClientSide() && mainNode != null) {
+                mainNode.destroy();
+                nodeCreated = false;
+                shouldReconnect = true; // Mark for reconnection when the world is reloaded
+            }
+        } catch (Exception e) {
+            LOGGER.error("Bridge: Error during node destruction: {}", e.getMessage());
         }
     }
 
