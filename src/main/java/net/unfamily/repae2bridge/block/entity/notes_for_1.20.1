@@ -56,3 +56,41 @@ Questi miglioramenti rendono il bridge molto più resiliente durante:
 - Il caricamento iniziale dei mod
 - Il collegamento tra le reti Replication e AE2
 - Il recupero da condizioni di errore temporanee
+
+-------------------------------------------------------
+
+Patch per risolvere il problema delle pattern virtuali nei server dedicati:
+
+1. Modificato il metodo `initializeAE2Node()`:
+   - Aggiunto rilevamento esplicito del server dedicato con:
+     ```java
+     boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
+     ```
+   - Implementata creazione diretta del nodo AE2 sui server dedicati:
+     ```java
+     if (isDedicatedServer) {
+         // Usa il metodo diretto su server dedicati per evitare problemi di pianificazione
+         mainNode.create(level, worldPosition);
+         nodeCreated = true;
+         // Aggiornamenti immediati dei servizi e connessioni
+     }
+     ```
+   - Mantenuto il metodo originale basato su `TickTask` solo per singleplayer/server integrato
+   - Aggiunti log dettagliati per identificare il tipo di server e il metodo utilizzato
+
+2. Sostituzione dell'uso di `ClientReplicationCalculation` con `ReplicationCalculation`:
+   - Sostituiti tutti i riferimenti a `ClientReplicationCalculation.getMatterCompound()`
+   - Utilizzato al suo posto `ReplicationCalculation.getMatterCompound()`
+   - Importare correttamente la classe:
+     ```java
+     import com.buuz135.replication.calculation.ReplicationCalculation;
+     ```
+   - Questa classe è compatibile sia con client che con server dedicati
+
+Questi miglioramenti risolvono il problema sui server dedicati:
+- Evitando il meccanismo di pianificazione dei task che può fallire nei server dedicati
+- Creando il nodo AE2 in modo diretto e immediato
+- Utilizzando classi compatibili con il server per il calcolo della matter
+- Garantendo una corretta sincronizzazione tra le reti AE2 e Replication anche in ambiente dedicato
+
+Nota: La modifica della classe da `ClientReplicationCalculation` a `ReplicationCalculation` è cruciale perché garantisce l'accesso ai compound della matter anche su server dedicati dove il codice client non è disponibile.
