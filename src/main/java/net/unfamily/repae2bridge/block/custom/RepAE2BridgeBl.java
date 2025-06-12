@@ -24,6 +24,11 @@ import org.slf4j.Logger;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.Explosion;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.network.chat.Component;
+import net.minecraft.world.entity.player.Player;
 
 
 public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> implements INetworkDirectionalConnection {
@@ -249,5 +254,36 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
                 }
             }
         }
+    }
+
+    @Override
+    public InteractionResult useWithoutItem(BlockState blockstate, Level world, BlockPos pos, Player entity, BlockHitResult hit) {
+        // let the BlockEntity handle the interaction (as defined in BasicTileBlock)
+        InteractionResult result = super.useWithoutItem(blockstate, world, pos, entity, hit);
+        
+        // if the interaction was not handled by the BlockEntity and we are in shift, show diagnostics
+        if (result != InteractionResult.SUCCESS && !world.isClientSide && entity.isShiftKeyDown()){
+            if (world.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockentity) {
+                // send diagnostic information to the player
+                boolean hasAE2Node = blockentity.getActionableNode() != null;
+                boolean nodeActive = hasAE2Node && blockentity.getActionableNode().isActive();
+                boolean hasReplicationNetwork = blockentity.getNetwork() != null;
+                
+                entity.sendSystemMessage(Component.literal("§bBridge Diagnostics:"));
+                entity.sendSystemMessage(Component.literal("§7- AE2 Node: " + (hasAE2Node ? "§aPresent" : "§cMissing")));
+                entity.sendSystemMessage(Component.literal("§7- AE2 Node Active: " + (nodeActive ? "§aYes" : "§cNo")));
+                entity.sendSystemMessage(Component.literal("§7- Replication Network: " + (hasReplicationNetwork ? "§aConnected" : "§cDisconnected")));
+                
+                // force a reconnection attempt
+                if (!hasAE2Node || !nodeActive) {
+                    entity.sendSystemMessage(Component.literal("§eForcing reconnection attempt..."));
+                    blockentity.initializeAE2Node();
+                }
+                
+                return InteractionResult.SUCCESS;
+            }
+        }
+        
+        return result;
     }
 }

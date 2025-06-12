@@ -64,6 +64,7 @@ import appeng.api.networking.storage.IStorageService;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import appeng.me.helpers.MachineSource;
 import net.unfamily.repae2bridge.Config;
+import net.minecraft.world.level.block.entity.BlockEntity;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -494,6 +495,80 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // The disconnection from the Replication network is handled in super.setRemoved()
     }
 
+    /**
+     * Inizializza il nodo AE2 con meccanismi migliorati per server dedicati
+     */
+    public void initializeAE2Node() {
+        if (level != null && !level.isClientSide() && mainNode != null) {
+            try {
+                // Forza la distruzione del nodo esistente prima di ricrearlo
+                if (mainNode.getNode() != null) {
+                    mainNode.destroy();
+                    LOGGER.debug("Bridge: Destroyed existing AE2 node before recreation");
+                }
+                
+                // Ritardo breve per assicurarsi che la distruzione sia completa
+                level.getServer().tell(new net.minecraft.server.TickTask(0, () -> {
+                    try {
+                        // Crea il nodo con priorità
+                        mainNode.create(level, worldPosition);
+                        nodeCreated = true;
+                        
+                        // Aggiorna tutti i servizi
+                        ICraftingProvider.requestUpdate(mainNode);
+                        IStorageProvider.requestUpdate(mainNode);
+                        
+                        // Forza aggiornamento dei blocchi adiacenti
+                        forceNeighborUpdates();
+                        updateConnectedState();
+                        
+                        LOGGER.info("Bridge: AE2 node successfully created and registered with the grid");
+                    } catch (Exception e) {
+                        LOGGER.error("Bridge: Failed to create AE2 node during scheduled task: {}", e.getMessage());
+                    }
+                }));
+            } catch (Exception e) {
+                LOGGER.error("Bridge: Failed to initialize AE2 node: {}", e.getMessage());
+            }
+        }
+    }
+
+    /**
+     * Verifica se è possibile connettersi a una rete AE2 e lo forza se necessario
+     */
+    private boolean forceAE2GridConnection() {
+        if (level == null || level.isClientSide()) return false;
+        
+        // Cerca controller AE2 o cavi nelle vicinanze
+        boolean foundAE2Component = false;
+        IGrid connectedGrid = null;
+        
+        for (Direction direction : Direction.values()) {
+            BlockPos neighborPos = worldPosition.relative(direction);
+            BlockEntity neighborEntity = level.getBlockEntity(neighborPos);
+            
+            if (neighborEntity instanceof IInWorldGridNodeHost) {
+                foundAE2Component = true;
+                IGridNode neighborNode = ((IInWorldGridNodeHost) neighborEntity).getGridNode(direction.getOpposite());
+                
+                if (neighborNode != null && neighborNode.isActive()) {
+                    connectedGrid = neighborNode.getGrid();
+                    LOGGER.info("Bridge: Found active AE2 grid connection at {}", neighborPos);
+                    break;
+                }
+            }
+        }
+        
+        // Se abbiamo trovato un grid ma il nostro nodo non è connesso, forza la connessione
+        if (connectedGrid != null && (mainNode.getNode() == null || mainNode.getNode().getGrid() == null)) {
+            LOGGER.info("Bridge: Found AE2 grid but node not connected, forcing connection");
+            initializeAE2Node();
+            return true;
+        }
+        
+        return foundAE2Component;
+    }
+
     @Override
     public void setRemoved() {
         if (level != null && !level.isClientSide()) {
@@ -580,6 +655,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     @Override
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
+        // Controlla se siamo in un server dedicato
+        boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
+        
+        // All'inizio, controlla se è necessario riconnettersi alla rete AE2
+        if (isDedicatedServer && level.getGameTime() % 100 == 0) {  // Controlla ogni 5 secondi
+            if (shouldReconnect || mainNode.getNode() == null || !mainNode.getNode().isActive()) {
+                LOGGER.info("Bridge: Performing reconnection check for AE2 network on dedicated server");
+                forceAE2GridConnection();
+                shouldReconnect = false;
+            }
+        }
+        
         // check if the world is unloading
         if (worldUnloading) {
             // if the world is unloading and we are still initialized,
