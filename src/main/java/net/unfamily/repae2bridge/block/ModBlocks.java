@@ -55,9 +55,6 @@ public class ModBlocks {
                 (block.getClass().getName().contains("repae2bridge"))
             );
         } catch (NoClassDefFoundError | NullPointerException e) {
-            // Se la classe MatterPipeBlock non è ancora disponibile, registriamo solo i blocchi
-            // Questa registrazione verrà ripresa nel momento in cui entrambi i mod saranno caricati
-            // tramite RepAE2BridgeBl.registerWithReplicationMod()
             LogUtils.getLogger().warn("Replication mod not fully loaded yet, connection registration will be handled later");
         }
     }
