@@ -72,14 +72,26 @@ public class ModBlocks {
                         block instanceof RepAE2BridgeBl || 
                         (block.getClass().getName().contains("repae2bridge"))
                     );
+                } catch (NoSuchMethodException | NullPointerException ex) {
+                    // Registration failed but not critical, log a debug message
+                    System.out.println("RepAE2Bridge: Alternative registration method not available: " + ex.getMessage());
                 } catch (Exception ex) {
                     // Only debug log as this functionality is secondary
+                    System.out.println("RepAE2Bridge: Error in alternative registration: " + ex.getMessage());
                 }
+            } catch (NullPointerException e) {
+                // Field exists but is null, probably Replication is not fully initialized
+                System.out.println("RepAE2Bridge: Field ALLOWED_CONNECTION_BLOCKS is null, Replication might not be fully initialized");
             } catch (Exception e) {
-                // Only debug log as this functionality is secondary
+                // Other errors during field access
+                System.out.println("RepAE2Bridge: Error during field access: " + e.getMessage());
             }
+        } catch (NoClassDefFoundError e) {
+            // The MatterPipeBlock class is not available, Replication might not be loaded
+            System.out.println("RepAE2Bridge: MatterPipeBlock class not found, Replication might not be loaded");
         } catch (Exception e) {
-            // Handle the exception in case the field is not yet initialized
+            // General exception handling
+            System.out.println("RepAE2Bridge: Error during connectable block registration: " + e.getMessage());
         }
     }
 }

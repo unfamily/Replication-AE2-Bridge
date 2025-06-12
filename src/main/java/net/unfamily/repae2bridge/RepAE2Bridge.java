@@ -137,30 +137,33 @@ public class RepAE2Bridge
         // Register the network element factory for the Replication mod
         // This is crucial for making the connection to the Replication network work
         event.enqueueWork(() -> {
-            // Verifichiamo se la mod Replication è caricata
+            // verify if the replication mod is loaded
             boolean replicationLoaded = net.minecraftforge.fml.ModList.get().isLoaded("replication");
-            
-            if (replicationLoaded) {
-                LOGGER.info("Replication mod is loaded, skipping DefaultMatterNetworkElement registration to avoid conflicts");
+            boolean ae2Loaded = net.minecraftforge.fml.ModList.get().isLoaded("appliedenergistics2") || net.minecraftforge.fml.ModList.get().isLoaded("ae2");
+    
+            if (replicationLoaded && ae2Loaded) {
+                LOGGER.info("Replication and AE2 mods are loaded, skipping DefaultMatterNetworkElement registration to avoid conflicts");
             } else {
                 try {
-                    // Replication non è caricata, quindi registriamo noi l'elemento
-                    LOGGER.info("Replication mod not loaded, registering DefaultMatterNetworkElement factory");
+                    // Replication is not loaded, so we register the DefaultMatterNetworkElement factory
+                    LOGGER.info("Replication and AE2 mods are not loaded, registering DefaultMatterNetworkElement factory");
                     NetworkElementRegistry.INSTANCE.addFactory(DefaultMatterNetworkElement.ID, new DefaultMatterNetworkElement.Factory());
                     LOGGER.info("Replication network integration complete");
                 } catch (Exception e) {
-                    // Se l'eccezione indica un duplicato, lo consideriamo un caso non problematico
+                    // If the exception indicates a duplicate, we consider it a non-problematic case
                     if (e.getMessage() != null && e.getMessage().contains("duplicate")) {
                         LOGGER.info("DefaultMatterNetworkElement factory already registered, using existing registration");
                     } else {
-                        // Altri tipi di errori sono ancora preoccupanti
+                        // Other types of errors are still concerning
                         LOGGER.error("Failed to register with Replication network system", e);
                     }
                 }
             }
+
+
         });
 
-        // Register our mod's namespace as an allowed namespace for Replication cables
+        // Register our mod's namespace as an allowed namespace for Replication pipes
         event.enqueueWork(() -> {
             // This ensures it runs on the main thread
             registerWithReplicationMod();
@@ -206,16 +209,16 @@ public class RepAE2Bridge
         LOGGER.info("RepAE2Bridge: Server stopping, notifying bridges to prepare for unload");
 
         // Set the static flag in the BlockEntity class to signal shutdown
-        // Questo flag blocca nuove operazioni nei metodi tick delle entità
+        // This flag blocks new operations in the BlockEntity tick methods
         RepAE2BridgeBlockEntity.setWorldUnloading(true);
         
         try {
-            // Interruzione forzata di tutte le operazioni pendenti
-            // Questo assicura una chiusura più pulita anche in caso di operazioni massive di autocrafting
+            // Force interruption of all pending operations
+            // This ensures a cleaner shutdown even in case of massive autocrafting operations
             LOGGER.info("RepAE2Bridge: Cancelling all pending operations for rapid shutdown");
             RepAE2BridgeBlockEntity.cancelAllPendingOperations();
         } catch (Exception e) {
-            // Non blocchiamo la chiusura del server anche in caso di errori
+            // We don't block the server shutdown even in case of errors
             LOGGER.warn("RepAE2Bridge: Exception during shutdown cleanup, continuing anyway", e);
         }
 
@@ -234,10 +237,10 @@ public class RepAE2Bridge
     }
 
     /**
-     * Register the mod namespace in the list of allowed namespaces for Replication cables
+    * Register the mod namespace in the list of allowed namespaces for Replication pipes
      */
     private void registerWithReplicationMod() {
-        // LOGGER.info("Registering RepAE2Bridge with Replication mod");
+        // LOGGER.info("Registering RepAE2Bridge with Replication mod");    
         
         try {
             // First verify if the ALLOWED_CONNECTION_BLOCKS field exists
