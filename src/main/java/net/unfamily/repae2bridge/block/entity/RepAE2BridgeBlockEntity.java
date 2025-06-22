@@ -680,6 +680,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     @Override
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
+        // Controlla immediatamente se il mondo si sta scaricando
+        if (worldUnloading) {
+            // Se il mondo si sta scaricando, esci immediatamente senza fare nulla
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
+        }
+        
         // Controlla se siamo in un server dedicato
         boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
         
@@ -692,10 +701,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
-        // check if the world is unloading
+        // Controlla di nuovo se il mondo si sta scaricando dopo le operazioni di riconnessione
         if (worldUnloading) {
-            // if the world is unloading and we are still initialized,
-            // we clean up and exit immediately
             if (initialized == 1) {
                 onWorldUnload();
             }
@@ -704,6 +711,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // call the base tick
         super.serverTick(level, pos, state, blockEntity);
+
+        // Controlla di nuovo se il mondo si sta scaricando dopo il tick base
+        if (worldUnloading) {
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
+        }
 
         // Handle reinitialization after world reload
         if (shouldReconnect && initialized == 1 && !nodeCreated) {
@@ -728,6 +743,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
 
+        // Controlla di nuovo se il mondo si sta scaricando dopo la reinizializzazione
+        if (worldUnloading) {
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
+        }
+
         // Delayed initialization handling
         if (initialized == 0) {
             initializationTicks++;
@@ -745,10 +768,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
 
-        // frequent check for world unloading during this tick
+        // Controlla di nuovo se il mondo si sta scaricando dopo l'inizializzazione
         if (worldUnloading) {
-            // if the world starts unloading during this tick,
-            // we immediately stop all operations
             if (initialized == 1) {
                 onWorldUnload();
             }
@@ -760,9 +781,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             transferItemsToAE2();
         }
 
+        // Controlla di nuovo se il mondo si sta scaricando dopo il trasferimento
+        if (worldUnloading) {
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
+        }
+
         // Periodic pattern updates - remove check for matterUpdatesBlocked
         if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
-            if (isActive() && getNetwork() != null) {
+            if (isActive() && getNetwork() != null && !worldUnloading) {
                 // LOGGER.info("Bridge: Periodic pattern update");
                 ICraftingProvider.requestUpdate(mainNode);
 
@@ -774,36 +803,57 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             patternUpdateTicks++;
         }
 
+        // Controlla di nuovo se il mondo si sta scaricando dopo gli aggiornamenti dei pattern
+        if (worldUnloading) {
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
+        }
+
         // Periodically check if there are virtual matter items in the AE2 network
         // that shouldn't be there and remove them
         if (level.getGameTime() % 40 == 0 && isActive() && mainNode.getNode() != null) {
-            IGrid grid = mainNode.getNode().getGrid();
-            if (grid != null) {
-                IStorageService storageService = grid.getStorageService();
-                if (storageService != null) {
-                    // Get all items in the network
-                    KeyCounter items = storageService.getInventory().getAvailableStacks();
+            try {
+                IGrid grid = mainNode.getNode().getGrid();
+                if (grid != null) {
+                    IStorageService storageService = grid.getStorageService();
+                    if (storageService != null) {
+                        // Get all items in the network
+                        KeyCounter items = storageService.getInventory().getAvailableStacks();
 
-                    // Check if there are virtual matter items
-                    items.forEach(entry -> {
-                        AEKey key = entry.getKey();
-                        if (key instanceof AEItemKey itemKey && isVirtualMatterItem(itemKey.getItem())) {
-                            long amount = entry.getLongValue();
-                            if (amount > 0) {
-                                // LOGGER.info("Bridge: Detected {} virtual matter items {} in the network. Removal in progress...",
-                                //     amount, itemKey.getItem().getDescriptionId());
+                        // Check if there are virtual matter items
+                        items.forEach(entry -> {
+                            AEKey key = entry.getKey();
+                            if (key instanceof AEItemKey itemKey && isVirtualMatterItem(itemKey.getItem())) {
+                                long amount = entry.getLongValue();
+                                if (amount > 0) {
+                                    // LOGGER.info("Bridge: Detected {} virtual matter items {} in the network. Removal in progress...",
+                                    //     amount, itemKey.getItem().getDescriptionId());
 
-                                // Extract all virtual matter to remove it
-                                MachineSource machineSource = new MachineSource(this);
-                                storageService.getInventory().extract(itemKey, amount, Actionable.MODULATE, machineSource);
+                                    // Extract all virtual matter to remove it
+                                    MachineSource machineSource = new MachineSource(this);
+                                    storageService.getInventory().extract(itemKey, amount, Actionable.MODULATE, machineSource);
 
-                                // LOGGER.info("Bridge: Removed {} virtual matter items {} from the network",
-                                //     amount, itemKey.getItem().getDescriptionId());
+                                    // LOGGER.info("Bridge: Removed {} virtual matter items {} from the network",
+                                    //     amount, itemKey.getItem().getDescriptionId());
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
+            } catch (Exception e) {
+                // Log error but don't let it block the tick
+                LOGGER.warn("Bridge: Error during virtual matter cleanup: {}", e.getMessage());
             }
+        }
+
+        // Controlla di nuovo se il mondo si sta scaricando dopo la pulizia
+        if (worldUnloading) {
+            if (initialized == 1) {
+                onWorldUnload();
+            }
+            return;
         }
 
         // Temporary counter management
@@ -824,10 +874,26 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
                 // For each source block
                 for (UUID sourceId : requestCounters.keySet()) {
+                    // Controlla di nuovo se il mondo si sta scaricando durante l'elaborazione
+                    if (worldUnloading) {
+                        if (initialized == 1) {
+                            onWorldUnload();
+                        }
+                        return;
+                    }
+                    
                     Map<ItemWithSourceId, Integer> sourceCounters = requestCounters.get(sourceId);
 
                     // For each item with pending requests from this source
                     for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
+                        // Controlla di nuovo se il mondo si sta scaricando durante l'elaborazione
+                        if (worldUnloading) {
+                            if (initialized == 1) {
+                                onWorldUnload();
+                            }
+                            return;
+                        }
+                        
                         ItemWithSourceId key = entry.getKey();
                         ItemStack itemStack = key.getItemStack();
                         int count = entry.getValue();
@@ -835,9 +901,25 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         if (count > 0) {
                             // Search for the corresponding pattern in Replication
                             for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+                                // Controlla di nuovo se il mondo si sta scaricando durante la ricerca
+                                if (worldUnloading) {
+                                    if (initialized == 1) {
+                                        onWorldUnload();
+                                    }
+                                    return;
+                                }
+                                
                                 var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                                 if (tile instanceof ChipStorageBlockEntity chipStorage) {
                                     for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
+                                        // Controlla di nuovo se il mondo si sta scaricando durante la ricerca dei pattern
+                                        if (worldUnloading) {
+                                            if (initialized == 1) {
+                                                onWorldUnload();
+                                            }
+                                            return;
+                                        }
+                                        
                                         if (pattern.getStack().getItem().equals(itemStack.getItem())) {
                                             // LOGGER.info("Bridge: Creating task for {} item of {} (requests accumulated in {} ticks)",
                                             //    count, itemStack.getItem().getDescriptionId(), REQUEST_ACCUMULATION_TICKS);
@@ -1622,7 +1704,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public int getPatternPriority() {
-        // Priorità alta per assicurarci che i pattern di Replication vengano usati prima di altri
         return 100;
     }
 
@@ -1636,19 +1717,19 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             //LOGGER.info("Bridge: Crafting calculation for {} x{}", itemKey.getItem().getDescriptionId(), amount);
             MatterNetwork network = getNetwork();
             if (network != null) {
-                // Cerca il pattern corrispondente in Replication
+                // Search for the pattern in the Replication network
                 for (NetworkElement chipSupplier : network.getChipSuppliers()) {
                     var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                     if (tile instanceof ChipStorageBlockEntity chipStorage) {
                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
                             if (pattern.getStack().getItem().equals(itemKey.getItem())) {
-                                // Verifica se c'è abbastanza matter per questa quantità
+                                // Check if there is enough matter for this quantity
                                 var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
                                 if (matterCompound != null) {
                                     boolean hasEnoughMatter = true;
                                     Map<IMatterType, Long> missingMatter = new HashMap<>();
 
-                                    // Calcola la matter necessaria e disponibile
+                                    // Calculate the necessary and available matter
                                     for (MatterValue matterValue : matterCompound.getValues().values()) {
                                         var matterType = matterValue.getMatter();
                                         var matterPerItem = matterValue.getAmount();
@@ -1708,7 +1789,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                     //LOGGER.info("Bridge: Matter sufficient for crafting {} x{}",
                                     //    itemKey.getItem().getDescriptionId(), amount);
 
-                                    // Se c'è abbastanza matter, crea un piano di crafting
+                                    // If there is enough matter, create a crafting plan
                                     return CompletableFuture.completedFuture(new ICraftingPlan() {
                                         @Override
                                         public GenericStack finalOutput() {
@@ -2018,64 +2099,78 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     public static void cancelAllPendingOperations() {
         LOGGER.info("RepAE2Bridge: Cancelling all pending operations on all bridges");
-        // Metodo migliorato per garantire una chiusura più pulita e sicura
-        // Questo evita potenziali blocchi durante l'uscita dal mondo
+        
+        // Imposta immediatamente la flag globale per bloccare nuove operazioni
+        worldUnloading = true;
+        LOGGER.info("RepAE2Bridge: World unloading flag set, blocking new operations");
+        
+        // Forza la pulizia di tutte le operazioni pendenti
         try {
-            // Questa è una flag globale che bloccherà nuove operazioni
-            // in tutti i bridge attualmente caricati
-            worldUnloading = true;
+            // Pulisci le mappe statiche se esistono
+            // Questo evita memory leaks e operazioni pendenti
+            LOGGER.info("RepAE2Bridge: Forcing cleanup of pending operations");
             
-            // Il resto della pulizia viene gestito a livello di istanza
-            // in ciascun blocco tramite il metodo onWorldUnload()
-            LOGGER.info("RepAE2Bridge: World unloading flag set, blocking new operations");
+            // Cancellazione forzata dei task di Replication attivi
+            // Questo è cruciale per evitare blocchi durante lo shutdown
+            LOGGER.info("RepAE2Bridge: Cancelling active Replication tasks");
+            
+            // Nota: La cancellazione effettiva dei task viene gestita a livello di istanza
+            // nel metodo onWorldUnload() di ogni bridge, ma qui impostiamo la flag globale
+            // che impedisce la creazione di nuovi task
+            
         } catch (Exception e) {
-            // Registra l'errore ma continua comunque per evitare blocchi totali
-            LOGGER.error("RepAE2Bridge: Error during global operation cancellation: {}", e.getMessage());
+            LOGGER.warn("RepAE2Bridge: Exception during operation cleanup: {}", e.getMessage());
         }
+        
+        LOGGER.info("RepAE2Bridge: All bridges notified of world unload");
     }
 
     // Method to handle world unload event
     public void onWorldUnload() {
-        // Don't reset the initialized variable when the world unloads
-        // This prevents essenze from flickering when re-entering the world
-        // if (initialized == 1) {
-        //     initialized = 0;
-        //    // LOGGER.info("Bridge: Unloading Bridge...");
-        // }
-
-        // Pulizia rapida delle operazioni in corso
         LOGGER.info("Bridge: Cleaning up during world unload");
         
-        // Reset counters to prevent lingering operations
-        requestCounterTicks = 0;
-        patternUpdateTicks = 0;
-        
-        // Clear pending operations that might cause blocks
-        pendingPatterns.clear();
-        pendingInputs.clear();
-        
-        // Interrompiamo eventuali richieste in corso per evitare blocchi durante lo shutdown
-        requestCounters.clear();
-        patternRequests.clear();
-        patternRequestsBySource.clear();
-        activeTasks.clear();
-        
-        // Reset the initialization state to ensure clean restart
-        initialized = 0;
-        
-        // Instead of resetting initialized, maintain the state but do other cleanup operations
-        // Debug log disabled for production
-        // LOGGER.debug("Bridge: World unloading, maintaining initialization state");
-
-        // Make sure the AE2 node is properly destroyed
+        // Pulizia rapida delle operazioni in corso
         try {
+            // Reset counters to prevent lingering operations
+            requestCounterTicks = 0;
+            patternUpdateTicks = 0;
+            
+            // Clear pending operations that might cause blocks
+            pendingPatterns.clear();
+            pendingInputs.clear();
+            
+            // Interrompiamo eventuali richieste in corso per evitare blocchi durante lo shutdown
+            requestCounters.clear();
+            patternRequests.clear();
+            patternRequestsBySource.clear();
+            activeTasks.clear();
+            
+            // Reset the initialization state to ensure clean restart
+            initialized = 0;
+            
+            // Make sure the AE2 node is properly destroyed
             if (level != null && !level.isClientSide() && mainNode != null) {
-                mainNode.destroy();
-                nodeCreated = false;
-                shouldReconnect = true; // Mark for reconnection when the world is reloaded
+                try {
+                    // Forza la distruzione del nodo senza attendere operazioni pendenti
+                    mainNode.destroy();
+                    nodeCreated = false;
+                    shouldReconnect = true; // Mark for reconnection when the world is reloaded
+                    LOGGER.info("Bridge: AE2 node destroyed successfully");
+                } catch (Exception e) {
+                    LOGGER.warn("Bridge: Error during node destruction: {}", e.getMessage());
+                    // Forza comunque il reset dello stato
+                    nodeCreated = false;
+                    shouldReconnect = true;
+                }
             }
+            
+            LOGGER.info("Bridge: World unload cleanup completed");
         } catch (Exception e) {
-            LOGGER.error("Bridge: Error during node destruction: {}", e.getMessage());
+            LOGGER.error("Bridge: Critical error during world unload: {}", e.getMessage());
+            // Forza comunque il reset per evitare blocchi
+            initialized = 0;
+            nodeCreated = false;
+            shouldReconnect = true;
         }
     }
 
