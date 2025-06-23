@@ -234,7 +234,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 worldUnloading = true;
                 LOGGER.info("RepAE2Bridge: Setting worldUnloading flag to true for safety");
             }
-            
             // Detailed cleanup is delegated to the onWorldUnload method of each entity
             // This method exists primarily as a consistent API for the RepAE2Bridge.java file
             LOGGER.info("RepAE2Bridge: All pending operations have been marked for cancellation");
@@ -305,7 +304,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 return false;
             }
             
-            // Verifica che il nodo abbia le proprietà essenziali
+            // Verify that the node has essential properties
             return node.getLevel() != null && node.getOwner() != null;
         } catch (Exception e) {
             LOGGER.debug("Bridge: Node validation failed: {}", e.getMessage());
@@ -319,48 +318,48 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     private boolean safeInitializeNode() {
         try {
-            // Se il nodo esiste ma non è valido, distruggilo prima
+            // If the node exists but is not valid, destroy it first
             if (mainNode.getNode() != null && !isNodeValid()) {
                 LOGGER.debug("Bridge: Destroying invalid node before recreation");
                 mainNode.destroy();
                 nodeCreated = false;
-                Thread.sleep(50); // Breve pausa per assicurarsi che la distruzione sia completata
+                Thread.sleep(50); // Brief pause to ensure destruction is completed
             }
             
-            // Rileva esplicitamente se siamo su un server dedicato
+            // Detect explicitly if we are on a dedicated server
             boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
             if (isDedicatedServer) {
                 LOGGER.info("Bridge: Detected dedicated server environment, using direct node creation");
             }
             
-            // Se il nodo non esiste, crealo
+            // If the node doesn't exist, create it
             if (mainNode.getNode() == null) {
                 LOGGER.debug("Bridge: Creating new AE2 node");
                 
-                // Usa il metodo diretto su server dedicati per evitare problemi di pianificazione
+                // Use direct method on dedicated servers to avoid scheduling issues
                 if (isDedicatedServer) {
                     mainNode.create(level, worldPosition);
                     nodeCreated = true;
                     
-                    // Aggiorna le connessioni
+                    // Update connections
                     forceNeighborUpdates();
                     updateConnectedState();
                     
-                    // Richiedi aggiornamenti
+                    // Request updates
                     ICraftingProvider.requestUpdate(mainNode);
                     IStorageProvider.requestUpdate(mainNode);
                     
                     LOGGER.info("Bridge: AE2 node successfully initialized using direct method on dedicated server");
                 } else {
-                    // Usa il metodo standard su server integrati/singleplayer
+                    // Use standard method on integrated/singleplayer servers
                     mainNode.create(level, worldPosition);
                     nodeCreated = true;
                     
-                    // Aggiorna le connessioni
+                    // Update connections
                     forceNeighborUpdates();
                     updateConnectedState();
                     
-                    // Richiedi aggiornamenti
+                    // Request updates
                     ICraftingProvider.requestUpdate(mainNode);
                     IStorageProvider.requestUpdate(mainNode);
                     
@@ -368,7 +367,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
                 return true;
             } else if (isNodeValid()) {
-                // Il nodo esiste ed è valido
+                // The node exists and is valid
                 nodeCreated = true;
                 LOGGER.debug("Bridge: Node already exists and is valid");
                 return true;
@@ -378,11 +377,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             
         } catch (IllegalStateException e) {
             if (e.getMessage().contains("already been initialized")) {
-                // Il nodo è già inizializzato, aggiorna i flag
+                // The node is already initialized, update flags
                 nodeCreated = true;
                 LOGGER.warn("Bridge: Node was already initialized: {}", e.getMessage());
                 
-                // Esegui comunque gli aggiornamenti delle connessioni
+                // Still perform connection updates
                 try {
                     forceNeighborUpdates();
                     updateConnectedState();
@@ -621,6 +620,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             // Destroy the node when the block is removed
             mainNode.destroy();
             nodeCreated = false;
+            
+            // Clear retry counter for this position to prevent memory leaks
+            RepAE2Bridge.NetworkPatcher.clearRetryCounter(worldPosition);
         }
         super.setRemoved();
     }
@@ -632,6 +634,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             mainNode.destroy();
             nodeCreated = false;
             shouldReconnect = true; // Mark for reconnection when the chunk is reloaded
+            
+            // Clear retry counter for this position to prevent memory leaks
+            RepAE2Bridge.NetworkPatcher.clearRetryCounter(worldPosition);
         }
         super.onChunkUnloaded();
     }
@@ -779,9 +784,19 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
+        // Additional check after initialization
+        if (worldUnloading) {
+            return;
+        }
+        
         // Try to transfer items from local inventory to AE2 every 20 ticks (1 second)
         if (level.getGameTime() % 20 == 0 && initialized == 1) {
             transferItemsToAE2();
+        }
+        
+        // Additional check after transfer operations
+        if (worldUnloading) {
+            return;
         }
         
         // Periodic pattern updates - remove check for matterUpdatesBlocked
@@ -798,35 +813,50 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             patternUpdateTicks++;
         }
         
+        // Additional check after pattern updates
+        if (worldUnloading) {
+            return;
+        }
+        
         // Periodically check if there are virtual matter items in the AE2 network
         // that shouldn't be there and remove them
         if (level.getGameTime() % 40 == 0 && isActive() && mainNode.getNode() != null) {
-            IGrid grid = mainNode.getNode().getGrid();
-            if (grid != null) {
-                IStorageService storageService = grid.getStorageService();
-                if (storageService != null) {
-                    // Get all items in the network
-                    KeyCounter items = storageService.getInventory().getAvailableStacks();
-                    
-                    // Check if there are virtual matter items
-                    items.forEach(entry -> {
-                        AEKey key = entry.getKey();
-                        if (key instanceof AEItemKey itemKey && isVirtualMatterItem(itemKey.getItem())) {
-                            long amount = entry.getLongValue();
-                            if (amount > 0) {
-                                // LOGGER.info("Bridge: Detected {} virtual matter items {} in the network. Removal in progress...",
-                                //     amount, itemKey.getItem().getDescriptionId());
-                                
-                                // Extract all virtual matter to remove it
-                                storageService.getInventory().extract(itemKey, amount, Actionable.MODULATE, new MachineSource(this));
-                                
-                                // LOGGER.info("Bridge: Removed {} virtual matter items {} from the network",
-                                //     amount, itemKey.getItem().getDescriptionId());
+            try {
+                IGrid grid = mainNode.getNode().getGrid();
+                if (grid != null) {
+                    IStorageService storageService = grid.getStorageService();
+                    if (storageService != null) {
+                        // Get all items in the network
+                        KeyCounter items = storageService.getInventory().getAvailableStacks();
+                        
+                        // Check if there are virtual matter items
+                        items.forEach(entry -> {
+                            AEKey key = entry.getKey();
+                            if (key instanceof AEItemKey itemKey && isVirtualMatterItem(itemKey.getItem())) {
+                                long amount = entry.getLongValue();
+                                if (amount > 0) {
+                                    // LOGGER.info("Bridge: Detected {} virtual matter items {} in the network. Removal in progress...",
+                                    //     amount, itemKey.getItem().getDescriptionId());
+                                    
+                                    // Extract all virtual matter to remove it
+                                    storageService.getInventory().extract(itemKey, amount, Actionable.MODULATE, new MachineSource(this));
+                                    
+                                    // LOGGER.info("Bridge: Removed {} virtual matter items {} from the network",
+                                    //     amount, itemKey.getItem().getDescriptionId());
+                                }
                             }
-                        }
-                    });
+                        });
+                    }
                 }
+            } catch (Exception e) {
+                // Catch any exception during virtual matter cleanup to prevent blocking the tick
+                LOGGER.error("Bridge: Error during virtual matter cleanup: {}", e.getMessage());
             }
+        }
+        
+        // Additional check after virtual matter cleanup
+        if (worldUnloading) {
+            return;
         }
         
         // Temporary counter management
@@ -847,10 +877,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 
                 // For each source block
                 for (UUID sourceId : requestCounters.keySet()) {
+                    // Check worldUnloading before processing each source
+                    if (worldUnloading) {
+                        return;
+                    }
+                    
                     Map<ItemWithSourceId, Integer> sourceCounters = requestCounters.get(sourceId);
                     
                     // For each item with pending requests from this source
                     for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
+                        // Check worldUnloading before processing each item
+                        if (worldUnloading) {
+                            return;
+                        }
+                        
                         ItemWithSourceId key = entry.getKey();
                         ItemStack itemStack = key.getItemStack();
                         int count = entry.getValue();
@@ -858,9 +898,19 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         if (count > 0) {
                             // Search for the corresponding pattern in Replication
                             for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+                                // Check worldUnloading before processing each chip supplier
+                                if (worldUnloading) {
+                                    return;
+                                }
+                                
                                 var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                                 if (tile instanceof ChipStorageBlockEntity chipStorage) {
                                     for (MatterPattern pattern : chipStorage.getPatterns(chipStorage)) {
+                                        // Check worldUnloading before processing each pattern
+                                        if (worldUnloading) {
+                                            return;
+                                        }
+                                        
                                         if (pattern.getStack().getItem().equals(itemStack.getItem())) {
                                             // LOGGER.info("Bridge: Creating task for {} item of {} (requests accumulated in {} ticks)", 
                                             //    count, itemStack.getItem().getDescriptionId(), REQUEST_ACCUMULATION_TICKS);
@@ -905,6 +955,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                             if (matterCompound != null) {
                                                 // Extract each type of matter from the network
                                                 for (MatterValue matterValue : matterCompound.getValues().values()) {
+                                                    // Check worldUnloading before processing each matter value
+                                                    if (worldUnloading) {
+                                                        return;
+                                                    }
+                                                    
                                                     var matterType = matterValue.getMatter();
                                                     var matterAmount = (long)Math.ceil(matterValue.getAmount()) * count;
                                                     
@@ -946,6 +1001,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             requestCounterTicks++;
         }
         
+        // Additional check after request processing
+        if (worldUnloading) {
+            return;
+        }
+        
         // Check network connection to the Replication network
         if (getNetwork() == null) {
             // LOGGER.warn("Bridge: No Replication network found during tick");
@@ -957,6 +1017,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
+        // Additional check after network connection
+        if (worldUnloading) {
+            return;
+        }
+        
         // Pattern queue management
         if (!pendingPatterns.isEmpty() && !isBusy()) {
             IPatternDetails pattern = pendingPatterns.poll();
@@ -965,6 +1030,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 // LOGGER.info("Bridge: Processing pending pattern from queue");
                 pushPattern(pattern, inputs);
             }
+        }
+        
+        // Additional check after pattern queue processing
+        if (worldUnloading) {
+            return;
         }
         
         // Check less frequently the state of the AE2 node
@@ -985,6 +1055,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             
             // Update the visual state
             updateConnectedState();
+        }
+        
+        // Additional check after AE2 node operations
+        if (worldUnloading) {
+            return;
         }
         
         // Update the terminal player tracker
@@ -1088,7 +1163,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 NetworkElement neighborElement = networkManager.getElement(neighborPos);
                 if (neighborElement != null && neighborElement.getNetwork() instanceof MatterNetwork) {
                     existingNetwork = (MatterNetwork) neighborElement.getNetwork();
-                    LOGGER.info("Bridge: Found existing MatterNetwork from neighbor at {}", neighborPos);
+                    //LOGGER.debug("Bridge: Found existing MatterNetwork from neighbor at {}", neighborPos);
                     break;
                 }
             }
@@ -1864,8 +1939,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public int getPatternPriority() {
-        // Priorità alta per assicurarci che i pattern di Replication vengano usati prima di altri
-        return 100;
+        // High priority to ensure Replication patterns are used before others
+        return 1000;
     }
 
     public Future<ICraftingPlan> beginCraftingCalculation(Level level, 
@@ -2256,7 +2331,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     // Method to handle world unload event
     public void onWorldUnload() {
-        // Pulizia rapida delle operazioni in corso
+        // Enhanced cleanup of ongoing operations
         LOGGER.info("Bridge: Cleaning up during world unload");
         
         try {
@@ -2275,6 +2350,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             requestCounters.clear();
             lastMatterWarnings.clear();
             
+            // Forzata cancellazione di eventuali task Replication attivi
+            try {
+                if (getNetwork() != null && getNetwork().getTaskManager() != null) {
+                    getNetwork().getTaskManager().getPendingTasks().clear();
+                    LOGGER.info("Bridge: Forced cancellation of all active Replication tasks");
+                }
+            } catch (Exception e) {
+                LOGGER.warn("Bridge: Exception while force-cancelling Replication tasks: {}", e.getMessage());
+            }
+            
             // Reset dello stato di inizializzazione per garantire un riavvio pulito
             initialized = 0;
             
@@ -2285,6 +2370,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     LOGGER.info("Bridge: AE2 node successfully destroyed during world unload");
                 } catch (Exception e) {
                     LOGGER.error("Bridge: Error destroying AE2 node during world unload: {}", e.getMessage());
+                    // Fallback: reset nodeCreated e shouldReconnect
+                    nodeCreated = false;
+                    shouldReconnect = true;
                 }
                 nodeCreated = false;
                 shouldReconnect = true; // Mark for reconnection when the world is reloaded

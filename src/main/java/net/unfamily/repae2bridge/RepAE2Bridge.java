@@ -47,6 +47,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.ModLoadingContext;
+import java.util.HashMap;
+import java.util.Map;
+import net.minecraft.core.Direction;
 
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(RepAE2Bridge.MOD_ID)
@@ -217,6 +220,9 @@ public class RepAE2Bridge
             // This ensures a cleaner shutdown even in case of massive autocrafting operations
             LOGGER.info("RepAE2Bridge: Cancelling all pending operations for rapid shutdown");
             RepAE2BridgeBlockEntity.cancelAllPendingOperations();
+            
+            // Clear all retry counters to prevent memory leaks
+            NetworkPatcher.clearAllRetryCounters();
         } catch (Exception e) {
             // We don't block the server shutdown even in case of errors
             LOGGER.warn("RepAE2Bridge: Exception during shutdown cleanup, continuing anyway", e);
@@ -284,6 +290,8 @@ public class RepAE2Bridge
      */
     public static class NetworkPatcher {
         private static boolean initialized = false;
+        private static final Map<BlockPos, Integer> pipeRetryCounters = new HashMap<>();
+        private static final int MAX_RETRY_ATTEMPTS = 10;
         
         public static void initialize() {
             if (initialized) {
@@ -319,34 +327,89 @@ public class RepAE2Bridge
                 
                 // Critical fix: If element is null, try to create one to prevent NullPointerException
                 if (element == null) {
-                    LOGGER.warn("NetworkPatcher: Null network element detected at {}. Creating temporary element to prevent crash.", pos);
-                    
-                    // Create a new element for this position
-                    element = new DefaultMatterNetworkElement(level, pos);
-                    
-                    // Register it with the network manager
-                    networkManager.addElement(element);
-                    
-                    // Try to get the network from the newly created element
-                    Object network = element.getNetwork();
-                    if (network instanceof MatterNetwork) {
-                        return (MatterNetwork) network;
+                    // Check if we've exceeded retry attempts for this position
+                    int retryCount = pipeRetryCounters.getOrDefault(pos, 0);
+                    if (retryCount >= MAX_RETRY_ATTEMPTS) {
+                        LOGGER.warn("NetworkPatcher: Max retry attempts reached for position {}. Returning null to prevent infinite loop.", pos);
+                        return null;
                     }
                     
-                    // If no network is available, return null safely
-                    return null;
+                    LOGGER.warn("NetworkPatcher: Null network element detected at {}. Creating temporary element to prevent crash. Attempt {}/{}", 
+                               pos, retryCount + 1, MAX_RETRY_ATTEMPTS);
+                    
+                    // Increment retry counter
+                    pipeRetryCounters.put(pos, retryCount + 1);
+                    
+                    try {
+                        // Create a new element for this position
+                        element = new DefaultMatterNetworkElement(level, pos);
+                        
+                        // Register it with the network manager
+                        networkManager.addElement(element);
+                        
+                        // Try to get the network from the newly created element
+                        Object network = element.getNetwork();
+                        if (network instanceof MatterNetwork) {
+                            LOGGER.info("NetworkPatcher: Successfully created network element for position {}", pos);
+                            // Clear retry counter on success
+                            pipeRetryCounters.remove(pos);
+                            return (MatterNetwork) network;
+                        }
+                        
+                        // If no network is available, return null safely
+                        return null;
+                    } catch (Exception e) {
+                        LOGGER.error("NetworkPatcher: Failed to create network element for position {}: {}", pos, e.getMessage());
+                        return null;
+                    }
                 }
                 
                 // Get the network from the element (standard path)
                 Object network = element.getNetwork();
                 if (network instanceof MatterNetwork) {
+                    // Clear retry counter on successful access
+                    pipeRetryCounters.remove(pos);
                     return (MatterNetwork) network;
+                }
+                
+                // If element exists but has no network, try to find a nearby network
+                if (network == null) {
+                    LOGGER.debug("NetworkPatcher: Element exists but has no network at {}. Searching for nearby networks.", pos);
+                    
+                    // Search for existing networks in neighboring positions
+                    for (Direction direction : Direction.values()) {
+                        BlockPos neighborPos = pos.relative(direction);
+                        NetworkElement neighborElement = networkManager.getElement(neighborPos);
+                        if (neighborElement != null) {
+                            Object neighborNetwork = neighborElement.getNetwork();
+                            if (neighborNetwork instanceof MatterNetwork) {
+                                LOGGER.info("NetworkPatcher: Found existing network from neighbor at {}", neighborPos);
+                                return (MatterNetwork) neighborNetwork;
+                            }
+                        }
+                    }
                 }
             } catch (Exception e) {
                 LOGGER.error("NetworkPatcher: Error in safeGetNetwork: {}", e.getMessage());
             }
             
             return null;
+        }
+        
+        /**
+         * Clean up retry counters for a specific position
+         * Call this when a block is removed or when we want to reset the retry counter
+         */
+        public static void clearRetryCounter(BlockPos pos) {
+            pipeRetryCounters.remove(pos);
+        }
+        
+        /**
+         * Clean up all retry counters
+         * Call this during world unload or server shutdown
+         */
+        public static void clearAllRetryCounters() {
+            pipeRetryCounters.clear();
         }
     }
 }
