@@ -24,11 +24,6 @@ import org.slf4j.Logger;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.material.FluidState;
 import net.minecraft.world.level.Explosion;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.world.InteractionResult;
-import net.minecraft.world.phys.BlockHitResult;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Player;
 
 
 public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> implements INetworkDirectionalConnection {
@@ -60,15 +55,11 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
                 // Add a predicate for this specific block
                 MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> block instanceof RepAE2BridgeBl);
                 // Debug log disabled for production
-                LOGGER.debug("Registered RepAE2BridgeBl with Replication mod pipes");
+                // LOGGER.debug("Registered RepAE2BridgeBl with Replication mod pipes");
             }
-        } catch (NoClassDefFoundError | NullPointerException e) {
-            // Replication mod is not loaded or initialized yet
-            // This is expected during initial load - we'll retry later when the block is placed
-            LOGGER.debug("Replication mod not ready yet for registration: {}", e.getMessage());
         } catch (Exception e) {
             // Keep error logs for critical failures
-            LOGGER.error("Failed to register block with Replication: {}", e.getMessage());
+            LOGGER.error("Failed to register block with Replication: " + e.getMessage());
         }
     }
     
@@ -241,49 +232,15 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
                 // Try to initialize the replication network again
                 blockEntity.onLoad();
             } catch (RuntimeException e) {
-                if (e.getMessage() != null && (e.getMessage().contains("Element network is null") || e.getMessage().contains("network is null"))) {
-                    // Still not ready, schedule another retry with exponential backoff
+                if (e.getMessage() != null && e.getMessage().contains("Element network is null")) {
+                    // Still not ready, schedule another retry
                     LOGGER.warn("Bridge: Replication network still not ready, scheduling another retry");
-                    // Try again in 2 seconds (40 ticks)
-                    level.scheduleTick(pos, this, 40);
+                    level.scheduleTick(pos, this, 20); // Retry in 1 second
                 } else {
-                    // Different error, log it and try again with a longer delay
-                    LOGGER.error("Bridge: Unexpected error during network retry: {}", e.getMessage(), e);
-                    // Try again in 5 seconds (100 ticks)
-                    level.scheduleTick(pos, this, 100);
+                    // Different error, log it
+                    LOGGER.error("Bridge: Unexpected error during network retry: {}", e.getMessage());
                 }
             }
         }
-    }
-
-    @Override
-    public InteractionResult useWithoutItem(BlockState blockstate, Level world, BlockPos pos, Player entity, BlockHitResult hit) {
-        // let the BlockEntity handle the interaction (as defined in BasicTileBlock)
-        InteractionResult result = super.useWithoutItem(blockstate, world, pos, entity, hit);
-        
-        // if the interaction was not handled by the BlockEntity and we are in shift, show diagnostics
-        if (result != InteractionResult.SUCCESS && !world.isClientSide && entity.isShiftKeyDown()){
-            if (world.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockentity) {
-                // send diagnostic information to the player
-                boolean hasAE2Node = blockentity.getActionableNode() != null;
-                boolean nodeActive = hasAE2Node && blockentity.getActionableNode().isActive();
-                boolean hasReplicationNetwork = blockentity.getNetwork() != null;
-                
-                entity.sendSystemMessage(Component.literal("§bBridge Diagnostics:"));
-                entity.sendSystemMessage(Component.literal("§7- AE2 Node: " + (hasAE2Node ? "§aPresent" : "§cMissing")));
-                entity.sendSystemMessage(Component.literal("§7- AE2 Node Active: " + (nodeActive ? "§aYes" : "§cNo")));
-                entity.sendSystemMessage(Component.literal("§7- Replication Network: " + (hasReplicationNetwork ? "§aConnected" : "§cDisconnected")));
-                
-                // force a reconnection attempt
-                if (!hasAE2Node || !nodeActive) {
-                    entity.sendSystemMessage(Component.literal("§eForcing reconnection attempt..."));
-                    blockentity.initializeAE2Node();
-                }
-                
-                return InteractionResult.SUCCESS;
-            }
-        }
-        
-        return result;
     }
 }
