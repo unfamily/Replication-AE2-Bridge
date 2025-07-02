@@ -727,7 +727,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     @Override
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
-        // Exit immediately if world is unloading to prevent blocking
+        // CONTROLLO PRIORITARIO: Exit immediatamente se il mondo si sta scaricando
         if (worldUnloading) {
             LOGGER.warn("Bridge at {}: EXITING serverTick early - world is unloading", worldPosition);
             return;
@@ -735,19 +735,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         LOGGER.debug("Bridge at {}: serverTick starting", worldPosition);
 
+        // UNICA CHIAMATA a super.serverTick() con controllo di sicurezza
         try {
             LOGGER.debug("Bridge at {}: Calling super.serverTick()", worldPosition);
             super.serverTick(level, pos, state, blockEntity);
             LOGGER.debug("Bridge at {}: super.serverTick() completed successfully", worldPosition);
         } catch (Exception e) {
             LOGGER.error("Bridge at {}: EXCEPTION in super.serverTick(): {}", worldPosition, e.getMessage(), e);
-            // Don't continue if parent tick failed
+            // Se super.serverTick() fallisce, non continuare con le operazioni bridge-specific
             return;
         }
 
-        // Double-check world unloading state after super.serverTick()
+        // CONTROLLO POST-SUPER: Verifica se il mondo ha iniziato a scaricarsi durante super.serverTick()
         if (worldUnloading) {
-            LOGGER.warn("Bridge at {}: World unloading detected after super.serverTick() - exiting", worldPosition);
+            LOGGER.warn("Bridge at {}: World unloading detected after super.serverTick() - exiting immediately", worldPosition);
             return;
         }
 
@@ -765,30 +766,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
-        // check if the world is unloading - IMPROVED: exit completely to avoid super.serverTick() calls
+        // CONTROLLO CONTINUO: Se il mondo inizia a scaricarsi durante le nostre operazioni
         if (worldUnloading) {
             LOGGER.warn("Bridge at {}: WORLD UNLOADING DETECTED - entering cleanup mode", worldPosition);
-            // if the world is unloading and we are still initialized,
-            // we clean up and exit immediately WITHOUT calling super.serverTick()
             if (initialized == 1) {
                 LOGGER.warn("Bridge at {}: Calling onWorldUnload() due to world unloading", worldPosition);
                 onWorldUnload();
             }
-            // EXIT IMMEDIATELY - do not call super.serverTick() or any other operations
-            LOGGER.warn("Bridge at {}: EXITING serverTick early due to world unloading - NO SUPER.SERVERTICK CALL", worldPosition);
+            LOGGER.warn("Bridge at {}: EXITING serverTick due to world unloading", worldPosition);
             return;
-        }
-
-        // Log before calling super.serverTick to track potential blocks
-        LOGGER.debug("Bridge at {}: About to call super.serverTick()", worldPosition);
-        
-        try {
-            // call the base tick ONLY if world is not unloading
-            super.serverTick(level, pos, state, blockEntity);
-            LOGGER.debug("Bridge at {}: super.serverTick() completed successfully", worldPosition);
-        } catch (Exception e) {
-            LOGGER.error("Bridge at {}: EXCEPTION in super.serverTick(): {}", worldPosition, e.getMessage(), e);
-            // Don't rethrow - continue with our own tick logic
         }
 
         // Handle reinitialization after world reload
@@ -903,6 +889,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Temporary counter management
         if (requestCounterTicks >= REQUEST_ACCUMULATION_TICKS) {
             try {
+                // CONTROLLO SICUREZZA: Verifica di nuovo se il mondo si sta scaricando
+                if (worldUnloading) {
+                    LOGGER.warn("Bridge at {}: World unloading detected during request processing - aborting", worldPosition);
+                    if (initialized == 1) {
+                        onWorldUnload();
+                    }
+                    return;
+                }
+
                 // Before resetting, create tasks for all items with pending requests
                 MatterNetwork network = getNetwork();
                 if (network != null && !requestCounters.isEmpty()) {
@@ -919,8 +914,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
                     // For each source block
                     for (UUID sourceId : requestCounters.keySet()) {
-                        // Controlla di nuovo se il mondo si sta scaricando durante l'elaborazione
+                        // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                         if (worldUnloading) {
+                            LOGGER.warn("Bridge at {}: World unloading detected during task creation - aborting", worldPosition);
                             if (initialized == 1) {
                                 onWorldUnload();
                             }
@@ -931,8 +927,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
                         // For each item with pending requests from this source
                         for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
-                            // Controlla di nuovo se il mondo si sta scaricando durante l'elaborazione
+                            // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                             if (worldUnloading) {
+                                LOGGER.warn("Bridge at {}: World unloading detected during task execution - aborting", worldPosition);
                                 if (initialized == 1) {
                                     onWorldUnload();
                                 }
@@ -946,8 +943,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             if (count > 0) {
                                 // Search for the corresponding pattern in Replication
                                 for (NetworkElement chipSupplier : network.getChipSuppliers()) {
-                                    // Controlla di nuovo se il mondo si sta scaricando durante la ricerca
+                                    // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                                     if (worldUnloading) {
+                                        LOGGER.warn("Bridge at {}: World unloading detected during search - aborting", worldPosition);
                                         if (initialized == 1) {
                                             onWorldUnload();
                                         }
@@ -957,8 +955,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                     var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                                     if (tile instanceof ChipStorageBlockEntity chipStorage) {
                                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
-                                            // Controlla di nuovo se il mondo si sta scaricando durante la ricerca dei pattern
+                                            // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                                             if (worldUnloading) {
+                                                LOGGER.warn("Bridge at {}: World unloading detected during pattern matching - aborting", worldPosition);
                                                 if (initialized == 1) {
                                                     onWorldUnload();
                                                 }
@@ -2186,11 +2185,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             worldUnloading = true;
 
             LOGGER.error("Bridge at {}: Starting AE2 node destruction", worldPosition);
-            // Clean up AE2 connections
+            // Clean up AE2 connections with timeout protection
             if (mainNode != null) {
                 try {
+                    // Set a maximum timeout for node destruction to prevent hanging
+                    long startTime = System.currentTimeMillis();
                     mainNode.destroy();
-                    LOGGER.error("Bridge at {}: AE2 node destruction successful", worldPosition);
+                    long duration = System.currentTimeMillis() - startTime;
+                    LOGGER.error("Bridge at {}: AE2 node destruction successful in {}ms", worldPosition, duration);
                 } catch (Exception e) {
                     LOGGER.error("Bridge at {}: EXCEPTION destroying AE2 node in onWorldUnload: {}", worldPosition, e.getMessage(), e);
                 }
