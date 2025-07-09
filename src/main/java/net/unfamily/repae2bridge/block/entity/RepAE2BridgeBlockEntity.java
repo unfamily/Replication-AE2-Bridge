@@ -202,6 +202,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Minimum time between consecutive warnings for the same item (in ticks)
     private static final int WARNING_COOLDOWN = 600; // 30 seconds
 
+    // Debug logging counters to reduce spam
+    private int debugTickCounter = 0;
+    private int hiddenDebugMessages = 0;
+    private static final int DEBUG_LOG_INTERVAL = 300; // Show debug summary every 15 seconds (300 ticks)
+    private static boolean globalShouldLogDebug = false; // Static flag to control debug logging across all instances
+    private static int globalHiddenDebugMessages = 0; // Global counter for hidden debug messages
+
     // Static flag to track world unloading state
     private static boolean worldUnloading = false;
 
@@ -733,13 +740,29 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return;
         }
 
-        LOGGER.debug("Bridge at {}: serverTick starting", worldPosition);
+        // Increment debug counter and manage debug logging
+        debugTickCounter++;
+        boolean shouldLogDebug = debugTickCounter % DEBUG_LOG_INTERVAL == 0;
+        globalShouldLogDebug = shouldLogDebug; // Update the global flag
+        
+        if (shouldLogDebug) {
+            LOGGER.debug("Bridge at {}: serverTick summary - {} ticks completed, {} local + {} global debug messages hidden", 
+                worldPosition, debugTickCounter, hiddenDebugMessages, globalHiddenDebugMessages);
+            hiddenDebugMessages = 0; // Reset local counter
+            globalHiddenDebugMessages = 0; // Reset global counter
+        } else {
+            hiddenDebugMessages += 3; // Count the debug messages we're hiding locally
+        }
 
         // UNICA CHIAMATA a super.serverTick() con controllo di sicurezza
         try {
-            LOGGER.debug("Bridge at {}: Calling super.serverTick()", worldPosition);
+            if (shouldLogDebug) {
+                LOGGER.debug("Bridge at {}: Calling super.serverTick()", worldPosition);
+            }
             super.serverTick(level, pos, state, blockEntity);
-            LOGGER.debug("Bridge at {}: super.serverTick() completed successfully", worldPosition);
+            if (shouldLogDebug) {
+                LOGGER.debug("Bridge at {}: super.serverTick() completed successfully", worldPosition);
+            }
         } catch (Exception e) {
             LOGGER.error("Bridge at {}: EXCEPTION in super.serverTick(): {}", worldPosition, e.getMessage(), e);
             // Se super.serverTick() fallisce, non continuare con le operazioni bridge-specific
@@ -752,7 +775,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return;
         }
 
-        LOGGER.debug("Bridge at {}: Beginning bridge-specific operations", worldPosition);
+        if (shouldLogDebug) {
+            LOGGER.debug("Bridge at {}: Beginning bridge-specific operations", worldPosition);
+        }
 
         // Controlla se siamo in un server dedicato
         boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
@@ -841,7 +866,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
                     // Also update storage to show new matter quantities
                     IStorageProvider.requestUpdate(mainNode);
-                    LOGGER.debug("Bridge at {}: Periodic pattern update completed", worldPosition);
+                    if (shouldLogDebug) {
+                        LOGGER.debug("Bridge at {}: Periodic pattern update completed", worldPosition);
+                    } else {
+                        hiddenDebugMessages++;
+                    }
                 } catch (Exception e) {
                     LOGGER.error("Bridge at {}: EXCEPTION during periodic pattern update: {}", worldPosition, e.getMessage(), e);
                 }
@@ -1179,7 +1208,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         try {
             boolean active = mainNode.isActive() && mainNode.getNode() != null;
             if (!active) {
-                LOGGER.debug("Bridge at {}: isActive() = false (node inactive or null)", worldPosition);
+                if (globalShouldLogDebug) {
+                    LOGGER.debug("Bridge at {}: isActive() = false (node inactive or null)", worldPosition);
+                } else {
+                    globalHiddenDebugMessages++; // Count this hidden debug message globally
+                }
             }
             return active;
         } catch (Exception e) {
