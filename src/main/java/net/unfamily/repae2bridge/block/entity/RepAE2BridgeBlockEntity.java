@@ -872,7 +872,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         // Extract all virtual matter to remove it
                                         MachineSource machineSource = new MachineSource(this);
                                         storageService.getInventory().extract(itemKey, amount, Actionable.MODULATE, machineSource);
-                                        LOGGER.warn("Bridge at {}: Removed {} virtual matter items {} from AE2 network", worldPosition, amount, itemKey.getItem().getDescriptionId());
+                                       //LOGGER.warn("Bridge at {}: Removed {} virtual matter items {} from AE2 network", worldPosition, amount, itemKey.getItem().getDescriptionId());
                                     } catch (Exception e) {
                                         LOGGER.error("Bridge at {}: EXCEPTION removing virtual matter items: {}", worldPosition, e.getMessage(), e);
                                     }
