@@ -65,6 +65,9 @@ import net.neoforged.neoforge.items.ItemHandlerHelper;
 import appeng.me.helpers.MachineSource;
 import net.unfamily.repae2bridge.Config;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import appeng.helpers.IPriorityHost;
+import appeng.menu.MenuOpener;
+import appeng.menu.locator.MenuLocators;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -85,7 +88,7 @@ import java.util.Objects;
  * BlockEntity for the RepAE2Bridge that connects the AE2 network with the Replication matter network
  */
 public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBlockEntity>
-        implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost {
+        implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost, IPriorityHost {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -100,6 +103,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     // Counter for initialization ticks
     private int initializationTicks = 0;
+
+    // Priority for AE2 crafting operations
+    @Save
+    private int priority = 0;
 
     // Queue of pending patterns
     private final Queue<IPatternDetails> pendingPatterns = new LinkedList<>();
@@ -1269,14 +1276,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public ItemInteractionResult onActivated(Player playerIn, InteractionHand hand, Direction facing, double hitX, double hitY, double hitZ) {
-        // Do not call super.onActivated() that would open the GUI
-        // Do not call openGui(playerIn) that would open the GUI
-
-        // Keep only the part related to the AE2 pattern update
+        // Enable GUI for priority settings
         if (!level.isClientSide() && playerIn instanceof ServerPlayer serverPlayer) {
             // Update the patterns in AE2
             ICraftingProvider.requestUpdate(mainNode);
             // LOGGER.info("Bridge: Updating AE2 patterns from onActivated");
+            
+            // Open the priority GUI
+            openGui(playerIn);
         }
         return ItemInteractionResult.SUCCESS;
     }
@@ -1801,7 +1808,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public int getPatternPriority() {
-        return 100;
+        return priority;
     }
 
     public Future<ICraftingPlan> beginCraftingCalculation(Level level,
@@ -2417,6 +2424,44 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // If we moved any items, mark the block as changed
         if (itemsMoved) {
             this.setChanged();
+        }
+    }
+
+    // IPriorityHost implementation
+    @Override
+    public int getPriority() {
+        return priority;
+    }
+
+    @Override
+    public void setPriority(int newValue) {
+        this.priority = newValue;
+        this.setChanged();
+    }
+
+    // ISubMenuHost implementation
+    @Override
+    public ItemStack getMainMenuIcon() {
+        return ModBlocks.REPAE2BRIDGE.get().asItem().getDefaultInstance();
+    }
+
+    @Override
+    public void returnToMainMenu(Player player, appeng.menu.ISubMenu subMenu) {
+        // For now, we don't have a main menu, so we just close the GUI
+        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            serverPlayer.closeContainer();
+        }
+    }
+
+    /**
+     * Opens the GUI for this block entity
+     * @param player The player opening the GUI
+     */
+    public void openGui(Player player) {
+        if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
+            // Open the priority menu using AE2's menu system
+            appeng.menu.MenuOpener.open(appeng.menu.implementations.PriorityMenu.TYPE, serverPlayer, 
+                appeng.menu.locator.MenuLocators.forBlockEntity(this));
         }
     }
 }
