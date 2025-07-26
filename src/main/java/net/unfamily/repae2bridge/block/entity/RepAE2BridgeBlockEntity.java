@@ -1531,8 +1531,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public InteractionResult onActivated(Player playerIn, InteractionHand hand, Direction facing, double hitX, double hitY, double hitZ) {
         // Enable GUI for priority settings
         if (!level.isClientSide() && playerIn instanceof ServerPlayer serverPlayer) {
-            // Update the patterns in AE2
-            ICraftingProvider.requestUpdate(mainNode);
             // Open the priority GUI
             openGui(playerIn);
         }
