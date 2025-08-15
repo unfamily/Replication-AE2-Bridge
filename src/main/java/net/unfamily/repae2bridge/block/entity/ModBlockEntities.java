@@ -14,7 +14,7 @@ public class ModBlockEntities {
             DeferredRegister.create(BuiltInRegistries.BLOCK_ENTITY_TYPE, RepAE2Bridge.MOD_ID);
 
     public static final Supplier<BlockEntityType<RepAE2BridgeBlockEntity>> REPAE2BRIDGE_BE =
-            BLOCK_ENTITIES.register("bridge_be", () -> BlockEntityType.Builder.of(
+            BLOCK_ENTITIES.register("bridge_be", () -> BlockEntityType.Builder.<RepAE2BridgeBlockEntity>of(
                     RepAE2BridgeBlockEntity::new, ModBlocks.REPAE2BRIDGE.get()).build(null));
 
     public static void register(IEventBus eventBus) {
