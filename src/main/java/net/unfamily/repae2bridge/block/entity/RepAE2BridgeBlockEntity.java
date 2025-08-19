@@ -903,6 +903,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             transferItemsToAE2();
         }
         
+        // Timer automatico ogni 100 tick (5 secondi) per refresh automatico disintegrator
+        if (level.getGameTime() % 100 == 0 && initialized == 1) {
+            forceRefreshForDisintegrator();
+        }
+        
         // Additional check after transfer operations
         if (worldUnloading) {
             return;
@@ -1779,7 +1784,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public List<IPatternDetails> getAvailablePatterns() {
         // Don't show patterns if not initialized, return an empty list
-        if (initialized != 1) {
+        if (initialized != 1 || worldUnloading) {
             return List.of();
         }
         
@@ -1863,7 +1868,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public boolean pushPattern(IPatternDetails patternDetails, KeyCounter[] inputHolder) {
         // Don't accept patterns if not initialized
-        if (initialized != 1) {
+        if (initialized != 1 || worldUnloading) {
             return false;
         }
         
@@ -1993,6 +1998,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public boolean isBusy() {
+        if (worldUnloading) return false;
         MatterNetwork network = getNetwork();
         if (network != null) {
             // Get all task IDs from the network
@@ -2715,6 +2721,73 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // If we moved any items, mark the block as changed
         if (itemsMoved) {
             this.setChanged();
+        }
+    }
+
+    /**
+     * Metodo per creare automaticamente matter virtuali per automazione disintegrator
+     * Crea 1x di ogni tipo di matter ogni 5 secondi per mantenere AE2 rifornito
+     */
+    private void forceRefreshForDisintegrator() {
+        try {
+            // LOGGER.info("Bridge: Starting forceRefreshForDisintegrator");
+            
+            // Lista dei matter types da creare automaticamente  
+            Item[] matterTypes = {
+                ModItems.EARTH_MATTER.get(),
+                ModItems.NETHER_MATTER.get(), 
+                ModItems.ORGANIC_MATTER.get(),
+                ModItems.ENDER_MATTER.get(),
+                ModItems.METALLIC_MATTER.get(),
+                ModItems.PRECIOUS_MATTER.get(),
+                ModItems.LIVING_MATTER.get(),
+                ModItems.QUANTUM_MATTER.get()
+            };
+            
+            boolean anyItemAdded = false;
+            
+            // Per ogni tipo di matter, crea 1x nell'inventory del bridge
+            for (Item matterItem : matterTypes) {
+                if (matterItem != null) {
+                    ItemStack stack = new ItemStack(matterItem, 1);
+                    
+                    // Cerca uno slot vuoto nell'output inventory
+                    boolean added = false;
+                    for (int i = 0; i < output.getSlots(); i++) {
+                        ItemStack existingStack = output.getStackInSlot(i);
+                        
+                        if (existingStack.isEmpty()) {
+                            // Slot vuoto, inserisci il nuovo item
+                            output.setStackInSlot(i, stack);
+                            added = true;
+                            anyItemAdded = true;
+                            // LOGGER.info("Bridge: Added {} to empty slot {}", matterItem.getDescriptionId(), i);
+                            break;
+                        } else if (ItemStack.isSameItem(existingStack, stack) && 
+                                   existingStack.getCount() < existingStack.getMaxStackSize()) {
+                            // Stesso item con spazio disponibile, incrementa quantità
+                            existingStack.grow(1);
+                            added = true;
+                            anyItemAdded = true;
+                            // LOGGER.info("Bridge: Incremented {} in slot {} to {}", matterItem.getDescriptionId(), i, existingStack.getCount());
+                            break;
+                        }
+                    }
+                    
+                    if (!added) {
+                        // LOGGER.warn("Bridge: Failed to add {} - inventory full", matterItem.getDescriptionId());
+                    }
+                }
+            }
+            
+            // Se abbiamo aggiunto qualcosa, marca il block come cambiato
+            if (anyItemAdded) {
+                this.setChanged();
+                // LOGGER.info("Bridge: forceRefreshForDisintegrator completed - {} matter types refreshed", matterTypes.length);
+            }
+            
+        } catch (Exception e) {
+            LOGGER.error("Bridge: Error in forceRefreshForDisintegrator: {}", e.getMessage(), e);
         }
     }
 
