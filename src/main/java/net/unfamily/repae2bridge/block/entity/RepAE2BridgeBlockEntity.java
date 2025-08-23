@@ -855,14 +855,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
 
-        // TEST: Every 100 ticks (5 seconds) create virtual all matters in inventory
-        if (level.getGameTime() % 100 == 0 && initialized == 1) {
-            try {
-                forceRefreshForDisintegrator();
-            } catch (Exception e) {
-                LOGGER.error("Bridge at {}: EXCEPTION in forceRefreshForDisintegrator(): {}", worldPosition, e.getMessage(), e);
-            }
-        }
+
 
         // Try to transfer items from local inventory to AE2 every 20 ticks (1 second)
         if (level.getGameTime() % 20 == 0 && initialized == 1) {
@@ -2387,72 +2380,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
     }
 
-    /**
-     * TEST METHOD: Creates one of each virtual matter type in the bridge inventory
-     * Used for testing refresh mechanisms every 100 ticks (5 seconds)
-     * This enables automation for disintegrator by keeping matter items available
-     */
-    private void forceRefreshForDisintegrator() {
-        try {
-            // Create all types of virtual matter (excluding EMPTY and QUANTUM for now)
-            Item[] matterItems = {
-                ModItems.EARTH_MATTER.get(),
-                ModItems.NETHER_MATTER.get(), 
-                ModItems.ORGANIC_MATTER.get(),
-                ModItems.ENDER_MATTER.get(),
-                ModItems.METALLIC_MATTER.get(),
-                ModItems.PRECIOUS_MATTER.get(),
-                ModItems.LIVING_MATTER.get(),
-                ModItems.QUANTUM_MATTER.get()
-            };
-            
-            int createdCount = 0;
-            
-            for (Item matterItem : matterItems) {
-                ItemStack matterStack = new ItemStack(matterItem, 1);
-                
-                // Try to insert it into the output inventory
-                boolean inserted = false;
-                
-                for (int i = 0; i < output.getSlots(); i++) {
-                    ItemStack slotStack = output.getStackInSlot(i);
-                    
-                    if (slotStack.isEmpty()) {
-                        // Empty slot - insert the item
-                        output.setStackInSlot(i, matterStack.copy());
-                        LOGGER.info("Bridge at {}: TEST - Created 1 virtual {} in slot {}", 
-                            worldPosition, matterItem.getDescriptionId(), i);
-                        inserted = true;
-                        createdCount++;
-                        break;
-                    } else if (ItemStack.isSameItem(slotStack, matterStack) && slotStack.getCount() < slotStack.getMaxStackSize()) {
-                        // Same item with space - increase count
-                        int canAdd = Math.min(matterStack.getCount(), slotStack.getMaxStackSize() - slotStack.getCount());
-                        slotStack.grow(canAdd);
-                        LOGGER.info("Bridge at {}: TEST - Added {} virtual {} to slot {} (total: {})", 
-                            worldPosition, canAdd, matterItem.getDescriptionId(), i, slotStack.getCount());
-                        inserted = true;
-                        createdCount++;
-                        break;
-                    }
-                }
-                
-                if (!inserted) {
-                    LOGGER.warn("Bridge at {}: TEST - Cannot create {}, no space in inventory", 
-                        worldPosition, matterItem.getDescriptionId());
-                }
-            }
-            
-            if (createdCount > 0) {
-                this.setChanged();
-                LOGGER.info("Bridge at {}: TEST - Created {} different matter types for automation refresh", 
-                    worldPosition, createdCount);
-            }
-            
-        } catch (Exception e) {
-            LOGGER.error("Bridge at {}: TEST - EXCEPTION creating matter types: {}", worldPosition, e.getMessage(), e);
-        }
-    }
+
+
 
     /**
      * Periodically tries to transfer items from the local inventory to the AE2 network
