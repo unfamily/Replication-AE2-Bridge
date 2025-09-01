@@ -66,8 +66,6 @@ import appeng.me.helpers.MachineSource;
 import net.unfamily.repae2bridge.Config;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import appeng.helpers.IPriorityHost;
-import appeng.menu.MenuOpener;
-import appeng.menu.locator.MenuLocators;
 
 import java.util.ArrayList;
 import java.util.EnumSet;
@@ -216,6 +214,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private static boolean globalShouldLogDebug = false; // Static flag to control debug logging across all instances
     private static int globalHiddenDebugMessages = 0; // Global counter for hidden debug messages
 
+    // Throttling for spam-prone warning/error logs
+    // Sistema implementato per ridurre lo spam di log durante world unloading e operazioni globali
+    // I log vengono mostrati ogni 300 eventi con un contatore dei messaggi nascosti
+    private static final long WARNING_THROTTLE_INTERVAL = 300; // 15 seconds = 300 events
+    private static int worldUnloadingWarningsHidden = 0;
+    private static int globalOperationLogsHidden = 0;
+
     // Static flag to track world unloading state
     private static boolean worldUnloading = false;
 
@@ -224,12 +229,42 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * Called from the mod main class when the server is stopping
      */
     public static void setWorldUnloading(boolean unloading) {
-        LOGGER.error("GLOBAL WORLD UNLOADING FLAG SET TO: {} - All bridges will now shutdown", unloading);
-        worldUnloading = unloading;
-        if (unloading) {
-            LOGGER.error("WORLD UNLOADING DETECTED - Cancelling all pending operations");
+        setWorldUnloading(unloading, null, null);
+    }
+
+    /**
+     * Sets the world unloading state with optional context information
+     * @param unloading whether the world is unloading
+     * @param level the level/dimension (can be null)
+     * @param pos the position where this was triggered (can be null)
+     */
+    public static void setWorldUnloading(boolean unloading, @Nullable net.minecraft.world.level.Level level, @Nullable BlockPos pos) {
+        // Solo logga una volta quando viene impostato su true o se sono passati più di 15 secondi
+        if (unloading && !worldUnloading) {
+            // Prima volta che viene impostato su true - logga sempre
+            String dimensionInfo = level != null ? 
+                " [Dimension: " + level.dimension().location() + "]" : "";
+            String positionInfo = pos != null ? 
+                " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
+            
+            LOGGER.error("GLOBAL WORLD UNLOADING FLAG SET TO: true - All bridges will now shutdown{}{}", 
+                        dimensionInfo, positionInfo);
+            LOGGER.error("WORLD UNLOADING DETECTED - Cancelling all pending operations{}{}", 
+                        dimensionInfo, positionInfo);
+            // No need for timestamp tracking with the new simple counter approach
             cancelAllPendingOperations();
+        } else if (!unloading && worldUnloading) {
+            // Stato cambiato da true a false - logga sempre
+            String dimensionInfo = level != null ? 
+                " [Dimension: " + level.dimension().location() + "]" : "";
+            String positionInfo = pos != null ? 
+                " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
+            
+            LOGGER.info("GLOBAL WORLD UNLOADING FLAG SET TO: false - Normal operation resumed{}{}", 
+                       dimensionInfo, positionInfo);
+            worldUnloadingWarningsHidden = 0; // Reset counter
         }
+        worldUnloading = unloading;
     }
 
     /**
@@ -237,6 +272,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     public static boolean isWorldUnloading() {
         return worldUnloading;
+    }
+
+    /**
+     * Helper method to create position and dimension info string
+     * @return formatted string with position and dimension information
+     */
+    private String getLocationInfo() {
+        if (level == null) {
+            return " [Dimension: unknown] [Position: " + worldPosition.getX() + ", " + worldPosition.getY() + ", " + worldPosition.getZ() + "]";
+        }
+        return " [Dimension: " + level.dimension().location() + "] [Position: " + worldPosition.getX() + ", " + worldPosition.getY() + ", " + worldPosition.getZ() + "]";
     }
 
     public RepAE2BridgeBlockEntity(BlockPos pos, BlockState blockState) {
@@ -614,66 +660,66 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public void setRemoved() {
-        LOGGER.error("Bridge at {}: setRemoved() called - beginning cleanup", worldPosition);
+        LOGGER.error("Bridge{}: setRemoved() called - beginning cleanup", getLocationInfo());
         
         try {
-            LOGGER.error("Bridge at {}: Attempting to destroy AE2 node", worldPosition);
+            LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
             // Destroy the AE2 node first
             if (mainNode != null) {
                 mainNode.destroy();
-                LOGGER.error("Bridge at {}: AE2 node destruction completed", worldPosition);
+                LOGGER.error("Bridge{}: AE2 node destruction completed", getLocationInfo());
             } else {
-                LOGGER.warn("Bridge at {}: AE2 node was null during setRemoved", worldPosition);
+                LOGGER.warn("Bridge{}: AE2 node was null during setRemoved", getLocationInfo());
             }
         } catch (Exception e) {
-            LOGGER.error("Bridge at {}: EXCEPTION destroying AE2 node: {}", worldPosition, e.getMessage(), e);
+            LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node: {}", getLocationInfo(), e.getMessage(), e);
             // Continue with cleanup even if node destruction fails
         }
 
         try {
-            LOGGER.error("Bridge at {}: Calling super.setRemoved()", worldPosition);
+            LOGGER.error("Bridge{}: Calling super.setRemoved()", getLocationInfo());
             super.setRemoved();
-            LOGGER.error("Bridge at {}: super.setRemoved() completed", worldPosition);
+            LOGGER.error("Bridge{}: super.setRemoved() completed", getLocationInfo());
         } catch (Exception e) {
-            LOGGER.error("Bridge at {}: EXCEPTION in super.setRemoved(): {}", worldPosition, e.getMessage(), e);
+            LOGGER.error("Bridge{}: EXCEPTION in super.setRemoved(): {}", getLocationInfo(), e.getMessage(), e);
         }
 
         // Force reset flags even if cleanup partially fails
         nodeCreated = false;
         shouldReconnect = false;
-        LOGGER.error("Bridge at {}: setRemoved() cleanup completed", worldPosition);
+        LOGGER.error("Bridge{}: setRemoved() cleanup completed", getLocationInfo());
     }
 
     @Override
     public void onChunkUnloaded() {
-        LOGGER.error("Bridge at {}: onChunkUnloaded() called - beginning cleanup", worldPosition);
+        LOGGER.error("Bridge{}: onChunkUnloaded() called - beginning cleanup", getLocationInfo());
         
         try {
-            LOGGER.error("Bridge at {}: Attempting to destroy AE2 node in onChunkUnloaded", worldPosition);
+            LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
             // Clean up the AE2 node when the chunk is unloaded
             if (mainNode != null) {
                 mainNode.destroy();
-                LOGGER.error("Bridge at {}: AE2 node destruction in onChunkUnloaded completed", worldPosition);
+                LOGGER.error("Bridge{}: AE2 node destruction in onChunkUnloaded completed", getLocationInfo());
             } else {
-                LOGGER.warn("Bridge at {}: AE2 node was null during onChunkUnloaded", worldPosition);
+                LOGGER.warn("Bridge{}: AE2 node was null during onChunkUnloaded", getLocationInfo());
             }
         } catch (Exception e) {
-            LOGGER.error("Bridge at {}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", worldPosition, e.getMessage(), e);
+            LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", getLocationInfo(), e.getMessage(), e);
             // Continue with cleanup even if node destruction fails
         }
 
         try {
-            LOGGER.error("Bridge at {}: Calling super.onChunkUnloaded()", worldPosition);
+            LOGGER.error("Bridge{}: Calling super.onChunkUnloaded()", getLocationInfo());
             super.onChunkUnloaded();
-            LOGGER.error("Bridge at {}: super.onChunkUnloaded() completed", worldPosition);
+            LOGGER.error("Bridge{}: super.onChunkUnloaded() completed", getLocationInfo());
         } catch (Exception e) {
-            LOGGER.error("Bridge at {}: EXCEPTION in super.onChunkUnloaded(): {}", worldPosition, e.getMessage(), e);
+            LOGGER.error("Bridge{}: EXCEPTION in super.onChunkUnloaded(): {}", getLocationInfo(), e.getMessage(), e);
         }
 
         // Force reset flags even if cleanup partially fails
         nodeCreated = false;
         shouldReconnect = false;
-        LOGGER.error("Bridge at {}: onChunkUnloaded() cleanup completed", worldPosition);
+        LOGGER.error("Bridge{}: onChunkUnloaded() cleanup completed", getLocationInfo());
     }
 
     @Override
@@ -743,7 +789,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
         // CONTROLLO PRIORITARIO: Exit immediatamente se il mondo si sta scaricando
         if (worldUnloading) {
-            LOGGER.warn("Bridge at {}: EXITING serverTick early - world is unloading", worldPosition);
+            if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                LOGGER.warn("Bridge{}: EXITING serverTick early - world is unloading (+ {} similar warnings hidden in last 15s)", 
+                           getLocationInfo(), worldUnloadingWarningsHidden);
+                worldUnloadingWarningsHidden = 0;
+            } else {
+                worldUnloadingWarningsHidden++;
+            }
             return;
         }
 
@@ -778,7 +830,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // CONTROLLO POST-SUPER: Verifica se il mondo ha iniziato a scaricarsi durante super.serverTick()
         if (worldUnloading) {
-            LOGGER.warn("Bridge at {}: World unloading detected after super.serverTick() - exiting immediately", worldPosition);
+            if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                LOGGER.warn("Bridge{}: World unloading detected after super.serverTick() - exiting immediately (+ {} similar warnings hidden)", 
+                           getLocationInfo(), worldUnloadingWarningsHidden);
+                worldUnloadingWarningsHidden = 0;
+            } else {
+                worldUnloadingWarningsHidden++;
+            }
             return;
         }
 
@@ -800,12 +858,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         
         // CONTROLLO CONTINUO: Se il mondo inizia a scaricarsi durante le nostre operazioni
         if (worldUnloading) {
-            LOGGER.warn("Bridge at {}: WORLD UNLOADING DETECTED - entering cleanup mode", worldPosition);
+            // Still need to call cleanup even if we don't log
             if (initialized == 1) {
-                LOGGER.warn("Bridge at {}: Calling onWorldUnload() due to world unloading", worldPosition);
                 onWorldUnload();
             }
-            LOGGER.warn("Bridge at {}: EXITING serverTick due to world unloading", worldPosition);
+            
+            if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                LOGGER.warn("Bridge{}: WORLD UNLOADING DETECTED - entering cleanup mode (+ {} similar warnings hidden)", 
+                           getLocationInfo(), worldUnloadingWarningsHidden);
+                worldUnloadingWarningsHidden = 0;
+            } else {
+                worldUnloadingWarningsHidden++;
+            }
             return;
         }
 
@@ -929,9 +993,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             try {
                 // CONTROLLO SICUREZZA: Verifica di nuovo se il mondo si sta scaricando
                 if (worldUnloading) {
-                    LOGGER.warn("Bridge at {}: World unloading detected during request processing - aborting", worldPosition);
                     if (initialized == 1) {
                         onWorldUnload();
+                    }
+                    
+                    if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                        LOGGER.warn("Bridge{}: World unloading detected during request processing - aborting (+ {} similar warnings hidden)", 
+                                   getLocationInfo(), worldUnloadingWarningsHidden);
+                        worldUnloadingWarningsHidden = 0;
+                    } else {
+                        worldUnloadingWarningsHidden++;
                     }
                     return;
                 }
@@ -954,7 +1025,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     for (UUID sourceId : requestCounters.keySet()) {
                         // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                         if (worldUnloading) {
-                            LOGGER.warn("Bridge at {}: World unloading detected during task creation - aborting", worldPosition);
+                            // Already throttled by the parent check above, just count and exit
+                            worldUnloadingWarningsHidden++;
                             if (initialized == 1) {
                                 onWorldUnload();
                             }
@@ -967,7 +1039,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
                             // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                             if (worldUnloading) {
-                                LOGGER.warn("Bridge at {}: World unloading detected during task execution - aborting", worldPosition);
+                                // Already throttled by the parent check above, just count and exit
+                                worldUnloadingWarningsHidden++;
                                 if (initialized == 1) {
                                     onWorldUnload();
                                 }
@@ -983,7 +1056,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                 for (NetworkElement chipSupplier : network.getChipSuppliers()) {
                                     // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                                     if (worldUnloading) {
-                                        LOGGER.warn("Bridge at {}: World unloading detected during search - aborting", worldPosition);
+                                        // Already throttled by the parent check above, just count and exit
+                                        worldUnloadingWarningsHidden++;
                                         if (initialized == 1) {
                                             onWorldUnload();
                                         }
@@ -995,7 +1069,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
                                             // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
                                             if (worldUnloading) {
-                                                LOGGER.warn("Bridge at {}: World unloading detected during pattern matching - aborting", worldPosition);
+                                                // Already throttled by the parent check above, just count and exit
+                                                worldUnloadingWarningsHidden++;
                                                 if (initialized == 1) {
                                                     onWorldUnload();
                                                 }
@@ -1160,7 +1235,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         
         // Se il mondo sta venendo scaricato, evitiamo di accedere alle reti
         if (worldUnloading) {
-            LOGGER.warn("Bridge at {}: getNetwork() called during world unloading - returning null", worldPosition);
+            if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                LOGGER.warn("Bridge{}: getNetwork() called during world unloading - returning null (+ {} similar warnings hidden)", 
+                           getLocationInfo(), worldUnloadingWarningsHidden);
+                worldUnloadingWarningsHidden = 0;
+            } else {
+                worldUnloadingWarningsHidden++;
+            }
             return null;
         }
         
@@ -1174,7 +1255,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (element == null) {
                 // Evitiamo di creare nuovi elementi se il mondo sta venendo scaricato
                 if (worldUnloading) {
-                    LOGGER.warn("Bridge at {}: Cannot create network element during world unloading", worldPosition);
+                    // Already throttled by the parent check above, just count
+                    worldUnloadingWarningsHidden++;
                     return null;
                 }
                 
@@ -1199,7 +1281,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             
             // Se siamo durante lo scaricamento, è normale avere errori
             if (worldUnloading) {
-                LOGGER.warn("Bridge at {}: Network error during world unload - this is expected", worldPosition);
+                // Already throttled by the parent check above, just count
+                worldUnloadingWarningsHidden++;
             }
         }
         return null;
@@ -1210,7 +1293,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public boolean isActive() {
         // If world is unloading, consider the bridge as inactive to prevent operations
         if (worldUnloading) {
-            LOGGER.warn("Bridge at {}: isActive() returning false due to world unloading", worldPosition);
+            if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                LOGGER.warn("Bridge{}: isActive() returning false due to world unloading (+ {} similar warnings hidden)", 
+                           getLocationInfo(), worldUnloadingWarningsHidden);
+                worldUnloadingWarningsHidden = 0;
+            } else {
+                worldUnloadingWarningsHidden++;
+            }
             return false;
         }
         
@@ -2204,45 +2293,50 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * durante la chiusura del server
      */
     public static void cancelAllPendingOperations() {
-        LOGGER.error("GLOBAL OPERATION CANCELLATION - Starting cleanup of all bridge operations");
         try {
             // This method is called when the world is unloading to cancel all pending operations
             // to prevent hanging during shutdown
             
             // Clear any active tasks or pending operations here
             // For now, we just set the flag to indicate operations should stop
-            LOGGER.error("GLOBAL OPERATION CANCELLATION - All pending operations marked for cancellation");
+            
+            if (globalOperationLogsHidden == WARNING_THROTTLE_INTERVAL) {
+                LOGGER.error("GLOBAL OPERATION CANCELLATION - Starting cleanup (+ {} hidden identical messages in last 15s)", globalOperationLogsHidden);
+                LOGGER.error("GLOBAL OPERATION CANCELLATION - All pending operations marked for cancellation");
+                globalOperationLogsHidden = 0;
+            } else {
+                globalOperationLogsHidden++;
+            }
         } catch (Exception e) {
+            // Gli errori vengono sempre loggati indipendentemente dal throttling
             LOGGER.error("GLOBAL OPERATION CANCELLATION - EXCEPTION during cleanup: {}", e.getMessage(), e);
         }
     }
 
     // Method to handle world unload event
     public void onWorldUnload() {
-        LOGGER.error("Bridge at {}: onWorldUnload() called - CRITICAL CLEANUP STARTING", worldPosition);
+        LOGGER.error("Bridge{}: onWorldUnload() called - CRITICAL CLEANUP STARTING", getLocationInfo());
         
         try {
-            LOGGER.error("Bridge at {}: Setting world unloading flag locally", worldPosition);
+            LOGGER.error("Bridge{}: Setting world unloading flag locally", getLocationInfo());
             // Set the flag to indicate that the world is unloading
             worldUnloading = true;
 
-            LOGGER.error("Bridge at {}: Starting AE2 node destruction", worldPosition);
+            LOGGER.error("Bridge{}: Starting AE2 node destruction", getLocationInfo());
             // Clean up AE2 connections with timeout protection
             if (mainNode != null) {
                 try {
-                    // Set a maximum timeout for node destruction to prevent hanging
-                    long startTime = System.currentTimeMillis();
+                    // Clean up AE2 node without timing - just ensure it gets destroyed
                     mainNode.destroy();
-                    long duration = System.currentTimeMillis() - startTime;
-                    LOGGER.error("Bridge at {}: AE2 node destruction successful in {}ms", worldPosition, duration);
+                    LOGGER.error("Bridge{}: AE2 node destruction successful", getLocationInfo());
                 } catch (Exception e) {
-                    LOGGER.error("Bridge at {}: EXCEPTION destroying AE2 node in onWorldUnload: {}", worldPosition, e.getMessage(), e);
+                    LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onWorldUnload: {}", getLocationInfo(), e.getMessage(), e);
                 }
             } else {
-                LOGGER.warn("Bridge at {}: AE2 node was null during onWorldUnload", worldPosition);
+                LOGGER.warn("Bridge{}: AE2 node was null during onWorldUnload", getLocationInfo());
             }
 
-            LOGGER.error("Bridge at {}: Clearing data structures", worldPosition);
+            LOGGER.error("Bridge{}: Clearing data structures", getLocationInfo());
             // Clear any pending operations and data structures
             try {
                 pendingPatterns.clear();
@@ -2263,22 +2357,22 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 // Reset initialization state
                 initializationTicks = 0;
                 
-                LOGGER.error("Bridge at {}: Data structures cleared successfully", worldPosition);
+                LOGGER.error("Bridge{}: Data structures cleared successfully", getLocationInfo());
             } catch (Exception e) {
-                LOGGER.error("Bridge at {}: EXCEPTION clearing data structures: {}", worldPosition, e.getMessage(), e);
+                LOGGER.error("Bridge{}: EXCEPTION clearing data structures: {}", getLocationInfo(), e.getMessage(), e);
             }
 
-            LOGGER.error("Bridge at {}: Resetting connection flags", worldPosition);
+            LOGGER.error("Bridge{}: Resetting connection flags", getLocationInfo());
             // Reset connection flags
             nodeCreated = false;
             shouldReconnect = false;
             initialized = 0;
 
-            LOGGER.error("Bridge at {}: Parent class cleanup not needed (no super.onWorldUnload)", worldPosition);
+            LOGGER.error("Bridge{}: Parent class cleanup not needed (no super.onWorldUnload)", getLocationInfo());
 
-            LOGGER.error("Bridge at {}: onWorldUnload() CRITICAL CLEANUP COMPLETED", worldPosition);
+            LOGGER.error("Bridge{}: onWorldUnload() CRITICAL CLEANUP COMPLETED", getLocationInfo());
         } catch (Exception e) {
-            LOGGER.error("Bridge at {}: FATAL EXCEPTION in onWorldUnload(): {}", worldPosition, e.getMessage(), e);
+            LOGGER.error("Bridge{}: FATAL EXCEPTION in onWorldUnload(): {}", getLocationInfo(), e.getMessage(), e);
         }
     }
 
