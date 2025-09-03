@@ -1620,8 +1620,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Implementazione di ICraftingProvider
     @Override
     public List<IPatternDetails> getAvailablePatterns() {
-        // Don't show patterns if not initialized or world is unloading
-        if (initialized != 1 || worldUnloading) {
+        // Don't show patterns if not initialized
+        //§ fix?
+        if (initialized != 1) {
             return List.of();
         }
 
@@ -1689,8 +1690,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public boolean pushPattern(IPatternDetails patternDetails, KeyCounter[] inputHolder) {
-        // Don't accept patterns if not initialized or world is unloading
-        if (initialized != 1 || worldUnloading) {
+        // Don't accept patterns if not initialized
+        //§ fix?
+        if (initialized != 1) {
             return false;
         }
 
@@ -1821,9 +1823,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public boolean isBusy() {
         // Return false if world is unloading to avoid network access
-        if (worldUnloading) {
+        //§ fix?
+        /*if (worldUnloading) {
             return false;
-        }
+        }*/
         MatterNetwork network = getNetwork();
         if (network != null) {
             // Get all task IDs from the network
