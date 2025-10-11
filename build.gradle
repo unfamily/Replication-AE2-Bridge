@@ -115,10 +115,10 @@ configurations {
 }
 
 dependencies {
-    implementation "curse.maven:titanium-287342:6443608"
-    implementation "curse.maven:replication-638351:6428716"
-    implementation "curse.maven:applied-energistics-2-223794:6488853"
-    implementation "curse.maven:guideme-1173950:6488254"
+    implementation "curse.maven:titanium-287342:6875285"
+    implementation "curse.maven:replication-638351:6941700"
+    implementation "curse.maven:applied-energistics-2-223794:7027323"
+    implementation "curse.maven:guideme-1173950:6812025"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
