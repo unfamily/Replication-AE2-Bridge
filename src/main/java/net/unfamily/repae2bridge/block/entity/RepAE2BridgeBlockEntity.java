@@ -223,6 +223,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     // Static flag to track world unloading state
     private static boolean worldUnloading = false;
+    
+    // Static registry of all active bridges for emergency cleanup during world unloading
+    private static final Set<RepAE2BridgeBlockEntity> activeBridges = new HashSet<>();
 
     /**
      * Sets the world unloading state
@@ -251,8 +254,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         dimensionInfo, positionInfo);
             LOGGER.error("WORLD UNLOADING DETECTED - Cancelling all pending operations{}{}", 
                         dimensionInfo, positionInfo);
-            // No need for timestamp tracking with the new simple counter approach
+            
+            // Cancel all pending operations
             cancelAllPendingOperations();
+            
+            // CRITICAL: Disconnect ALL bridges from networks IMMEDIATELY
+            // This prevents the NetworkManager from trying to save bridges during world unload
+            LOGGER.error("EMERGENCY DISCONNECT - Disconnecting {} active bridges from all networks", activeBridges.size());
+            disconnectAllBridgesFromNetworks();
+            
         } else if (!unloading && worldUnloading) {
             // Stato cambiato da true a false - logga sempre
             String dimensionInfo = level != null ? 
@@ -285,6 +295,103 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         return " [Dimension: " + level.dimension().location() + "] [Position: " + worldPosition.getX() + ", " + worldPosition.getY() + ", " + worldPosition.getZ() + "]";
     }
 
+    /**
+     * Logs detailed network state for debugging during world unloading
+     */
+    private void logNetworkState(String context) {
+        // Skip logging if debug logging is not enabled
+        if (!Config.enableDebugLogging) {
+            return;
+        }
+        
+        LOGGER.error("Bridge{}: ========== NETWORK STATE DUMP [{}] ==========", getLocationInfo(), context);
+        
+        // Log AE2 Node state
+        LOGGER.error("Bridge{}: AE2 Node State:", getLocationInfo());
+        if (mainNode == null) {
+            LOGGER.error("Bridge{}: - mainNode is NULL", getLocationInfo());
+        } else {
+            LOGGER.error("Bridge{}: - mainNode exists: {}", getLocationInfo(), mainNode.getClass().getName());
+            IGridNode node = mainNode.getNode();
+            if (node == null) {
+                LOGGER.error("Bridge{}: - mainNode.getNode() is NULL", getLocationInfo());
+            } else {
+                LOGGER.error("Bridge{}: - IGridNode exists: {}", getLocationInfo(), node.getClass().getName());
+                try {
+                    LOGGER.error("Bridge{}: - Node active: {}", getLocationInfo(), node.isActive());
+                    IGrid grid = node.getGrid();
+                    if (grid == null) {
+                        LOGGER.error("Bridge{}: - Grid is NULL", getLocationInfo());
+                    } else {
+                        LOGGER.error("Bridge{}: - Grid exists: {}", getLocationInfo(), grid.getClass().getName());
+                        LOGGER.error("Bridge{}: - Grid node count: {}", getLocationInfo(), grid.getMachines(IGridNode.class).size());
+                    }
+                } catch (Exception e) {
+                    LOGGER.error("Bridge{}: - Exception accessing node properties: {}", getLocationInfo(), e.getMessage(), e);
+                }
+            }
+            LOGGER.error("Bridge{}: - mainNode.isActive(): {}", getLocationInfo(), mainNode.isActive());
+        }
+        LOGGER.error("Bridge{}: - nodeCreated flag: {}", getLocationInfo(), nodeCreated);
+        LOGGER.error("Bridge{}: - shouldReconnect flag: {}", getLocationInfo(), shouldReconnect);
+        
+        // Log Replication Network state
+        LOGGER.error("Bridge{}: Replication Network State:", getLocationInfo());
+        try {
+            MatterNetwork network = getNetwork();
+            if (network == null) {
+                LOGGER.error("Bridge{}: - Replication network is NULL", getLocationInfo());
+            } else {
+                LOGGER.error("Bridge{}: - Replication network exists: {}", getLocationInfo(), network.getClass().getName());
+                try {
+                    LOGGER.error("Bridge{}: - Network ID: {}", getLocationInfo(), network.getId());
+                    LOGGER.error("Bridge{}: - Network has task manager: {}", getLocationInfo(), network.getTaskManager() != null);
+                    if (network.getTaskManager() != null) {
+                        LOGGER.error("Bridge{}: - Pending tasks count: {}", getLocationInfo(), 
+                            network.getTaskManager().getPendingTasks() != null ? network.getTaskManager().getPendingTasks().size() : "NULL");
+                    }
+                } catch (Exception e) {
+                    LOGGER.error("Bridge{}: - Exception accessing network properties: {}", getLocationInfo(), e.getMessage(), e);
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("Bridge{}: - Exception getting Replication network: {}", getLocationInfo(), e.getMessage(), e);
+        }
+        
+        // Log NetworkManager state
+        LOGGER.error("Bridge{}: NetworkManager State:", getLocationInfo());
+        if (level == null) {
+            LOGGER.error("Bridge{}: - Level is NULL, cannot check NetworkManager", getLocationInfo());
+        } else {
+            try {
+                NetworkManager networkManager = NetworkManager.get(level);
+                if (networkManager == null) {
+                    LOGGER.error("Bridge{}: - NetworkManager is NULL", getLocationInfo());
+                } else {
+                    LOGGER.error("Bridge{}: - NetworkManager exists: {}", getLocationInfo(), networkManager.getClass().getName());
+                    NetworkElement element = networkManager.getElement(worldPosition);
+                    if (element == null) {
+                        LOGGER.error("Bridge{}: - NetworkElement at position is NULL", getLocationInfo());
+                    } else {
+                        LOGGER.error("Bridge{}: - NetworkElement exists: {}", getLocationInfo(), element.getClass().getName());
+                    }
+                }
+            } catch (Exception e) {
+                LOGGER.error("Bridge{}: - Exception accessing NetworkManager: {}", getLocationInfo(), e.getMessage(), e);
+            }
+        }
+        
+        // Log internal state
+        LOGGER.error("Bridge{}: Internal State:", getLocationInfo());
+        LOGGER.error("Bridge{}: - initialized: {}", getLocationInfo(), initialized);
+        LOGGER.error("Bridge{}: - worldUnloading (static): {}", getLocationInfo(), worldUnloading);
+        LOGGER.error("Bridge{}: - level null: {}", getLocationInfo(), level == null);
+        LOGGER.error("Bridge{}: - level client side: {}", getLocationInfo(), level != null && level.isClientSide());
+        LOGGER.error("Bridge{}: - blockId: {}", getLocationInfo(), blockId);
+        
+        LOGGER.error("Bridge{}: ========== END NETWORK STATE DUMP ==========", getLocationInfo());
+    }
+
     public RepAE2BridgeBlockEntity(BlockPos pos, BlockState blockState) {
         super((BasicTileBlock<RepAE2BridgeBlockEntity>) ModBlocks.REPAE2BRIDGE.get(),
                 ModBlockEntities.REPAE2BRIDGE_BE.get(),
@@ -307,6 +414,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 .setComponentHarness(this)
                 .setInputFilter((stack, slot) -> true); // Allows insertion of any item
         this.addInventory(this.output);
+        
+        // Register this bridge in the global registry for emergency cleanup
+        activeBridges.add(this);
+        LOGGER.debug("Bridge{}: Registered in active bridges registry (total: {})", getLocationInfo(), activeBridges.size());
     }
 
     @NotNull
@@ -550,13 +661,66 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * Called when the block is removed
      */
     public void disconnectFromNetworks() {
+        LOGGER.error("Bridge{}: Disconnecting from all networks", getLocationInfo());
+        
         // Disconnect from the AE2 network
         if (level != null && !level.isClientSide() && mainNode != null) {
-            mainNode.destroy();
-            nodeCreated = false;
+            try {
+                mainNode.destroy();
+                nodeCreated = false;
+                LOGGER.error("Bridge{}: AE2 network disconnected", getLocationInfo());
+            } catch (Exception e) {
+                LOGGER.error("Bridge{}: Error disconnecting from AE2 network: {}", getLocationInfo(), e.getMessage());
+            }
         }
 
-        // The disconnection from the Replication network is handled in super.setRemoved()
+        // Disconnect from the Replication network by calling parent's removal
+        // This is normally handled by super.setRemoved() but we do it explicitly during emergency shutdown
+        try {
+            if (level != null) {
+                NetworkManager networkManager = NetworkManager.get(level);
+                if (networkManager != null) {
+                    NetworkElement element = networkManager.getElement(worldPosition);
+                    if (element != null) {
+                        LOGGER.error("Bridge{}: Removing from Titanium NetworkManager", getLocationInfo());
+                        networkManager.removeElement(worldPosition);
+                        LOGGER.error("Bridge{}: Titanium NetworkManager disconnected", getLocationInfo());
+                    }
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.error("Bridge{}: Error disconnecting from Replication network: {}", getLocationInfo(), e.getMessage());
+        }
+        
+        LOGGER.error("Bridge{}: Disconnection from all networks completed", getLocationInfo());
+    }
+    
+    /**
+     * Emergency disconnection of all active bridges from networks
+     * Called during world unloading to prevent hanging
+     */
+    private static void disconnectAllBridgesFromNetworks() {
+        List<RepAE2BridgeBlockEntity> bridgesToDisconnect = new ArrayList<>(activeBridges);
+        LOGGER.error("EMERGENCY DISCONNECT - Starting disconnection of {} bridges", bridgesToDisconnect.size());
+        
+        int disconnected = 0;
+        int failed = 0;
+        
+        for (RepAE2BridgeBlockEntity bridge : bridgesToDisconnect) {
+            try {
+                LOGGER.error("EMERGENCY DISCONNECT - Disconnecting bridge at {}", bridge.getLocationInfo());
+                bridge.disconnectFromNetworks();
+                disconnected++;
+            } catch (Exception e) {
+                LOGGER.error("EMERGENCY DISCONNECT - Failed to disconnect bridge: {}", e.getMessage());
+                failed++;
+            }
+        }
+        
+        // Clear the registry
+        activeBridges.clear();
+        
+        LOGGER.error("EMERGENCY DISCONNECT - Completed: {} successful, {} failed", disconnected, failed);
     }
 
     /**
@@ -662,6 +826,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public void setRemoved() {
         LOGGER.error("Bridge{}: setRemoved() called - beginning cleanup", getLocationInfo());
         
+        // Remove from active bridges registry
+        activeBridges.remove(this);
+        LOGGER.error("Bridge{}: Removed from active bridges registry (remaining: {})", getLocationInfo(), activeBridges.size());
+        
+        // Log network state BEFORE any cleanup
+        logNetworkState("BEFORE setRemoved cleanup");
+        
         try {
             LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
             // Destroy the AE2 node first
@@ -675,14 +846,22 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node: {}", getLocationInfo(), e.getMessage(), e);
             // Continue with cleanup even if node destruction fails
         }
+        
+        // Log network state AFTER AE2 node destruction
+        logNetworkState("AFTER AE2 node destruction");
 
         try {
             LOGGER.error("Bridge{}: Calling super.setRemoved()", getLocationInfo());
+            long startTime = System.currentTimeMillis();
             super.setRemoved();
-            LOGGER.error("Bridge{}: super.setRemoved() completed", getLocationInfo());
+            long duration = System.currentTimeMillis() - startTime;
+            LOGGER.error("Bridge{}: super.setRemoved() completed in {} ms", getLocationInfo(), duration);
         } catch (Exception e) {
             LOGGER.error("Bridge{}: EXCEPTION in super.setRemoved(): {}", getLocationInfo(), e.getMessage(), e);
         }
+        
+        // Log network state AFTER super.setRemoved()
+        logNetworkState("AFTER super.setRemoved()");
 
         // Force reset flags even if cleanup partially fails
         nodeCreated = false;
@@ -693,6 +872,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public void onChunkUnloaded() {
         LOGGER.error("Bridge{}: onChunkUnloaded() called - beginning cleanup", getLocationInfo());
+        
+        // Log network state BEFORE any cleanup
+        logNetworkState("BEFORE onChunkUnloaded cleanup");
         
         try {
             LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
@@ -707,14 +889,22 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", getLocationInfo(), e.getMessage(), e);
             // Continue with cleanup even if node destruction fails
         }
+        
+        // Log network state AFTER AE2 node destruction
+        logNetworkState("AFTER AE2 node destruction in onChunkUnloaded");
 
         try {
             LOGGER.error("Bridge{}: Calling super.onChunkUnloaded()", getLocationInfo());
+            long startTime = System.currentTimeMillis();
             super.onChunkUnloaded();
-            LOGGER.error("Bridge{}: super.onChunkUnloaded() completed", getLocationInfo());
+            long duration = System.currentTimeMillis() - startTime;
+            LOGGER.error("Bridge{}: super.onChunkUnloaded() completed in {} ms", getLocationInfo(), duration);
         } catch (Exception e) {
             LOGGER.error("Bridge{}: EXCEPTION in super.onChunkUnloaded(): {}", getLocationInfo(), e.getMessage(), e);
         }
+        
+        // Log network state AFTER super.onChunkUnloaded()
+        logNetworkState("AFTER super.onChunkUnloaded()");
 
         // Force reset flags even if cleanup partially fails
         nodeCreated = false;
@@ -724,9 +914,41 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        super.saveAdditional(tag, registries);
+        if (Config.enableDebugLogging) {
+            LOGGER.error("Bridge{}: saveAdditional() called", getLocationInfo());
+            // Log network state at save time
+            logNetworkState("DURING saveAdditional");
+        }
+        
+        try {
+            if (Config.enableDebugLogging) {
+                LOGGER.error("Bridge{}: Calling super.saveAdditional()", getLocationInfo());
+            }
+            long startTime = System.currentTimeMillis();
+            super.saveAdditional(tag, registries);
+            long duration = System.currentTimeMillis() - startTime;
+            if (Config.enableDebugLogging) {
+                LOGGER.error("Bridge{}: super.saveAdditional() completed in {} ms", getLocationInfo(), duration);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Bridge{}: EXCEPTION in super.saveAdditional(): {}", getLocationInfo(), e.getMessage(), e);
+        }
+        
         // Save the state of the AE2 node
-        mainNode.saveToNBT(tag);
+        try {
+            if (Config.enableDebugLogging) {
+                LOGGER.error("Bridge{}: Attempting to save AE2 node to NBT", getLocationInfo());
+            }
+            long startTime = System.currentTimeMillis();
+            mainNode.saveToNBT(tag);
+            long duration = System.currentTimeMillis() - startTime;
+            if (Config.enableDebugLogging) {
+                LOGGER.error("Bridge{}: AE2 node saved to NBT in {} ms", getLocationInfo(), duration);
+            }
+        } catch (Exception e) {
+            LOGGER.error("Bridge{}: EXCEPTION saving AE2 node to NBT: {}", getLocationInfo(), e.getMessage(), e);
+        }
+        
         // Also save the node creation flag
         tag.putBoolean("nodeCreated", nodeCreated);
         // Save the reconnection flag
@@ -734,6 +956,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Save the block's unique identifier
         if (blockId != null) {
             tag.putUUID("blockId", blockId);
+        }
+        
+        if (Config.enableDebugLogging) {
+            LOGGER.error("Bridge{}: saveAdditional() completed", getLocationInfo());
         }
     }
 
@@ -850,7 +1076,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // All'inizio, controlla se è necessario riconnettersi alla rete AE2
         if (isDedicatedServer && level.getGameTime() % 100 == 0) {  // Controlla ogni 5 secondi
             if (shouldReconnect || mainNode.getNode() == null || !mainNode.getNode().isActive()) {
-                LOGGER.warn("Bridge at {}: Performing reconnection check for AE2 network on dedicated server", worldPosition);
+                if (Config.enableDebugLogging) {
+                    LOGGER.info("Bridge at {}: Performing reconnection check for AE2 network on dedicated server", worldPosition);
+                }
                 forceAE2GridConnection();
                 shouldReconnect = false;
             }

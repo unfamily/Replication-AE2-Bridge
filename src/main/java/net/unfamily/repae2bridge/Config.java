@@ -17,13 +17,19 @@ public class Config
             .comment("Energy consumption rate (AE/t) for the RepAE2Bridge")
             .defineInRange("bridgeEnergyConsumption", 500, 0, Integer.MAX_VALUE);
 
+    private static final ModConfigSpec.BooleanValue ENABLE_DEBUG_LOGGING = BUILDER
+            .comment("Enable aggressive debug logging for troubleshooting (includes network state dumps and reconnection logs)")
+            .define("enableDebugLogging", false);
+
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static int bridgeEnergyConsumption;
+    public static boolean enableDebugLogging;
 
     @SubscribeEvent
     static void onLoad(final ModConfigEvent event)
     {
         bridgeEnergyConsumption = BRIDGE_ENERGY_CONSUMPTION.get();
+        enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
     }
 }
