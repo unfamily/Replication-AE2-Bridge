@@ -250,17 +250,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             String positionInfo = pos != null ? 
                 " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
             
-            LOGGER.error("GLOBAL WORLD UNLOADING FLAG SET TO: true - All bridges will now shutdown{}{}", 
+            LOGGER.info("RepAE2Bridge: World unloading detected - All bridges will now shutdown{}{}", 
                         dimensionInfo, positionInfo);
-            LOGGER.error("WORLD UNLOADING DETECTED - Cancelling all pending operations{}{}", 
+            LOGGER.info("RepAE2Bridge: Cancelling all pending operations{}{}", 
                         dimensionInfo, positionInfo);
             
             // Cancel all pending operations
             cancelAllPendingOperations();
             
-            // CRITICAL: Disconnect ALL bridges from networks IMMEDIATELY
+            // Disconnect ALL bridges from networks IMMEDIATELY
             // This prevents the NetworkManager from trying to save bridges during world unload
-            LOGGER.error("EMERGENCY DISCONNECT - Disconnecting {} active bridges from all networks", activeBridges.size());
+            LOGGER.info("RepAE2Bridge: Disconnecting {} active bridges from AE2 and Titanium/Replication networks", activeBridges.size());
             disconnectAllBridgesFromNetworks();
             
         } else if (!unloading && worldUnloading) {
@@ -661,58 +661,58 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * Called when the block is removed
      */
     public void disconnectFromNetworks() {
-        LOGGER.error("Bridge{}: Disconnecting from all networks", getLocationInfo());
+        LOGGER.info("Bridge{}: Disconnecting from AE2 and Titanium/Replication networks", getLocationInfo());
         
         // Disconnect from the AE2 network
         if (level != null && !level.isClientSide() && mainNode != null) {
             try {
                 mainNode.destroy();
                 nodeCreated = false;
-                LOGGER.error("Bridge{}: AE2 network disconnected", getLocationInfo());
+                LOGGER.info("Bridge{}: AE2 network disconnected", getLocationInfo());
             } catch (Exception e) {
-                LOGGER.error("Bridge{}: Error disconnecting from AE2 network: {}", getLocationInfo(), e.getMessage());
+                LOGGER.warn("Bridge{}: Error disconnecting from AE2 network: {}", getLocationInfo(), e.getMessage());
             }
         }
 
         // Disconnect from the Replication network by calling parent's removal
-        // This is normally handled by super.setRemoved() but we do it explicitly during emergency shutdown
+        // This is normally handled by super.setRemoved() but we do it explicitly during world unloading
         try {
-            if (level != null) {
+            if (level != null && !level.isClientSide()) {
                 NetworkManager networkManager = NetworkManager.get(level);
                 if (networkManager != null) {
                     NetworkElement element = networkManager.getElement(worldPosition);
                     if (element != null) {
-                        LOGGER.error("Bridge{}: Removing from Titanium NetworkManager", getLocationInfo());
+                        LOGGER.info("Bridge{}: Removing from Titanium/Replication NetworkManager", getLocationInfo());
                         networkManager.removeElement(worldPosition);
-                        LOGGER.error("Bridge{}: Titanium NetworkManager disconnected", getLocationInfo());
+                        LOGGER.info("Bridge{}: Titanium/Replication network disconnected", getLocationInfo());
                     }
                 }
             }
         } catch (Exception e) {
-            LOGGER.error("Bridge{}: Error disconnecting from Replication network: {}", getLocationInfo(), e.getMessage());
+            LOGGER.warn("Bridge{}: Error disconnecting from Titanium/Replication network: {}", getLocationInfo(), e.getMessage());
         }
         
-        LOGGER.error("Bridge{}: Disconnection from all networks completed", getLocationInfo());
+        LOGGER.info("Bridge{}: Network disconnection completed", getLocationInfo());
     }
     
     /**
-     * Emergency disconnection of all active bridges from networks
+     * Disconnection of all active bridges from networks during world unloading
      * Called during world unloading to prevent hanging
      */
     private static void disconnectAllBridgesFromNetworks() {
         List<RepAE2BridgeBlockEntity> bridgesToDisconnect = new ArrayList<>(activeBridges);
-        LOGGER.error("EMERGENCY DISCONNECT - Starting disconnection of {} bridges", bridgesToDisconnect.size());
+        LOGGER.info("RepAE2Bridge: Starting network disconnection for {} bridges", bridgesToDisconnect.size());
         
         int disconnected = 0;
         int failed = 0;
         
         for (RepAE2BridgeBlockEntity bridge : bridgesToDisconnect) {
             try {
-                LOGGER.error("EMERGENCY DISCONNECT - Disconnecting bridge at {}", bridge.getLocationInfo());
+                LOGGER.info("RepAE2Bridge: Disconnecting bridge at {}", bridge.getLocationInfo());
                 bridge.disconnectFromNetworks();
                 disconnected++;
             } catch (Exception e) {
-                LOGGER.error("EMERGENCY DISCONNECT - Failed to disconnect bridge: {}", e.getMessage());
+                LOGGER.warn("RepAE2Bridge: Failed to disconnect bridge: {}", e.getMessage());
                 failed++;
             }
         }
@@ -720,7 +720,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Clear the registry
         activeBridges.clear();
         
-        LOGGER.error("EMERGENCY DISCONNECT - Completed: {} successful, {} failed", disconnected, failed);
+        LOGGER.info("RepAE2Bridge: Network disconnection completed - {} successful, {} failed", disconnected, failed);
     }
 
     /**
