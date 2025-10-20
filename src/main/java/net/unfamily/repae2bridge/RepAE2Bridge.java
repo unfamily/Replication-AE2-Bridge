@@ -3,22 +3,11 @@ package net.unfamily.repae2bridge;
 import org.slf4j.Logger;
 
 import com.mojang.logging.LogUtils;
-import com.buuz135.replication.network.DefaultMatterNetworkElement;
-import com.hrznstudio.titanium.block_network.element.NetworkElement;
-import com.hrznstudio.titanium.block_network.NetworkManager;
-import com.hrznstudio.titanium.block_network.element.NetworkElementRegistry;
-import com.buuz135.replication.block.tile.NetworkBlockEntity;
-import com.buuz135.replication.network.MatterNetwork;
+import com.buuz135.replication.block.MatterPipeBlock;
 
-import net.minecraft.core.Registry;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.Level;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.eventbus.api.IEventBus;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.ModContainer;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
@@ -28,25 +17,9 @@ import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.unfamily.repae2bridge.item.ModItems;
-import net.minecraftforge.common.capabilities.Capability;
-import net.minecraftforge.common.capabilities.CapabilityManager;
-import net.minecraftforge.common.capabilities.RegisterCapabilitiesEvent;
-import net.minecraftforge.common.capabilities.CapabilityToken;
-import appeng.api.networking.IInWorldGridNodeHost;
-import com.buuz135.replication.block.MatterPipeBlock;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.level.chunk.LevelChunk;
-import net.minecraft.world.level.block.entity.BlockEntity;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.function.BiConsumer;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
+import net.unfamily.repae2bridge.block.ModBlocks;
 import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
 import net.minecraftforge.fml.ModLoadingContext;
-import java.util.HashMap;
-import java.util.Map;
-import net.minecraft.core.Direction;
 
 // The value here should match an entry in the META-INF/mods.toml file
 @Mod(RepAE2Bridge.MOD_ID)
@@ -56,13 +29,12 @@ public class RepAE2Bridge
     public static final String MOD_ID = "rep_ae2_bridge";
     // Directly reference a slf4j logger
     private static final Logger LOGGER = LogUtils.getLogger();
-    
-    // Define the capability for IInWorldGridNodeHost
-    private static final Capability<IInWorldGridNodeHost> IN_WORLD_GRID_NODE_HOST = 
-        CapabilityManager.get(new CapabilityToken<>(){});
 
     // Add a static field to track if our NetworkBlockEntity patches have been applied
     private static boolean networksFixed = false;
+    
+    // Flag statico per indicare se il mondo sta venendo scaricato
+    public static volatile boolean worldUnloading = false;
 
     /**
      * Main constructor of the mod that gets the event bus in the non-deprecated way
@@ -75,6 +47,9 @@ public class RepAE2Bridge
         
         // Register all items
         ModItems.register(modEventBus);
+        
+        // Register all blocks
+        ModBlocks.register(modEventBus);
 
         // Register the configuration
         modEventBus.register(Config.class);
@@ -158,7 +133,8 @@ public class RepAE2Bridge
     {
         // Add the bridge to AE2's main creative tab
         if (event.getTabKey() == appeng.api.ids.AECreativeTabIds.MAIN) {
-            // LOGGER.info("Added RepAE2Bridge to AE2 creative tab");
+            event.accept(ModBlocks.REP_AE2_BRIDGE_ITEM);
+            LOGGER.info("Added RepAE2Bridge to AE2 creative tab");
         }
     }
 
@@ -167,13 +143,16 @@ public class RepAE2Bridge
     public void onServerStarting(ServerStartingEvent event)
     {
         LOGGER.info("RepAE2Bridge: Server starting");
+        // Setta il flag worldUnloading a false all'avvio del server
+        worldUnloading = false;
     }
     
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event)
     {
-        LOGGER.info("RepAE2Bridge: Server stopping");
-        
+        LOGGER.info("RepAE2Bridge: Server stopping - setting worldUnloading flag");
+        // Setta il flag worldUnloading a true quando il server si ferma
+        worldUnloading = true;
     }
 
     // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent

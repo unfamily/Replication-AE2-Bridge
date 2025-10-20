@@ -1,6 +1,5 @@
 {
   "variants": {
-    "connected=false": { "model": "rep_ae2_bridge:block/rep_ae2_bridge" },
-    "connected=true": { "model": "rep_ae2_bridge:block/rep_ae2_bridge" }
+    "": { "model": "rep_ae2_bridge:block/rep_ae2_bridge" }
   }
 } 

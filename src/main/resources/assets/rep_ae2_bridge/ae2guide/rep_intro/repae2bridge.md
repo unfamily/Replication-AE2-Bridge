@@ -17,11 +17,6 @@ item_ids:
 
 The RepAE2Bridge is a component that connects the AE2 ME system with the Replication matter network, providing seamless integration between the two systems.
 
-## ATTENTION PLEASE AT THE VERSION OF MOD 1.20.1 HAS A BUG
-
-Place the matter pipe first and the bridge afterwards to avoid crashes, it seems to be an internal problem of Repliaction I cannot solve.
-
-
 ## Features
 
 The bridge acts as a translator between the two systems, allowing Replication matter data to be accessible within the AE2 ME system and vice versa.
