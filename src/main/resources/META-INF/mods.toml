@@ -104,3 +104,4 @@ description='Bridge between Applied Energistics 2 and Replication mod'
 # stop your mod loading on the server for example.
 #[features.rep_ae2_bridge]
 #openGLVersion="[3.2,)"
+
