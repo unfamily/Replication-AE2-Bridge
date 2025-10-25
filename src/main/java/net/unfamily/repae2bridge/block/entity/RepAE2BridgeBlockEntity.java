@@ -404,11 +404,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public boolean isBusy() {
+        boolean busy = false;
+
         MatterNetwork network = getNetwork();
         if (network == null) return false;
 
         // Check if there are pending tasks
-        boolean busy = !network.getTaskManager().getPendingTasks().isEmpty();
+        //boolean busy = !network.getTaskManager().getPendingTasks().isEmpty();
 
         // Update storage when not busy
         if (!busy && requestCounters.isEmpty()) {
