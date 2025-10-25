@@ -73,10 +73,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
-import java.util.Queue;
 import java.util.Map;
 import java.util.HashMap;
-import java.util.LinkedList;
 import java.util.concurrent.Future;
 import java.util.concurrent.CompletableFuture;
 import java.lang.StringBuilder;
@@ -106,9 +104,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Save
     private int priority = 0;
 
-    // Queue of pending patterns
-    private final Queue<IPatternDetails> pendingPatterns = new LinkedList<>();
-    private final Map<IPatternDetails, KeyCounter[]> pendingInputs = new HashMap<>();
+    // Queue of pending patterns - NON PIÙ USATA, la capacità è gestita dalla rete Replication
+    // private final Queue<IPatternDetails> pendingPatterns = new LinkedList<>();
+    // private final Map<IPatternDetails, KeyCounter[]> pendingInputs = new HashMap<>();
 
     // AE2 node for network connection
     private final IManagedGridNode mainNode = GridHelper.createManagedNode(this, new IGridNodeListener<RepAE2BridgeBlockEntity>() {
@@ -1404,15 +1402,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
 
-        // Pattern queue management
-        if (!pendingPatterns.isEmpty() && !isBusy()) {
-            IPatternDetails pattern = pendingPatterns.poll();
-            KeyCounter[] inputs = pendingInputs.remove(pattern);
-            if (pattern != null && inputs != null) {
-                // LOGGER.info("Bridge: Processing pending pattern from queue");
-                pushPattern(pattern, inputs);
-            }
-        }
+        // Pattern queue management rimossa - non usiamo più la coda locale
+        // I pattern vengono inviati direttamente alla rete Replication che gestisce la capacità
 
 
         // Check less frequently the state of the AE2 node
@@ -1933,13 +1924,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (output.what() instanceof AEItemKey itemKey) {
                     //LOGGER.info("Bridge: Request to pushPattern for {}", itemKey.getItem().getDescriptionId());
 
-                    // If we are busy, add the pattern to the queue
-                    if (isBusy()) {
-                        //LOGGER.info("Bridge: Bridge occupied, adding to queue");
-                        pendingPatterns.add(patternDetails);
-                        pendingInputs.put(patternDetails, inputHolder);
-                        return true;
-                    }
+                    // Non mettiamo più i pattern in coda - la rete Replication gestisce la capacità
+                    // Se ci sono replicatori liberi, prenderanno il task
+                    // Se sono tutti occupati, il task resta in coda nella rete Replication
 
                     // Search for the pattern in all chip storage in the network
                     for (NetworkElement chipSupplier : network.getChipSuppliers()) {
@@ -1949,7 +1936,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                 if (pattern.getStack().getItem().equals(itemKey.getItem())) {
                                     // Check if we have enough virtual matter in the inputs
                                     if (inputHolder != null && inputHolder.length > 0) {
-                                        KeyCounter inputs = inputHolder[0];
                                         boolean hasAllMatter = true;
 
                                         // Get the matter compound for this pattern
@@ -2050,17 +2036,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public boolean isBusy() {
-        // Return false if world is unloading to avoid network access
-        //§ fix?
-        /*if (worldUnloading) {
-            return false;
-        }*/
+        // Il bridge NON deve bloccarsi in base ai task pendenti nella rete Replication
+        // Deve solo tracciare i task completati per aggiornare i contatori
+        // La gestione della capacità è delegata alla rete Replication stessa
+        
         MatterNetwork network = getNetwork();
         if (network != null) {
             // Get all task IDs from the network
             Set<String> networkTaskIds = new HashSet<>(network.getTaskManager().getPendingTasks().keySet());
 
-            // Check all sources
+            // Check all sources per tracciare i task completati
             for (UUID sourceId : activeTasks.keySet()) {
                 Map<String, TaskSourceInfo> sourceTasks = activeTasks.get(sourceId);
 
@@ -2089,8 +2074,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             if (currentGlobalCount > 0) {
                                 globalRequests.put(pattern, currentGlobalCount - 1);
                                 patternRequests.put(sourceId, globalRequests);
-                                //LOGGER.info("Bridge: Task completed for {}, remaining {} active requests",
-                                //    pattern.getItem().getDescriptionId(), currentGlobalCount - 1);
                             }
                         }
                     }
@@ -2104,27 +2087,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
             }
 
-            boolean busy = !network.getTaskManager().getPendingTasks().isEmpty();
-
-            // If we are not busy but the updates are still blocked, unblock them
-            if (!busy && requestCounters.isEmpty()) {
-                // Remove this log message that no longer makes sense
-                // LOGGER.info("Bridge: Updates of matter unlocked from isBusy");
-
-                // Force an update of the storage to show the new quantities
+            // Aggiorna sempre lo storage per mostrare le nuove quantità
+            if (requestCounters.isEmpty() && level != null && level.getGameTime() % 20 == 0) {
                 IStorageProvider.requestUpdate(mainNode);
             }
-
-            /*if (busy) {
-                LOGGER.info("Bridge: Occupied with {} pending tasks", network.getTaskManager().getPendingTasks().size());
-                // Log delle richieste per pattern
-                patternRequests.forEach((sourceId, patterns) ->
-                    patterns.forEach((pattern, count) ->
-                        LOGGER.info("Bridge: Pattern {} has {} active requests from source {}",
-                            pattern.getItem().getDescriptionId(), count, sourceId)));
-            }*/
-            return busy;
         }
+        
+        // Il bridge non è mai "busy" - lascia che sia la rete Replication a gestire la capacità
         return false;
     }
 
@@ -2570,8 +2539,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.error("Bridge{}: Clearing data structures", getLocationInfo());
             // Clear any pending operations and data structures
             try {
-                pendingPatterns.clear();
-                pendingInputs.clear();
+                // pendingPatterns e pendingInputs rimossi - non più usati
                 patternRequests.clear();
                 activeTasks.clear();
                 patternRequestsBySource.clear();
