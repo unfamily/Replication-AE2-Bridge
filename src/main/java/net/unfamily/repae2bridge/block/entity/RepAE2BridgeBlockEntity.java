@@ -831,99 +831,156 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public void setRemoved() {
-        LOGGER.error("Bridge{}: setRemoved() called - beginning cleanup", getLocationInfo());
-        
+        // Reduce logging spam for uninitialized bridges
+        boolean shouldLog = Config.enableDebugLogging && initialized == 1;
+
+        if (shouldLog) {
+            LOGGER.error("Bridge{}: setRemoved() called - beginning cleanup", getLocationInfo());
+        }
+
         // Remove from active bridges registry
         activeBridges.remove(this);
-        LOGGER.error("Bridge{}: Removed from active bridges registry (remaining: {})", getLocationInfo(), activeBridges.size());
-        
-        // Log network state BEFORE any cleanup
-        logNetworkState("BEFORE setRemoved cleanup");
-        
+        if (shouldLog) {
+            LOGGER.error("Bridge{}: Removed from active bridges registry (remaining: {})", getLocationInfo(), activeBridges.size());
+        }
+
+        // Log network state BEFORE any cleanup only for initialized bridges
+        if (shouldLog) {
+            logNetworkState("BEFORE setRemoved cleanup");
+        }
+
         try {
-            LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
+            }
             // Destroy the AE2 node first
             if (mainNode != null) {
                 mainNode.destroy();
-                LOGGER.error("Bridge{}: AE2 node destruction completed", getLocationInfo());
+                if (shouldLog) {
+                    LOGGER.error("Bridge{}: AE2 node destruction completed", getLocationInfo());
+                }
             } else {
-                LOGGER.warn("Bridge{}: AE2 node was null during setRemoved", getLocationInfo());
+                if (shouldLog) {
+                    LOGGER.warn("Bridge{}: AE2 node was null during setRemoved", getLocationInfo());
+                }
             }
         } catch (Exception e) {
-            LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node: {}", getLocationInfo(), e.getMessage(), e);
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node: {}", getLocationInfo(), e.getMessage(), e);
+            }
             // Continue with cleanup even if node destruction fails
         }
-        
-        // Log network state AFTER AE2 node destruction
-        logNetworkState("AFTER AE2 node destruction");
+
+        // Log network state AFTER AE2 node destruction only for initialized bridges
+        if (shouldLog) {
+            logNetworkState("AFTER AE2 node destruction");
+        }
 
         try {
-            LOGGER.error("Bridge{}: Calling super.setRemoved()", getLocationInfo());
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: Calling super.setRemoved()", getLocationInfo());
+            }
             long startTime = System.currentTimeMillis();
             super.setRemoved();
             long duration = System.currentTimeMillis() - startTime;
-            LOGGER.error("Bridge{}: super.setRemoved() completed in {} ms", getLocationInfo(), duration);
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: super.setRemoved() completed in {} ms", getLocationInfo(), duration);
+            }
         } catch (Exception e) {
-            LOGGER.error("Bridge{}: EXCEPTION in super.setRemoved(): {}", getLocationInfo(), e.getMessage(), e);
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: EXCEPTION in super.setRemoved(): {}", getLocationInfo(), e.getMessage(), e);
+            }
         }
-        
-        // Log network state AFTER super.setRemoved()
-        logNetworkState("AFTER super.setRemoved()");
+
+        // Log network state AFTER super.setRemoved() only for initialized bridges
+        if (shouldLog) {
+            logNetworkState("AFTER super.setRemoved()");
+        }
 
         // Force reset flags even if cleanup partially fails
         nodeCreated = false;
         shouldReconnect = false;
-        LOGGER.error("Bridge{}: setRemoved() cleanup completed", getLocationInfo());
+        if (shouldLog) {
+            LOGGER.error("Bridge{}: setRemoved() cleanup completed", getLocationInfo());
+        }
     }
 
     @Override
     public void onChunkUnloaded() {
-        LOGGER.error("Bridge{}: onChunkUnloaded() called - beginning cleanup", getLocationInfo());
-        
-        // Log network state BEFORE any cleanup
-        logNetworkState("BEFORE onChunkUnloaded cleanup");
-        
+        // Reduce logging spam for uninitialized bridges
+        boolean shouldLog = Config.enableDebugLogging && initialized == 1;
+
+        if (shouldLog) {
+            LOGGER.error("Bridge{}: onChunkUnloaded() called - beginning cleanup", getLocationInfo());
+        }
+
+        // Log network state BEFORE any cleanup only for initialized bridges
+        if (shouldLog) {
+            logNetworkState("BEFORE onChunkUnloaded cleanup");
+        }
+
         try {
-            LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
+            }
             // Clean up the AE2 node when the chunk is unloaded
             if (mainNode != null) {
                 mainNode.destroy();
-                LOGGER.error("Bridge{}: AE2 node destruction in onChunkUnloaded completed", getLocationInfo());
+                if (shouldLog) {
+                    LOGGER.error("Bridge{}: AE2 node destruction in onChunkUnloaded completed", getLocationInfo());
+                }
             } else {
-                LOGGER.warn("Bridge{}: AE2 node was null during onChunkUnloaded", getLocationInfo());
+                if (shouldLog) {
+                    LOGGER.warn("Bridge{}: AE2 node was null during onChunkUnloaded", getLocationInfo());
+                }
             }
         } catch (Exception e) {
-            LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", getLocationInfo(), e.getMessage(), e);
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", getLocationInfo(), e.getMessage(), e);
+            }
             // Continue with cleanup even if node destruction fails
         }
-        
-        // Log network state AFTER AE2 node destruction
-        logNetworkState("AFTER AE2 node destruction in onChunkUnloaded");
+
+        // Log network state AFTER AE2 node destruction only for initialized bridges
+        if (shouldLog) {
+            logNetworkState("AFTER AE2 node destruction in onChunkUnloaded");
+        }
 
         try {
-            LOGGER.error("Bridge{}: Calling super.onChunkUnloaded()", getLocationInfo());
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: Calling super.onChunkUnloaded()", getLocationInfo());
+            }
             long startTime = System.currentTimeMillis();
             super.onChunkUnloaded();
             long duration = System.currentTimeMillis() - startTime;
-            LOGGER.error("Bridge{}: super.onChunkUnloaded() completed in {} ms", getLocationInfo(), duration);
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: super.onChunkUnloaded() completed in {} ms", getLocationInfo(), duration);
+            }
         } catch (Exception e) {
-            LOGGER.error("Bridge{}: EXCEPTION in super.onChunkUnloaded(): {}", getLocationInfo(), e.getMessage(), e);
+            if (shouldLog) {
+                LOGGER.error("Bridge{}: EXCEPTION in super.onChunkUnloaded(): {}", getLocationInfo(), e.getMessage(), e);
+            }
         }
-        
-        // Log network state AFTER super.onChunkUnloaded()
-        logNetworkState("AFTER super.onChunkUnloaded()");
+
+        // Log network state AFTER super.onChunkUnloaded() only for initialized bridges
+        if (shouldLog) {
+            logNetworkState("AFTER super.onChunkUnloaded()");
+        }
 
         // Force reset flags even if cleanup partially fails
         nodeCreated = false;
         shouldReconnect = false;
-        LOGGER.error("Bridge{}: onChunkUnloaded() cleanup completed", getLocationInfo());
+        if (shouldLog) {
+            LOGGER.error("Bridge{}: onChunkUnloaded() cleanup completed", getLocationInfo());
+        }
     }
 
     @Override
     public void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
-        if (Config.enableDebugLogging) {
+        // Skip heavy logging when not initialized to avoid performance issues
+        if (Config.enableDebugLogging && initialized == 1) {
             LOGGER.error("Bridge{}: saveAdditional() called", getLocationInfo());
-            // Log network state at save time
+            // Log network state at save time only when initialized
             logNetworkState("DURING saveAdditional");
         }
         
@@ -2436,15 +2493,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return net.minecraft.network.chat.Component.literal("Replication Matter Storage");
         }
 
-        @Override
-        public void getAvailableStacks(KeyCounter out) {
-            // Don't show stacks if not initialized
-            if (initialized != 1) {
-                return;
-            }
+    @Override
+    public void getAvailableStacks(KeyCounter out) {
+        // Don't show stacks if not initialized or networks not available
+        if (initialized != 1 || !isActive() || getNetwork() == null) {
+            return;
+        }
 
-            MatterNetwork network = getNetwork();
-            if (network != null) {
+        MatterNetwork network = getNetwork();
+        if (network != null) {
                 // Get all registered matter types
                 List<IMatterType> matterTypes = List.of(
                         ReplicationRegistry.Matter.EMPTY.get(),
