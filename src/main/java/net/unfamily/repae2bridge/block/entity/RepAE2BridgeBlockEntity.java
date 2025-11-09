@@ -28,6 +28,7 @@ import com.buuz135.replication.block.tile.ReplicationMachine;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.MatterNetwork;
 import com.buuz135.replication.api.IMatterType;
+import com.buuz135.replication.api.matter_fluid.MatterStack;
 import com.buuz135.replication.calculation.MatterValue;
 import com.hrznstudio.titanium.block.BasicTileBlock;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
@@ -192,6 +193,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private final Map<UUID, Map<String, TaskSourceInfo>> activeTasks = new HashMap<>();
     // Map to track requests by source block
     private final Map<UUID, Map<ItemStack, Integer>> patternRequestsBySource = new HashMap<>();
+
+    // Matter creation tracking
+    private final Map<IMatterType, Long> previousMatterAmounts = new HashMap<>();
+    private int matterTrackingTickCounter = 0;
+    private boolean matterTrackingInitialized = false;
+    // Buffer for matter changes to be inserted into output inventory
+    private final Map<IMatterType, Long> pendingMatterChanges = new HashMap<>();
+    private static final int MAX_MATTER_BUFFER = 9 * 2 * 64; // 9 slots * 2 rows * 64 stack size
     // Temporary counters for crafting requests
     private final Map<UUID, Map<ItemWithSourceId, Integer>> requestCounters = new HashMap<>();
     private int requestCounterTicks = 0;
@@ -407,8 +416,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         this.matterOpediaSortingDirection = 1;
 
         // Initialize the output inventory component with 18 slots (9x2)
-        this.output = new InventoryComponent<RepAE2BridgeBlockEntity>("output", 11, 131, 18)
-                .setRange(9, 2)
+        this.output = new InventoryComponent<RepAE2BridgeBlockEntity>("output", 11, 131, 36)
+                .setRange(9, 4)
                 .setComponentHarness(this)
                 .setInputFilter((stack, slot) -> true); // Allows insertion of any item
         this.addInventory(this.output);
@@ -1025,7 +1034,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // Increment debug counter and manage debug logging
         debugTickCounter++;
-        boolean shouldLogDebug = debugTickCounter % DEBUG_LOG_INTERVAL == 0;
+        boolean shouldLogDebug = debugTickCounter % DEBUG_LOG_INTERVAL == 0 && Config.enableDebugLogging;
         globalShouldLogDebug = shouldLogDebug; // Update the global flag
         
         if (shouldLogDebug) {
@@ -1051,6 +1060,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             // Se super.serverTick() fallisce, non continuare con le operazioni bridge-specific
             return;
         }
+
+        // Track matter creation from disintegrators
+        trackMatterCreation();
 
         // CONTROLLO POST-SUPER: Verifica se il mondo ha iniziato a scaricarsi durante super.serverTick()
         if (worldUnloading) {
@@ -2444,6 +2456,49 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         ReplicationRegistry.Matter.LIVING.get()
                 );
 
+                // First, process any pending matter changes to insert into output inventory
+                if (!pendingMatterChanges.isEmpty()) {
+                    long totalPendingMatter = pendingMatterChanges.values().stream().mapToLong(Long::longValue).sum();
+
+                    if (totalPendingMatter <= MAX_MATTER_BUFFER) {
+                        // Insert pending matter into output inventory as items
+                        for (Map.Entry<IMatterType, Long> entry : pendingMatterChanges.entrySet()) {
+                            IMatterType matterType = entry.getKey();
+                            long amount = entry.getValue();
+
+                            if (amount > 0) {
+                                Item matterItem = getItemForMatterType(matterType);
+                                if (matterItem != null) {
+                                    ItemStack matterStack = new ItemStack(matterItem, (int) Math.min(amount, 64)); // Max stack size
+
+                                    // Try to insert into output inventory
+                                    ItemStack remaining = ItemHandlerHelper.insertItemStacked(RepAE2BridgeBlockEntity.this.output, matterStack, false);
+
+                                    // If we inserted something, reduce the pending amount
+                                    int inserted = matterStack.getCount() - remaining.getCount();
+                                    if (inserted > 0) {
+                                        entry.setValue(amount - inserted);
+
+                                        if (globalShouldLogDebug) {
+                                            LOGGER.debug("Bridge at {}: Inserted {} {} matter into output inventory",
+                                                RepAE2BridgeBlockEntity.this.worldPosition, inserted, matterType.getName());
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // Remove processed entries (those with 0 amount)
+                        pendingMatterChanges.entrySet().removeIf(entry -> entry.getValue() <= 0);
+                    } else {
+                        if (globalShouldLogDebug) {
+                            LOGGER.debug("Bridge at {}: Skipping matter buffer insertion - total pending {} exceeds max buffer {}",
+                                RepAE2BridgeBlockEntity.this.worldPosition, totalPendingMatter, MAX_MATTER_BUFFER);
+                        }
+                    }
+                }
+
+                // Show current matter amounts in AE2 terminal
                 for (IMatterType matterType : matterTypes) {
                     long amount = network.calculateMatterAmount(matterType);
                     //LOGGER.info("Bridge: Matter {} available: {}", matterType.getName(), amount);
@@ -2758,8 +2813,86 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public void openGui(Player player) {
         if (player instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
             // Open the priority menu using AE2's menu system
-            appeng.menu.MenuOpener.open(appeng.menu.implementations.PriorityMenu.TYPE, serverPlayer, 
+            appeng.menu.MenuOpener.open(appeng.menu.implementations.PriorityMenu.TYPE, serverPlayer,
                 appeng.menu.locator.MenuLocators.forBlockEntity(this));
         }
+    }
+
+    /**
+     * Tracks matter creation by monitoring changes in matter amounts within the network
+     */
+    private void trackMatterCreation() {
+        // Only check every 20 ticks (1 second) to avoid excessive calculations
+        matterTrackingTickCounter++;
+        if (matterTrackingTickCounter % 20 != 0) {
+            return;
+        }
+
+        MatterNetwork network = getNetwork();
+        if (network == null) {
+            // Reset initialization flag if we lose network connection
+            matterTrackingInitialized = false;
+            return;
+        }
+
+        // Initialize previous amounts on first connection to network
+        if (!matterTrackingInitialized) {
+            for (IMatterType matterType : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+                long currentAmount = network.calculateMatterAmount(matterType);
+                previousMatterAmounts.put(matterType, currentAmount);
+            }
+            matterTrackingInitialized = true;
+
+            if (globalShouldLogDebug) {
+                LOGGER.debug("Bridge at {}: Matter tracking initialized with current network amounts", worldPosition);
+            }
+            return;
+        }
+
+        // Check all matter types for amount changes
+        for (IMatterType matterType : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+            long currentAmount = network.calculateMatterAmount(matterType);
+            long previousAmount = previousMatterAmounts.getOrDefault(matterType, 0L);
+
+            if (currentAmount > previousAmount) {
+                long createdAmount = currentAmount - previousAmount;
+
+                // Accumulate the created matter in the pending buffer
+                long currentPending = pendingMatterChanges.getOrDefault(matterType, 0L);
+                pendingMatterChanges.put(matterType, currentPending + createdAmount);
+
+                onMatterCreated(matterType, createdAmount);
+
+                if (globalShouldLogDebug) {
+                    LOGGER.debug("Bridge at {}: Detected matter creation - {}: {} units created (total: {}), pending buffer: {}",
+                        worldPosition, matterType.getName(), createdAmount, currentAmount, currentPending + createdAmount);
+                }
+            }
+
+            // Update the previous amount
+            previousMatterAmounts.put(matterType, currentAmount);
+        }
+    }
+
+    /**
+     * Called when matter is detected as created in the network
+     * @param matterType The type of matter that was created
+     * @param amount The amount of matter that was created
+     */
+    private void onMatterCreated(IMatterType matterType, long amount) {
+        // Here we can add logic to handle matter creation events
+        // For example, we could send notifications, update statistics, or trigger other systems
+
+        // Log the event only if debug logging is enabled
+        if (Config.enableDebugLogging) {
+            LOGGER.info("Bridge at {}: Matter created from disintegrator - {}: {} units",
+                worldPosition, matterType.getName(), amount);
+        }
+
+        // TODO: Add any additional logic here, such as:
+        // - Sending notifications to players
+        // - Updating matter creation statistics
+        // - Triggering AE2 autocrafting based on matter creation
+        // - Integration with other mods
     }
 }
