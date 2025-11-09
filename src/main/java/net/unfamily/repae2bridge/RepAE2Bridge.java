@@ -69,9 +69,6 @@ public class RepAE2Bridge
 
         // Register the item to a creative tab
         modEventBus.addListener(this::addCreative);
-        
-        // Register the item to creative tabs
-        modEventBus.addListener(ModItems::addItemsToTabs);
 
         // Register config
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);

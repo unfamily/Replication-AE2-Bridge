@@ -1,6 +1,7 @@
 package net.unfamily.repae2bridge.item;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
+import net.unfamily.repae2bridge.block.ModBlocks;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.entity.Entity;
@@ -11,12 +12,8 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.item.CreativeModeTabs;
-import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.network.chat.Component;
-
-import java.util.function.Supplier;
 
 /**
  * Base class for all virtual matter items.
@@ -42,6 +39,9 @@ class MatterItem extends Item {
  */
 public class ModItems {
     public static final DeferredRegister<Item> ITEMS = DeferredRegister.create(BuiltInRegistries.ITEM, RepAE2Bridge.MOD_ID);
+
+    // Creative Mode Tabs
+    public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, RepAE2Bridge.MOD_ID);
 
     // Earth Matter
     public static final DeferredHolder<Item, Item> EARTH_MATTER = ITEMS.register("earth", 
@@ -72,22 +72,36 @@ public class ModItems {
         () -> new MatterItem(new Item.Properties()));
         
     // Quantum Matter
-    public static final DeferredHolder<Item, Item> QUANTUM_MATTER = ITEMS.register("quantum", 
+    public static final DeferredHolder<Item, Item> QUANTUM_MATTER = ITEMS.register("quantum",
         () -> new MatterItem(new Item.Properties()));
 
+    // Our custom creative tab (defined after items to avoid forward reference issues)
+    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> REP_AE2_BRIDGE_TAB = CREATIVE_MODE_TABS.register("rep_ae2_bridge_tab",
+        () -> CreativeModeTab.builder()
+            .title(Component.translatable("itemGroup.rep_ae2_bridge.rep_ae2_bridge_tab"))
+            .icon(() -> new ItemStack(ModBlocks.REPAE2BRIDGE.get()))
+            .displayItems((parameters, output) -> {
+                // Add the bridge block
+                output.accept(ModBlocks.REPAE2BRIDGE.get());
+
+                // Add all matter items
+                output.accept(EARTH_MATTER.get());
+                output.accept(NETHER_MATTER.get());
+                output.accept(ORGANIC_MATTER.get());
+                output.accept(ENDER_MATTER.get());
+                output.accept(METALLIC_MATTER.get());
+                output.accept(PRECIOUS_MATTER.get());
+                output.accept(LIVING_MATTER.get());
+                output.accept(QUANTUM_MATTER.get());
+            })
+            .build());
+
     /**
-     * Register all items
+     * Register all items and creative tabs
      * @param eventBus The mod event bus
      */
     public static void register(IEventBus eventBus) {
         ITEMS.register(eventBus);
-    }
-
-    /**
-     * Add items to creative tabs
-     * @param event The creative mode tab event
-     */
-    public static void addItemsToTabs(BuildCreativeModeTabContentsEvent event) {
-        // Non ci sono più item da aggiungere alle tab creative
+        CREATIVE_MODE_TABS.register(eventBus);
     }
 }
