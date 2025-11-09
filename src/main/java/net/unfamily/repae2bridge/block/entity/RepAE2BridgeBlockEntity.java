@@ -1061,8 +1061,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return;
         }
 
-        // Track matter creation from disintegrators
-        trackMatterCreation();
+        // Track matter creation from disintegrators only if networks are available
+        if (initialized == 1 && getNetwork() != null && isActive()) {
+            trackMatterCreation();
+        }
 
         // CONTROLLO POST-SUPER: Verifica se il mondo ha iniziato a scaricarsi durante super.serverTick()
         if (worldUnloading) {
@@ -2457,7 +2459,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 );
 
                 // First, process any pending matter changes to insert into output inventory
-                if (!pendingMatterChanges.isEmpty()) {
+                // Only if the bridge is fully initialized and networks are available
+                if (!pendingMatterChanges.isEmpty() && RepAE2BridgeBlockEntity.this.initialized == 1 &&
+                    RepAE2BridgeBlockEntity.this.isActive() && RepAE2BridgeBlockEntity.this.getNetwork() != null) {
                     long totalPendingMatter = pendingMatterChanges.values().stream().mapToLong(Long::longValue).sum();
 
                     if (totalPendingMatter <= MAX_MATTER_BUFFER) {
@@ -2825,6 +2829,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Only check every 20 ticks (1 second) to avoid excessive calculations
         matterTrackingTickCounter++;
         if (matterTrackingTickCounter % 20 != 0) {
+            return;
+        }
+
+        // Additional safety check - should not be called if not properly initialized
+        if (initialized != 1 || !isActive()) {
             return;
         }
 
