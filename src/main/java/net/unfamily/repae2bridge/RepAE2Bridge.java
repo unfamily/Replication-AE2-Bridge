@@ -13,7 +13,6 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.config.ModConfig;
 import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 import net.minecraftforge.fml.event.lifecycle.FMLCommonSetupEvent;
-import net.minecraftforge.event.BuildCreativeModeTabContentsEvent;
 import net.minecraftforge.event.server.ServerStartingEvent;
 import net.minecraftforge.event.server.ServerStoppingEvent;
 import net.unfamily.repae2bridge.item.ModItems;
@@ -54,7 +53,6 @@ public class RepAE2Bridge
         // Register the configuration
         modEventBus.register(Config.class);
         modEventBus.addListener(this::commonSetup);
-        modEventBus.addListener(this::addCreative);
         
         // Register config
         ModLoadingContext.get().registerConfig(ModConfig.Type.COMMON, Config.SPEC);
@@ -128,15 +126,6 @@ public class RepAE2Bridge
     }
 
 
-    // Add the example block item to the building blocks tab
-    private void addCreative(BuildCreativeModeTabContentsEvent event)
-    {
-        // Add the bridge to AE2's main creative tab
-        if (event.getTabKey() == appeng.api.ids.AECreativeTabIds.MAIN) {
-            event.accept(ModBlocks.REP_AE2_BRIDGE_ITEM);
-            LOGGER.info("Added RepAE2Bridge to AE2 creative tab");
-        }
-    }
 
     // You can use SubscribeEvent and let the Event Bus discover methods to call
     @SubscribeEvent
