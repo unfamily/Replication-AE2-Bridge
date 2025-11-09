@@ -89,6 +89,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private static final int WARNING_COOLDOWN = 600; // 30 seconds
     private static final int MAX_MATTER_BUFFER = 9 * 2 * 64; // 9 slots * 2 rows * 64 stack size
     private static final long WARNING_THROTTLE_INTERVAL = 300; // 15 seconds = 300 events
+    private static final int PATTERN_UPDATE_INTERVAL = 200; // 10 seconds
 
     // Network initialization state
     @Save
@@ -114,6 +115,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Request accumulation system
     private final Map<UUID, Map<ItemWithSourceId, Integer>> requestCounters = new HashMap<>();
     private int requestCounterTicks = 0;
+
+    // Pattern update system
+    private int patternUpdateTicks = 0;
 
     // Active tasks tracking
     private final Map<UUID, Map<String, TaskSourceInfo>> activeTasks = new HashMap<>();
@@ -245,6 +249,29 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Transfer items from output inventory to AE2 every 20 ticks
         if (level.getGameTime() % 20 == 0) {
             transferItemsToAE2();
+        }
+
+        // Periodic pattern updates to refresh recipes and storage
+        if (patternUpdateTicks >= PATTERN_UPDATE_INTERVAL) {
+            if (isActive() && getNetwork() != null) {
+                try {
+                    // LOGGER.info("Bridge: Periodic pattern update");
+                    ICraftingProvider.requestUpdate(mainNode);
+
+                    // Also update storage to show new matter quantities
+                    IStorageProvider.requestUpdate(mainNode);
+                    if (Config.enableDebugLogging) {
+                        LOGGER.warn("Bridge at {}: Periodic pattern update completed", worldPosition);
+                    }
+                } catch (Exception e) {
+                    if (Config.enableDebugLogging) {
+                        LOGGER.warn("Bridge at {}: EXCEPTION during periodic pattern update: {}", worldPosition, e.getMessage());
+                    }
+                }
+            }
+            patternUpdateTicks = 0;
+        } else {
+            patternUpdateTicks++;
         }
 
         // Periodically check if there are virtual matter items in the AE2 network
