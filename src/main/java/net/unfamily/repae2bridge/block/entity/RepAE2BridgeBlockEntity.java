@@ -719,13 +719,33 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     // =================== NBT ===================
-    
+
     @Override
     public void load(@Nonnull CompoundTag data) {
         super.load(data);
         if (mainNode != null) {
             mainNode.loadFromNBT(data);
         }
+    }
+
+    @Override
+    public void onLoad() {
+        super.onLoad();
+
+        // Register this bridge in the global registry for emergency cleanup (server-side only)
+        if (level != null && !level.isClientSide()) {
+            RepAE2Bridge.activeBridges.add(this);
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Bridge{}: Registered in active bridges registry (total: {})", getLocationInfo(), RepAE2Bridge.activeBridges.size());
+            }
+        }
+    }
+
+    /**
+     * Helper method to get location info for logging
+     */
+    private String getLocationInfo() {
+        return worldPosition != null ? " at " + worldPosition : "";
     }
 
     @Override
@@ -741,11 +761,19 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public void setRemoved() {
         super.setRemoved();
-        
+
         if (mainNode != null) {
             mainNode.destroy();
         }
-        
+
+        // Remove from active bridges registry (server-side only)
+        if (level != null && !level.isClientSide()) {
+            RepAE2Bridge.activeBridges.remove(this);
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Bridge{}: Removed from active bridges registry (total: {})", getLocationInfo(), RepAE2Bridge.activeBridges.size());
+            }
+        }
+
         if (RepAE2Bridge.worldUnloading) {
             initialized = 2;
         }

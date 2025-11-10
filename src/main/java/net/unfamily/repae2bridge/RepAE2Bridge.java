@@ -35,6 +35,10 @@ public class RepAE2Bridge
     // Flag statico per indicare se il mondo sta venendo scaricato
     public static volatile boolean worldUnloading = false;
 
+    // Registro statico per tracciare tutti i bridge attivi (solo lato server)
+    public static final java.util.Set<net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity> activeBridges =
+        java.util.Collections.synchronizedSet(new java.util.HashSet<>());
+
     /**
      * Main constructor of the mod that gets the event bus in the non-deprecated way
      */
@@ -127,6 +131,39 @@ public class RepAE2Bridge
 
 
 
+    /**
+     * Disconnette tutti i bridge attivi dalle reti durante il world unloading
+     * Questo previene memory leaks e garantisce un cleanup pulito
+     */
+    public static void disconnectAllBridgesFromNetworks() {
+        LOGGER.info("RepAE2Bridge: Disconnecting {} bridges from networks during world unloading", activeBridges.size());
+
+        // Crea una copia del set per evitare ConcurrentModificationException
+        java.util.List<net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity> bridgesToDisconnect =
+            new java.util.ArrayList<>(activeBridges);
+
+        for (net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity bridge : bridgesToDisconnect) {
+            try {
+                // Forza la disconnessione del nodo AE2 se attivo
+                var mainNode = bridge.getMainNode();
+                if (mainNode != null && mainNode.isActive()) {
+                    mainNode.destroy();
+                    LOGGER.debug("RepAE2Bridge: Disconnected AE2 node for bridge at {}",
+                        bridge.getBlockPos());
+                }
+
+                // Rimuovi dal registro
+                activeBridges.remove(bridge);
+            } catch (Exception e) {
+                LOGGER.warn("RepAE2Bridge: Exception disconnecting bridge at {}: {}",
+                    bridge.getBlockPos(), e.getMessage());
+            }
+        }
+
+        LOGGER.info("RepAE2Bridge: Cleanup completed - {} bridges remaining in registry",
+            activeBridges.size());
+    }
+
     // You can use SubscribeEvent and let the Event Bus discover methods to call
     @SubscribeEvent
     public void onServerStarting(ServerStartingEvent event)
@@ -139,7 +176,11 @@ public class RepAE2Bridge
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event)
     {
-        LOGGER.info("RepAE2Bridge: Server stopping - setting worldUnloading flag");
+        LOGGER.info("RepAE2Bridge: Server stopping - performing global cleanup");
+
+        // Esegui cleanup globale di tutti i bridge prima di chiudere
+        disconnectAllBridgesFromNetworks();
+
         // Setta il flag worldUnloading a true quando il server si ferma
         worldUnloading = true;
     }
