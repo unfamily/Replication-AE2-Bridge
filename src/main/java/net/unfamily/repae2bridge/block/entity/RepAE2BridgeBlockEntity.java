@@ -421,10 +421,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 .setComponentHarness(this)
                 .setInputFilter((stack, slot) -> true); // Allows insertion of any item
         this.addInventory(this.output);
-        
-        // Register this bridge in the global registry for emergency cleanup
-        activeBridges.add(this);
-        LOGGER.debug("Bridge{}: Registered in active bridges registry (total: {})", getLocationInfo(), activeBridges.size());
+
+        // Note: Registration to activeBridges is done in onLoad() to avoid client-side instances
     }
 
     @NotNull
@@ -495,6 +493,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // Initialize the AE2 node if it hasn't been done
         if (!nodeCreated && level != null && !level.isClientSide()) {
+            // Register this bridge in the global registry for emergency cleanup (server-side only)
+            activeBridges.add(this);
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Bridge{}: Registered in active bridges registry (total: {})", getLocationInfo(), activeBridges.size());
+            }
+
             // Verifica se il nodo è già stato inizializzato tramite le API di AE2
             boolean nodeAlreadyExists = mainNode.getNode() != null;
             
