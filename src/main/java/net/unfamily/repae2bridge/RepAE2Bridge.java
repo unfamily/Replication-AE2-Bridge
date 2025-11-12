@@ -74,6 +74,9 @@ public class RepAE2Bridge
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         LOGGER.info("RepAE2Bridge: Config registered");
 
+        // Register custom matter items BEFORE registering the main items
+        ModItems.registerCustomMatterItems();
+
         // Register modules
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
@@ -82,6 +85,9 @@ public class RepAE2Bridge
 
     private void commonSetup(final FMLCommonSetupEvent event)
     {
+        // Initialize custom matter associations for all bridges
+        net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity.initializeCustomMatterAssociations();
+
         // Register the network element factory for the Replication mod
         // This is crucial for making the connection to the Replication network work
         event.enqueueWork(() -> {

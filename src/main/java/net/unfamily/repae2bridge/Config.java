@@ -5,6 +5,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
+
 /**
  * Configuration class for RepAE2Bridge
  */
@@ -21,15 +22,22 @@ public class Config
             .comment("Enable aggressive debug logging for troubleshooting (includes network state dumps and reconnection logs)")
             .define("enableDebugLogging", false);
 
+    private static final ModConfigSpec.ConfigValue<String> BRIDGE_CUSTOM_MATTER_DECLARE_PATH = BUILDER
+            .comment("Path to directory containing replication bridge matter declaration files",
+                    "Default: 'kubejs/startup_scripts'")
+            .define("bridgeCustomMatterDeclarePath", "kubejs/startup_scripts");
+
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static int bridgeEnergyConsumption;
     public static boolean enableDebugLogging;
+    public static String bridgeCustomMatterDeclarePath;
 
     @SubscribeEvent
     static void onLoad(final ModConfigEvent event)
     {
         bridgeEnergyConsumption = BRIDGE_ENERGY_CONSUMPTION.get();
         enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
+        bridgeCustomMatterDeclarePath = BRIDGE_CUSTOM_MATTER_DECLARE_PATH.get();
     }
 }
