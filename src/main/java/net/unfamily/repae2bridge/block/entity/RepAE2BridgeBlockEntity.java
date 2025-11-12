@@ -1387,7 +1387,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                         pattern.getStack(),
                                                         count, // Use the total number of accumulated requests
                                                         IReplicationTask.Mode.MULTIPLE,
-                                                        this.worldPosition
+                                                        this.worldPosition,
+                                                        false // Not infinite mode
                                                 );
 
                                                 // Add the task to the network
