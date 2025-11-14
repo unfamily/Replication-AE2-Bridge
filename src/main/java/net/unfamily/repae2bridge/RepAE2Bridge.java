@@ -26,6 +26,7 @@ import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.unfamily.repae2bridge.item.ModItems;
+import net.unfamily.repae2bridge.component.ModDataComponents;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import appeng.api.networking.IInWorldGridNodeHost;
@@ -67,26 +68,20 @@ public class RepAE2Bridge
         // Do not add this line if there are no @SubscribeEvent-annotated functions in this class, like onServerStarting() below.
         NeoForge.EVENT_BUS.register(this);
 
-        // Register the item to a creative tab
-        modEventBus.addListener(this::addCreative);
 
         // Register config
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         LOGGER.info("RepAE2Bridge: Config registered");
 
-        // Register custom matter items BEFORE registering the main items
-        ModItems.registerCustomMatterItems();
-
         // Register modules
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
+        ModDataComponents.register(modEventBus);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)
     {
-        // Initialize custom matter associations for all bridges
-        net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity.initializeCustomMatterAssociations();
 
         // Register the network element factory for the Replication mod
         // This is crucial for making the connection to the Replication network work
