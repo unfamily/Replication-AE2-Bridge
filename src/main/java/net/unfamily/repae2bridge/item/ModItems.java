@@ -91,6 +91,10 @@ public class ModItems {
     public static final DeferredHolder<Item, Item> QUANTUM_MATTER = ITEMS.register("quantum",
         () -> new MatterItem(new Item.Properties()));
 
+    // Universal Matter
+    public static final DeferredHolder<Item, Item> UNIVERSAL_MATTER = ITEMS.register("universal_matter",
+        () -> new UniversalMatterItem(new Item.Properties()));
+
     // Our custom creative tab (defined after items to avoid forward reference issues)
     public static final DeferredHolder<CreativeModeTab, CreativeModeTab> REP_AE2_BRIDGE_TAB = CREATIVE_MODE_TABS.register("rep_ae2_bridge_tab",
         () -> CreativeModeTab.builder()
@@ -109,6 +113,7 @@ public class ModItems {
                 output.accept(PRECIOUS_MATTER.get());
                 output.accept(LIVING_MATTER.get());
                 output.accept(QUANTUM_MATTER.get());
+                output.accept(UNIVERSAL_MATTER.get());
 
                 // Add custom matter items from configuration
                 for (DeferredHolder<Item, Item> customItem : CUSTOM_MATTER_ITEMS.values()) {

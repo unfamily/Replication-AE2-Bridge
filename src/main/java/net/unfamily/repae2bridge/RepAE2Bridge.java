@@ -26,6 +26,7 @@ import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.unfamily.repae2bridge.item.ModItems;
+import net.unfamily.repae2bridge.component.ModDataComponents;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import appeng.api.networking.IInWorldGridNodeHost;
@@ -81,6 +82,7 @@ public class RepAE2Bridge
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
+        ModDataComponents.register(modEventBus);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)

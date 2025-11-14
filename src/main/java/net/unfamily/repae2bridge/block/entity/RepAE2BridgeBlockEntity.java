@@ -2423,8 +2423,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (name.equalsIgnoreCase("living")) return ModItems.LIVING_MATTER.get();
         if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
 
-        // Check custom matter types
-        return customMatterToItemMap.get(type);
+        
+        if(customMatterToItemMap.get(type) != null) {
+            return customMatterToItemMap.get(type);
+        }
+
+        return ModItems.UNIVERSAL_MATTER.get();
     }
 
     // Utility to recognize virtual matter items (supports both built-in and custom matter types)
