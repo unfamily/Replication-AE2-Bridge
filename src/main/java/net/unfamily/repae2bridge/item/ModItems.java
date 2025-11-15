@@ -14,8 +14,6 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.world.item.CreativeModeTab;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
 import java.util.HashMap;
@@ -56,8 +54,6 @@ public class ModItems {
     // Map to store expected matter type bindings (itemId -> expected matterId)
     private static final Map<String, String> EXPECTED_MATTER_BINDINGS = new HashMap<>();
 
-    // Creative Mode Tabs
-    public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, RepAE2Bridge.MOD_ID);
 
     // Earth Matter
     public static final DeferredHolder<Item, Item> EARTH_MATTER = ITEMS.register("earth", 
@@ -95,32 +91,6 @@ public class ModItems {
     public static final DeferredHolder<Item, Item> UNIVERSAL_MATTER = ITEMS.register("universal_matter",
         () -> new UniversalMatterItem(new Item.Properties()));
 
-    // Our custom creative tab (defined after items to avoid forward reference issues)
-    public static final DeferredHolder<CreativeModeTab, CreativeModeTab> REP_AE2_BRIDGE_TAB = CREATIVE_MODE_TABS.register("rep_ae2_bridge_tab",
-        () -> CreativeModeTab.builder()
-            .title(Component.translatable("itemGroup.rep_ae2_bridge.rep_ae2_bridge_tab"))
-            .icon(() -> new ItemStack(ModBlocks.REPAE2BRIDGE.get()))
-            .displayItems((parameters, output) -> {
-                // Add the bridge block
-                output.accept(ModBlocks.REPAE2BRIDGE.get());
-
-                // Add all matter items
-                output.accept(EARTH_MATTER.get());
-                output.accept(NETHER_MATTER.get());
-                output.accept(ORGANIC_MATTER.get());
-                output.accept(ENDER_MATTER.get());
-                output.accept(METALLIC_MATTER.get());
-                output.accept(PRECIOUS_MATTER.get());
-                output.accept(LIVING_MATTER.get());
-                output.accept(QUANTUM_MATTER.get());
-                output.accept(UNIVERSAL_MATTER.get());
-
-                // Add custom matter items from configuration
-                for (DeferredHolder<Item, Item> customItem : CUSTOM_MATTER_ITEMS.values()) {
-                    output.accept(customItem.get());
-                }
-            })
-            .build());
 
     /**
      * Register custom matter items from bridge matter declaration files.
@@ -212,11 +182,10 @@ public class ModItems {
     }
 
     /**
-     * Register all items and creative tabs
+     * Register all items
      * @param eventBus The mod event bus
      */
     public static void register(IEventBus eventBus) {
         ITEMS.register(eventBus);
-        CREATIVE_MODE_TABS.register(eventBus);
     }
 }
