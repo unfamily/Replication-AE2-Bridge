@@ -135,8 +135,8 @@ public class ModItems {
         CUSTOM_MATTER_ITEMS.clear(); // Clear any previous registrations
 
         try {
-            // Scan the default external scripts directory for replication bridge definitions
-            ReplicationBridgeLoader.scanExternalScriptsDirectory();
+            // Load replication bridge definitions from config file
+            ReplicationBridgeLoader.loadConfigFile();
 
             // Get all matter definitions from the loader
             var matterDefinitions = ReplicationBridgeLoader.getMatterDefinitions();

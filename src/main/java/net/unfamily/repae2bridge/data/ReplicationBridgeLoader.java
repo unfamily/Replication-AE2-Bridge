@@ -14,14 +14,15 @@ import java.io.InputStreamReader;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.ArrayList;
 import java.util.HashMap;
-import java.util.List;
 import java.util.Map;
-import java.util.stream.Stream;
+import net.unfamily.repae2bridge.Config;
+import com.buuz135.replication.ReplicationRegistry;
+import net.neoforged.fml.loading.FMLPaths;
 
 /**
- * Loads replication bridge matter definitions from custom declaration JSON files
+ * Loads replication bridge matter definitions from config JSON file
+ * Automatically creates example config file if it doesn't exist
  */
 public class ReplicationBridgeLoader {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -30,86 +31,137 @@ public class ReplicationBridgeLoader {
     // Map to store matter definitions
     private static final Map<String, String> MATTER_DEFINITIONS = new HashMap<>();
 
-    // Stores files with overwritable=false to prevent them from being overwritten
-    private static final Map<String, Boolean> PROTECTED_DEFINITIONS = new HashMap<>();
 
     /**
-     * Data class for replication bridge entries
+     * Loads the replication bridge matter definitions from the config JSON file
      */
-    public static class ReplicationBridgeEntry {
-        public String itemId;
-        public String matterId;
-    }
-
-    /**
-     * Data class for replication bridge definitions
-     */
-    public static class ReplicationBridgeDefinition {
-        public String type;
-        public boolean overwritable = false;
-        public List<ReplicationBridgeEntry> entries = new ArrayList<>();
-    }
-
-    /**
-     * Scans the bridge custom matter declaration directory for replication bridge definitions
-     */
-    public static void scanExternalScriptsDirectory() {
-        if (LOGGER.isInfoEnabled()) {
-            LOGGER.info("Scanning bridge custom matter declaration directory for replication bridge definitions...");
+    public static void loadConfigFile() {
+        if (Config.enableDebugLogging) {
+            LOGGER.info("Loading replication bridge matter definitions from config file...");
         }
 
         try {
-            // Use the default kubejs startup_scripts directory
-            String externalScriptsBasePath = "kubejs/startup_scripts";
+            // Use the NeoForge config directory
+            Path configDir = FMLPaths.CONFIGDIR.get();
+            String configFileName = "rep_ae2_bridge_matters.json";
 
-            // Create directory for replication bridges if it doesn't exist
-            Path configPath = Paths.get(externalScriptsBasePath);
-            if (!Files.exists(configPath)) {
-                Files.createDirectories(configPath);
-                if (LOGGER.isInfoEnabled()) {
-                    LOGGER.info("Created directory for external scripts: {}", configPath.toAbsolutePath());
+            // Create path to the config file
+            Path configFilePath = configDir.resolve(configFileName);
+
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Attempting to load config file: {}", configFilePath.toAbsolutePath());
+                LOGGER.info("NeoForge config dir: '{}', File name: '{}'", configDir.toAbsolutePath(), configFileName);
+            }
+
+            // Clear previous definitions
+            MATTER_DEFINITIONS.clear();
+
+            // Check if the config file exists
+            if (!Files.exists(configFilePath)) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.info("Config file not found: {}. Matter definitions will be empty.", configFilePath.toAbsolutePath());
                 }
                 return;
             }
 
-            if (!Files.isDirectory(configPath)) {
-                LOGGER.warn("The path for external scripts exists but is not a directory: {}", configPath);
+            if (!Files.isRegularFile(configFilePath)) {
+                LOGGER.warn("Config file path exists but is not a regular file: {}", configFilePath);
                 return;
             }
 
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("Scanning directory for replication bridge definitions: {}", configPath.toAbsolutePath());
-            }
+            // Load the config file
+            loadReplicationBridgeFile(configFilePath);
 
-            // Clear previous protections and definitions
-            PROTECTED_DEFINITIONS.clear();
-            MATTER_DEFINITIONS.clear();
-
-            // Scan all JSON files in the directory
-            try (Stream<Path> files = Files.walk(configPath)) {
-                files.filter(Files::isRegularFile)
-                     .filter(path -> path.toString().endsWith(".json"))
-                     .filter(path -> !path.getFileName().toString().startsWith("."))
-                     .forEach(path -> {
-                         try {
-                             loadReplicationBridgeFile(path);
-                         } catch (Exception e) {
-                             LOGGER.error("Failed to load replication bridge file: {}", path, e);
-                         }
-                     });
-            }
-
-            if (LOGGER.isInfoEnabled()) {
-                LOGGER.info("Loaded {} replication bridge definitions from external scripts", MATTER_DEFINITIONS.size());
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Loaded {} replication bridge matter definitions from config file", MATTER_DEFINITIONS.size());
             }
 
         } catch (Exception e) {
-            LOGGER.error("Error scanning external scripts directory for replication bridge definitions", e);
+            LOGGER.error("Error loading replication bridge config file", e);
         }
     }
 
     /**
-     * Loads a single replication bridge JSON file
+     * Creates an example config file with automatic matter associations
+     * Excludes built-in Replication matter types (earth, nether, organic, etc.)
+     * but includes custom matter types from other mods
+     */
+    public static void createExampleConfigFile(Path configFilePath) {
+        try {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Creating example config file at: {}", configFilePath.toAbsolutePath());
+            }
+
+            // Create directory if it doesn't exist
+            Files.createDirectories(configFilePath.getParent());
+
+            // Build example JSON with automatic associations
+            JsonObject rootObject = new JsonObject();
+            rootObject.addProperty("type", "rep_ae2_bridge");
+            rootObject.addProperty("overwritable", true); // Global overwritable setting
+
+            JsonArray entriesArray = new JsonArray();
+
+            // Get all registered matter types and create example entries (excluding built-in replication matter)
+            var matterTypes = ReplicationRegistry.MATTER_TYPES_REGISTRY.stream().toList();
+
+            // List of built-in replication matter types to exclude from auto-generation
+            var builtInMatterTypes = java.util.Set.of(
+                ReplicationRegistry.Matter.EMPTY.get(),
+                ReplicationRegistry.Matter.EARTH.get(),
+                ReplicationRegistry.Matter.NETHER.get(),
+                ReplicationRegistry.Matter.ORGANIC.get(),
+                ReplicationRegistry.Matter.ENDER.get(),
+                ReplicationRegistry.Matter.METALLIC.get(),
+                ReplicationRegistry.Matter.PRECIOUS.get(),
+                ReplicationRegistry.Matter.LIVING.get(),
+                ReplicationRegistry.Matter.QUANTUM.get()
+            );
+
+            for (var matterType : matterTypes) {
+                // Skip built-in replication matter types
+                if (builtInMatterTypes.contains(matterType)) {
+                    continue;
+                }
+
+                var matterResourceLocation = ReplicationRegistry.MATTER_TYPES_REGISTRY.getKey(matterType);
+                if (matterResourceLocation != null) {
+                    String matterId = matterResourceLocation.toString();
+
+                    JsonObject entryObject = new JsonObject();
+
+                    // Create itemId from matterId by replacing colons with dashes
+                    String itemId = matterId.replace(":", "-");
+
+                    entryObject.addProperty("itemId", itemId);
+                    entryObject.addProperty("matterId", matterId);
+
+                    entriesArray.add(entryObject);
+
+                    if (Config.enableDebugLogging) {
+                        LOGGER.debug("Created example entry: {} -> {}", itemId, matterId);
+                    }
+                }
+            }
+
+            rootObject.add("entries", entriesArray);
+
+            // Write the example file
+            try (var writer = Files.newBufferedWriter(configFilePath)) {
+                GSON.toJson(rootObject, writer);
+            }
+
+            if (Config.enableDebugLogging) {
+                LOGGER.info("Created example config file with {} automatic matter associations", entriesArray.size());
+            }
+
+        } catch (Exception e) {
+            LOGGER.error("Failed to create example config file: {}", configFilePath, e);
+        }
+    }
+
+    /**
+     * Loads the replication bridge JSON config file
      */
     private static void loadReplicationBridgeFile(Path filePath) {
         try (InputStream inputStream = Files.newInputStream(filePath);
@@ -121,30 +173,12 @@ public class ReplicationBridgeLoader {
                 return;
             }
 
-            // Check type
-            if (!jsonObject.has("type") || !jsonObject.get("type").getAsString().equals("replication_bridges")) {
-                // Not a replication bridge file, skip silently
-                return;
-            }
-
-            // Parse overwritable flag
-            boolean overwritable = false;
-            if (jsonObject.has("overwritable")) {
-                overwritable = jsonObject.get("overwritable").getAsBoolean();
-            }
-
-            // Check if file is protected and already loaded
-            String fileName = filePath.getFileName().toString();
-            if (!overwritable && PROTECTED_DEFINITIONS.containsKey(fileName)) {
-                if (LOGGER.isDebugEnabled()) {
-                    LOGGER.debug("Skipping protected replication bridge file: {}", fileName);
+            // Check type - should be "rep_ae2_bridge"
+            if (jsonObject.has("type") && !jsonObject.get("type").getAsString().equals("rep_ae2_bridge")) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.warn("Config file has wrong type: expected 'rep_ae2_bridge', found '{}'", jsonObject.get("type").getAsString());
                 }
                 return;
-            }
-
-            // Mark as protected if overwritable is false
-            if (!overwritable) {
-                PROTECTED_DEFINITIONS.put(fileName, true);
             }
 
             // Parse entries
@@ -163,22 +197,24 @@ public class ReplicationBridgeLoader {
 
                             MATTER_DEFINITIONS.put(registryName, matterId);
 
-                            if (LOGGER.isDebugEnabled()) {
+                            if (Config.enableDebugLogging) {
                                 LOGGER.debug("Loaded replication bridge entry: {} -> {}", registryName, matterId);
                             }
                         } else {
-                            LOGGER.warn("Invalid entry in {}: missing itemId or matterId", fileName);
+                            if (Config.enableDebugLogging) {
+                                LOGGER.warn("Invalid entry in config file: missing itemId or matterId");
+                            }
                         }
                     }
                 }
             }
 
-            if (LOGGER.isDebugEnabled()) {
-                LOGGER.debug("Successfully loaded replication bridge file: {}", fileName);
+            if (Config.enableDebugLogging) {
+                LOGGER.debug("Successfully loaded replication bridge config file: {}", filePath.getFileName());
             }
 
         } catch (IOException e) {
-            LOGGER.error("Failed to read replication bridge file: {}", filePath, e);
+            LOGGER.error("Failed to read replication bridge config file: {}", filePath, e);
         }
     }
 

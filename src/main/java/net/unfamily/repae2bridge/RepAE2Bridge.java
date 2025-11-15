@@ -87,8 +87,6 @@ public class RepAE2Bridge
 
     private void commonSetup(final FMLCommonSetupEvent event)
     {
-        // Initialize custom matter associations for all bridges
-        net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity.initializeCustomMatterAssociations();
 
         // Register the network element factory for the Replication mod
         // This is crucial for making the connection to the Replication network work

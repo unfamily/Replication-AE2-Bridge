@@ -28,7 +28,6 @@ import com.buuz135.replication.block.tile.ReplicationMachine;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.MatterNetwork;
 import com.buuz135.replication.api.IMatterType;
-import com.buuz135.replication.api.matter_fluid.MatterStack;
 import com.buuz135.replication.calculation.MatterValue;
 import com.hrznstudio.titanium.block.BasicTileBlock;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
@@ -48,8 +47,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.unfamily.repae2bridge.block.ModBlocks;
-import net.unfamily.repae2bridge.RepAE2Bridge;
-import net.minecraft.world.item.Items;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import com.buuz135.replication.api.pattern.MatterPattern;
@@ -67,7 +64,7 @@ import appeng.api.networking.storage.IStorageService;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import appeng.me.helpers.MachineSource;
 import net.unfamily.repae2bridge.Config;
-import net.unfamily.repae2bridge.data.ReplicationBridgeLoader;
+import net.unfamily.repae2bridge.events.ServerLifecycleEventHandler;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import appeng.helpers.IPriorityHost;
 
@@ -237,84 +234,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Static registry of all active bridges for emergency cleanup during world unloading
     private static final Set<RepAE2BridgeBlockEntity> activeBridges = new HashSet<>();
 
-    // Static maps for custom matter type associations (loaded once at startup)
-    private static final Map<Item, IMatterType> customItemToMatterMap = new HashMap<>();
-    private static final Map<IMatterType, Item> customMatterToItemMap = new HashMap<>();
-    private static final Set<Item> customVirtualMatterItems = new HashSet<>();
-    private static boolean customAssociationsLoaded = false;
-
-    /**
-     * Initialize custom matter type associations from JSON files.
-     * This method is called once at startup to populate the static maps.
-     */
-    public static void initializeCustomMatterAssociations() {
-        if (customAssociationsLoaded) {
-            return; // Already loaded
-        }
-
-        LOGGER.info("Initializing custom matter type associations...");
-
-        try {
-            // Clear any existing associations
-            customItemToMatterMap.clear();
-            customMatterToItemMap.clear();
-            customVirtualMatterItems.clear();
-
-            // Scan for custom matter definitions
-            ReplicationBridgeLoader.scanExternalScriptsDirectory();
-            var matterDefinitions = ReplicationBridgeLoader.getMatterDefinitions();
-
-            if (matterDefinitions.isEmpty()) {
-                LOGGER.info("No custom matter definitions found");
-                customAssociationsLoaded = true;
-                return;
-            }
-
-            LOGGER.info("Found {} custom matter definitions, building associations...", matterDefinitions.size());
-
-            // Build associations
-            for (var entry : matterDefinitions.entrySet()) {
-                String itemRegistryName = entry.getKey();
-                String matterId = entry.getValue();
-
-                try {
-                    // Find the item by registry name
-                    Item item = net.minecraft.core.registries.BuiltInRegistries.ITEM.get(
-                        net.minecraft.resources.ResourceLocation.fromNamespaceAndPath("rep_ae2_bridge", itemRegistryName));
-
-                    if (item != null && item != Items.AIR) {
-                        // Try to get the matter type from the registry
-                        var matterResourceLocation = net.minecraft.resources.ResourceLocation.parse(matterId);
-                        var matterType = ReplicationRegistry.MATTER_TYPES_REGISTRY.get(matterResourceLocation);
-
-                        if (matterType != null) {
-                            // Create bidirectional associations
-                            customItemToMatterMap.put(item, matterType);
-                            customMatterToItemMap.put(matterType, item);
-                            customVirtualMatterItems.add(item);
-
-                            LOGGER.debug("Associated custom item '{}' with matter type '{}' ({})",
-                                itemRegistryName, matterId, matterType.getName());
-                        } else {
-                            LOGGER.warn("Matter type '{}' not found for custom item '{}'", matterId, itemRegistryName);
-                        }
-                    } else {
-                        LOGGER.warn("Custom item '{}' not found in registry", itemRegistryName);
-                    }
-                } catch (Exception e) {
-                    LOGGER.error("Error processing custom matter association: {} -> {}", itemRegistryName, matterId, e);
-                }
-            }
-
-            LOGGER.info("Custom matter associations initialized: {} bidirectional mappings created",
-                customItemToMatterMap.size());
-
-        } catch (Exception e) {
-            LOGGER.error("Error initializing custom matter associations", e);
-        } finally {
-            customAssociationsLoaded = true;
-        }
-    }
 
     /**
      * Sets the world unloading state
@@ -1511,7 +1430,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                         // Find the corresponding virtual item
                                                         Item matterItem = getItemForMatterType(matterType);
                                                         if (matterItem != null) {
-                                                            AEItemKey matterKey = AEItemKey.of(matterItem);
+                                                            AEItemKey matterKey;
+                                                            if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
+                                                                // For universal matter, create a key with the correct component
+                                                                ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
+                                                                matterKey = AEItemKey.of(matterStack);
+                                                            } else {
+                                                                matterKey = AEItemKey.of(matterItem);
+                                                            }
 
                                                             // Note: now we extract real matter for replication
                                                             // LOGGER.info("Bridge: Extracting {} real matter {} for replication",
@@ -2033,7 +1959,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         Item matterItem = getItemForMatterType(matterType);
                                         if (matterItem != null) {
                                             // Add the matter as input
-                                            inputs.add(new GenericStack(AEItemKey.of(matterItem), matterAmount));
+                                            AEItemKey matterKey;
+                                            if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
+                                                // For universal matter, create a key with the correct component
+                                                ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
+                                                matterKey = AEItemKey.of(matterStack);
+                                            } else {
+                                                matterKey = AEItemKey.of(matterItem);
+                                            }
+                                            inputs.add(new GenericStack(matterKey, matterAmount));
                                             //LOGGER.info("Bridge: Pattern for {} requires {} of {} matter",
                                             //    pattern.getStack().getItem().getDescriptionId(),
                                             //    matterAmount,
@@ -2146,7 +2080,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                     // Find the virtual item corresponding to the matter type
                                                     Item matterItem = getItemForMatterType(matterType);
                                                     if (matterItem != null) {
-                                                        AEItemKey matterKey = AEItemKey.of(matterItem);
+                                                        AEItemKey matterKey;
+                                                        if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
+                                                            // For universal matter, create a key with the correct component
+                                                            ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
+                                                            matterKey = AEItemKey.of(matterStack);
+                                                        } else {
+                                                            matterKey = AEItemKey.of(matterItem);
+                                                        }
 
                                                         // Note: now we extract the real matter for replication
                                                         //LOGGER.info("Bridge: Extraction of {} real matter {} for replication",
@@ -2424,8 +2365,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
 
         
-        if(customMatterToItemMap.get(type) != null) {
-            return customMatterToItemMap.get(type);
+        if(ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type) != null) {
+            return ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
         }
 
         return ModItems.UNIVERSAL_MATTER.get();
@@ -2444,7 +2385,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 || item == ModItems.QUANTUM_MATTER.get();
 
         // Check custom matter items
-        boolean isCustom = customVirtualMatterItems.contains(item);
+        boolean isCustom = ServerLifecycleEventHandler.getCustomVirtualMatterItems().contains(item);
 
         return isBuiltIn || isCustom;
     }
@@ -2468,8 +2409,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (amount > 0) {
                     Item item = getItemForMatterType(matterType);
                     if (item != null) {
+                        // For universal matter, create a key with the correct matter component
+                        if (item == ModItems.UNIVERSAL_MATTER.get()) {
+                            ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
+                            items.add(AEItemKey.of(matterStack), amount);
+                        } else {
+                            items.add(AEItemKey.of(item), amount);
+                        }
                         //LOGGER.info("Bridge: Adding virtual item " + item + " quantity " + amount);
-                        items.add(AEItemKey.of(item), amount);
                     } else {
                         //LOGGER.info("Bridge: No item associated with " + matterType.getName());
                     }
@@ -2658,8 +2605,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     if (amount > 0) {
                         Item item = getItemForMatterType(matterType);
                         if (item != null) {
-                            //LOGGER.info("Bridge: Adding virtual item {} quantity {}", item, amount);
-                            out.add(AEItemKey.of(item), amount);
+                            // For universal matter, create a stack with the correct matter component
+                            // so that AE2 sees different items for different matter types
+                            if (item == ModItems.UNIVERSAL_MATTER.get()) {
+                                ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
+                                out.add(AEItemKey.of(matterStack), amount);
+                                //LOGGER.info("Bridge: Adding universal matter stack {} quantity {}", matterType.getName(), amount);
+                            } else {
+                                // For specific matter items, use the regular approach
+                                out.add(AEItemKey.of(item), amount);
+                                //LOGGER.info("Bridge: Adding specific matter item {} quantity {}", item, amount);
+                            }
                         } else {
                             //LOGGER.info("Bridge: No item associated with {}", matterType.getName());
                         }
@@ -2696,7 +2652,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (item == ModItems.QUANTUM_MATTER.get()) return ReplicationRegistry.Matter.QUANTUM.get();
 
         // Check custom matter types
-        return customItemToMatterMap.get(item);
+        return ServerLifecycleEventHandler.getCustomItemToMatterMap().get(item);
     }
 
     /**
