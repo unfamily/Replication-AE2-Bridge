@@ -25,7 +25,12 @@ import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.event.ModifyDefaultComponentsEvent;
+import net.neoforged.bus.api.EventPriority;
+import net.minecraft.core.component.DataComponents;
 import net.unfamily.repae2bridge.item.ModItems;
+import net.unfamily.repae2bridge.item.MatterItem;
+import net.unfamily.repae2bridge.item.UniversalMatterItem;
 import net.unfamily.repae2bridge.component.ModDataComponents;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
@@ -217,21 +222,18 @@ public class RepAE2Bridge
             // Massimo stacksize assoluto (Integer.MAX_VALUE / 2 per evitare overflow)
             final int MATTER_MAX_STACK_SIZE = Integer.MAX_VALUE / 2;
             
-            int modifiedCount = 0;
+            final java.util.concurrent.atomic.AtomicInteger modifiedCount = new java.util.concurrent.atomic.AtomicInteger(0);
             
-            // Filtra tutti gli items del nostro mod
+            // Filtra solo i matter items usando instanceof
+            // Questo include: MatterItem (base matters), CustomMatterItem (extends MatterItem) e UniversalMatterItem
             event.getAllItems()
-                    .filter(item -> {
-                        // Controlla se l'item è un CustomMatterItem o UniversalMatterItem
-                        // Non possiamo controllare MatterItem direttamente perché è package-private
-                        return item instanceof CustomMatterItem || item instanceof UniversalMatterItem;
-                    })
+                    .filter(item -> item instanceof MatterItem || item instanceof UniversalMatterItem)
                     .forEach(item -> {
                         // Imposta il MAX_STACK_SIZE solo per i matter items
                         event.modify(item, builder -> 
                             builder.set(DataComponents.MAX_STACK_SIZE, MATTER_MAX_STACK_SIZE)
                         );
-                        modifiedCount++;
+                        modifiedCount.incrementAndGet();
                         
                         if (Config.enableDebugLogging) {
                             LOGGER.debug("RepAE2Bridge: Set MAX_STACK_SIZE to {} for matter item: {}", 
@@ -241,7 +243,7 @@ public class RepAE2Bridge
                     });
             
             LOGGER.info("RepAE2Bridge: Modified MAX_STACK_SIZE for {} matter items to {}", 
-                       modifiedCount, MATTER_MAX_STACK_SIZE);
+                       modifiedCount.get(), MATTER_MAX_STACK_SIZE);
         }
     }
 

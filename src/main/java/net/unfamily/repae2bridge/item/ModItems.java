@@ -22,25 +22,6 @@ import com.mojang.logging.LogUtils;
 import org.slf4j.Logger;
 
 /**
- * Base class for all virtual matter items.
- * These items will disappear if left in the player's inventory.
- */
-class MatterItem extends Item {
-    public MatterItem(Properties properties) {
-        super(properties);
-    }
-    
-    @Override
-    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
-        // Makes the item disappear if it's in a player's inventory
-        if (entity instanceof Player && !level.isClientSide()) {
-            // Remove the item from inventory
-            stack.setCount(0);
-        }
-    }
-}
-
-/**
  * Registry handler for all items in the mod
  */
 public class ModItems {

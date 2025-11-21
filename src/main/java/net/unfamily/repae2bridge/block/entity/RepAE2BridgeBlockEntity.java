@@ -200,7 +200,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private boolean matterTrackingInitialized = false;
     // Buffer for matter changes to be inserted into output inventory
     private final Map<IMatterType, Long> pendingMatterChanges = new HashMap<>();
-    private static final int MAX_MATTER_BUFFER = 9 * 2 * 64; // 9 slots * 2 rows * 64 stack size
+    // MAX_MATTER_BUFFER: Ora che gli stacksize possono essere enormi (Integer.MAX_VALUE / 2),
+    // impostiamo un buffer molto più grande. 
+    // 9 slots * 2 rows * stacksize alto = capacità enorme per il buffer
+    private static final long MAX_MATTER_BUFFER = 9L * 2L * (Integer.MAX_VALUE / 2L); // ~19 miliardi per slot
     // Temporary counters for crafting requests
     private final Map<UUID, Map<ItemWithSourceId, Integer>> requestCounters = new HashMap<>();
     private int requestCounterTicks = 0;
@@ -2571,7 +2574,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             if (amount > 0) {
                                 Item matterItem = getItemForMatterType(matterType);
                                 if (matterItem != null) {
-                                    ItemStack matterStack = new ItemStack(matterItem, (int) Math.min(amount, 64)); // Max stack size
+                                    // Usa il nuovo stacksize massimo invece di 64
+                                    // Coerente con i mixin che permettono stacksize enormi
+                                    int maxStackSize = Integer.MAX_VALUE / 2;
+                                    ItemStack matterStack = new ItemStack(matterItem, (int) Math.min(amount, maxStackSize));
 
                                     // Try to insert into output inventory
                                     ItemStack remaining = ItemHandlerHelper.insertItemStacked(RepAE2BridgeBlockEntity.this.output, matterStack, false);

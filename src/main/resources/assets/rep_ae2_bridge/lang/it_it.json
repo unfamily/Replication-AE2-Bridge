@@ -9,6 +9,6 @@
     "item.rep_ae2_bridge.quantum": "Materia Quantica",
     "block.rep_ae2_bridge.rep_ae2_bridge": "Ponte AE2-Replication",
     "block.rep_ae2_bridge.repae2bridge": "Ponte RepAE2",
-    "item.rep_ae2_bridge.repae2bridge": "Ponte RepAE2"
-    
+    "item.rep_ae2_bridge.repae2bridge": "Ponte RepAE2",
+    "item.rep_ae2_bridge.universal_matter.warning": "Avviso: questa è una materia di sostituzione universale; per il corretto funzionamento, riavvia client e server. Inoltre, per le materie personalizzate, infatti, dovrai anche creare texture, modelli di oggetti e file di lingua."
 } 
