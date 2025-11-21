@@ -4,6 +4,8 @@
     "package": "net.unfamily.repae2bridge.mixin",
     "compatibilityLevel": "JAVA_21",
     "mixins": [
+      "ItemStackMixin",
+      "DataComponentsMixin"
     ],
     "client": [
       "SpriteLoaderMixin"
