@@ -492,14 +492,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         //LOGGER.info("Bridge: onLoad called at {}", worldPosition);
 
-        // Initialize the AE2 node if it hasn't been done
-        if (!nodeCreated && level != null && !level.isClientSide()) {
-            // Register this bridge in the global registry for emergency cleanup (server-side only)
+        // Register this bridge in the global registry for emergency cleanup (server-side only)
+        // IMPORTANT: This must be done ALWAYS, not just when !nodeCreated
+        // because nodeCreated can be true when reloading from NBT
+        if (level != null && !level.isClientSide()) {
             activeBridges.add(this);
             if (Config.enableDebugLogging) {
                 LOGGER.info("Bridge{}: Registered in active bridges registry (total: {})", getLocationInfo(), activeBridges.size());
             }
+        }
 
+        // Initialize the AE2 node if it hasn't been done
+        if (!nodeCreated && level != null && !level.isClientSide()) {
             // Verifica se il nodo è già stato inizializzato tramite le API di AE2
             boolean nodeAlreadyExists = mainNode.getNode() != null;
             
