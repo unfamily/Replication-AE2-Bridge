@@ -202,6 +202,49 @@ public class RepAE2Bridge
         LOGGER.info("RepAE2Bridge: All bridges notified of world unload");
     }
 
+    /**
+     * Mod event bus subscriber per modificare le proprietà degli items durante il caricamento
+     */
+    @EventBusSubscriber(modid = MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+    public static class ModBusEvents {
+        /**
+         * Evento che modifica il MAX_STACK_SIZE dei matter items virtuali.
+         * Impostiamo uno stacksize molto alto SOLO per i matter items,
+         * permettendo di storare grandi quantità.
+         */
+        @SubscribeEvent(priority = EventPriority.LOWEST)
+        public static void onModifyDefaultComponents(ModifyDefaultComponentsEvent event) {
+            // Massimo stacksize assoluto (Integer.MAX_VALUE / 2 per evitare overflow)
+            final int MATTER_MAX_STACK_SIZE = Integer.MAX_VALUE / 2;
+            
+            int modifiedCount = 0;
+            
+            // Filtra tutti gli items del nostro mod
+            event.getAllItems()
+                    .filter(item -> {
+                        // Controlla se l'item è un CustomMatterItem o UniversalMatterItem
+                        // Non possiamo controllare MatterItem direttamente perché è package-private
+                        return item instanceof CustomMatterItem || item instanceof UniversalMatterItem;
+                    })
+                    .forEach(item -> {
+                        // Imposta il MAX_STACK_SIZE solo per i matter items
+                        event.modify(item, builder -> 
+                            builder.set(DataComponents.MAX_STACK_SIZE, MATTER_MAX_STACK_SIZE)
+                        );
+                        modifiedCount++;
+                        
+                        if (Config.enableDebugLogging) {
+                            LOGGER.debug("RepAE2Bridge: Set MAX_STACK_SIZE to {} for matter item: {}", 
+                                        MATTER_MAX_STACK_SIZE, 
+                                        BuiltInRegistries.ITEM.getKey(item));
+                        }
+                    });
+            
+            LOGGER.info("RepAE2Bridge: Modified MAX_STACK_SIZE for {} matter items to {}", 
+                       modifiedCount, MATTER_MAX_STACK_SIZE);
+        }
+    }
+
     // You can use EventBusSubscriber to automatically register all static methods in the class annotated with @SubscribeEvent
     @EventBusSubscriber(modid = MOD_ID, bus = EventBusSubscriber.Bus.MOD, value = Dist.CLIENT)
     public static class ClientModEvents
