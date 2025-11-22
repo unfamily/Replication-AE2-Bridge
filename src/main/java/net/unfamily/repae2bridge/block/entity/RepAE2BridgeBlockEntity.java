@@ -423,6 +423,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         this.output = new InventoryComponent<RepAE2BridgeBlockEntity>("output", 11, 131, 36)
                 .setRange(9, 4)
                 .setComponentHarness(this)
+                .setSlotLimit(Integer.MAX_VALUE / 2) // Set gigantic stack size for matter items
                 .setInputFilter((stack, slot) -> true); // Allows insertion of any item
         this.addInventory(this.output);
 

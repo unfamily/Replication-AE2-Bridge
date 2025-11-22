@@ -5,9 +5,7 @@
     "compatibilityLevel": "JAVA_21",
     "mixins": [
       "ItemStackMixin",
-      "DataComponentsMixin",
-      "ItemStackHandlerMixin",
-      "InventoryComponentMixin"
+      "DataComponentsMixin"
     ],
     "client": [
       "SpriteLoaderMixin"
