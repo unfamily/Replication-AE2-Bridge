@@ -588,20 +588,44 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     /**
      * Force updates to adjacent blocks
+     * Schedules updates with a delay to prevent ClassCastException during block initialization
      */
     private void forceNeighborUpdates() {
         if (level != null && !level.isClientSide()) {
             // Force an update of the block itself first
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
 
-            // Then force updates to adjacent blocks
-            for (Direction direction : Direction.values()) {
-                BlockPos neighborPos = worldPosition.relative(direction);
-                BlockState neighborState = level.getBlockState(neighborPos);
-                if (!neighborState.isAir()) {
-                    // Notify the adjacent block first (to trigger its connections)
-                    level.neighborChanged(neighborPos, getBlockState().getBlock(), worldPosition);
-                }
+            // Schedule neighbor updates with a 1-tick delay to ensure full initialization
+            // This prevents ClassCastException when MatterPipeBlock checks for INetworkDirectionalConnection
+            level.scheduleTick(worldPosition, getBlockState().getBlock(), 1);
+            
+            // Use a scheduled task to safely notify neighbors after initialization
+            if (level.getServer() != null) {
+                level.getServer().execute(() -> {
+                    if (level != null && !level.isClientSide() && !isRemoved()) {
+                        try {
+                            // Then force updates to adjacent blocks
+                            for (Direction direction : Direction.values()) {
+                                BlockPos neighborPos = worldPosition.relative(direction);
+                                BlockState neighborState = level.getBlockState(neighborPos);
+                                if (!neighborState.isAir()) {
+                                    // Notify the adjacent block (to trigger its connections)
+                                    // Wrapped in try-catch to prevent crashes from external mods
+                                    try {
+                                        level.neighborChanged(neighborPos, getBlockState().getBlock(), worldPosition);
+                                    } catch (ClassCastException e) {
+                                        // Log but don't crash - this can happen with incompatible neighbor blocks
+                                        if (Config.enableDebugLogging) {
+                                            LOGGER.warn("Failed to notify neighbor at {} due to ClassCastException. This is usually safe to ignore.", neighborPos, e);
+                                        }
+                                    }
+                                }
+                            }
+                        } catch (Exception e) {
+                            LOGGER.error("Unexpected error while forcing neighbor updates", e);
+                        }
+                    }
+                });
             }
         }
     }

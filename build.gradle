@@ -116,7 +116,7 @@ configurations {
 
 dependencies {
     implementation "curse.maven:titanium-287342:6875285"
-    implementation "curse.maven:replication-638351:7199349"
+    implementation "curse.maven:replication-638351:7239233"
     implementation "curse.maven:applied-energistics-2-223794:7027323"
     implementation "curse.maven:guideme-1173950:6812025"
 }
