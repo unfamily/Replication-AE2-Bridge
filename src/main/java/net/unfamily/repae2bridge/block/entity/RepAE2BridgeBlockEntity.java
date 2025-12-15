@@ -113,15 +113,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private final IManagedGridNode mainNode = GridHelper.createManagedNode(this, new IGridNodeListener<RepAE2BridgeBlockEntity>() {
                 @Override
                 public void onSaveChanges(RepAE2BridgeBlockEntity nodeOwner, IGridNode node) {
-                    nodeOwner.setChanged();
+                    // Schedule update instead of calling setChanged immediately
+                    nodeOwner.pendingBlockUpdate = true;
                 }
 
                 @Override
                 public void onStateChanged(RepAE2BridgeBlockEntity nodeOwner, IGridNode node, IGridNodeListener.State state) {
-                    // Update the BlockEntity state when the node state changes
+                    // Schedule update instead of calling immediately
                     if (nodeOwner.level != null) {
-                        nodeOwner.level.sendBlockUpdated(nodeOwner.worldPosition, nodeOwner.getBlockState(),
-                                nodeOwner.getBlockState(), 3);
+                        nodeOwner.pendingBlockUpdate = true;
 
                         // Also update the CONNECTED property state in the block
                         updateConnectedState();
@@ -139,10 +139,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
                 @Override
                 public void onGridChanged(RepAE2BridgeBlockEntity nodeOwner, IGridNode node) {
-                    // Update the BlockEntity state when the grid changes
+                    // Schedule update instead of calling immediately
                     if (nodeOwner.level != null) {
-                        nodeOwner.level.sendBlockUpdated(nodeOwner.worldPosition, nodeOwner.getBlockState(),
-                                nodeOwner.getBlockState(), 3);
+                        nodeOwner.pendingBlockUpdate = true;
 
                         // Also update the CONNECTED property state in the block
                         updateConnectedState();
@@ -169,6 +168,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     // Flag to indicate if we should try to reconnect to networks
     private boolean shouldReconnect = false;
+    
+    // Flag to schedule block update on next tick instead of immediately
+    private boolean pendingBlockUpdate = false;
 
     // Terminal components
     @Save
@@ -444,6 +446,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private boolean hasBridgeInDirection(Direction direction) {
         if (level != null) {
             BlockPos neighborPos = worldPosition.relative(direction);
+            // Safety check: only query if the chunk is loaded
+            if (!level.isLoaded(neighborPos)) {
+                return false;
+            }
             return level.getBlockEntity(neighborPos) instanceof RepAE2BridgeBlockEntity;
         }
         return false;
@@ -456,6 +462,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 @Override
                 public boolean canConnectFrom(Direction direction) {
                     BlockPos neighborPos = pos.relative(direction);
+                    // Safety check: only query if the chunk is loaded
+                    if (!level.isLoaded(neighborPos)) {
+                        return false;
+                    }
                     if (level.getBlockEntity(neighborPos) instanceof RepAE2BridgeBlockEntity) {
                         return false;
                     }
@@ -552,6 +562,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     private void updateConnectedState() {
         if (level != null && !level.isClientSide()) {
+            // Safety check: verify the chunk is loaded before attempting state updates
+            // This prevents deadlocks when chunks are being unloaded (e.g. in compact machines)
+            if (!level.isLoaded(worldPosition)) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.debug("Bridge{}: Skipping updateConnectedState - chunk not loaded", getLocationInfo());
+                }
+                return;
+            }
+            
             BlockState currentState = level.getBlockState(worldPosition);
             if (currentState.getBlock() == ModBlocks.REPAE2BRIDGE.get()) {
                 boolean isConnected = isActive() && getNetwork() != null;
@@ -573,6 +592,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             for (Direction direction : Direction.values()) {
                 BlockPos neighborPos = worldPosition.relative(direction);
 
+                // Safety check: only query if the chunk is loaded
+                if (!level.isLoaded(neighborPos)) {
+                    continue;
+                }
+
                 // If the block has a block entity and implements IInWorldGridNodeHost
                 if (level.getBlockEntity(neighborPos) instanceof IInWorldGridNodeHost host) {
                     IGridNode node = host.getGridNode(direction.getOpposite());
@@ -592,8 +616,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     private void forceNeighborUpdates() {
         if (level != null && !level.isClientSide()) {
-            // Force an update of the block itself first
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            // Safety check: verify the chunk is loaded before attempting updates
+            if (!level.isLoaded(worldPosition)) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.debug("Bridge{}: Skipping forceNeighborUpdates - chunk not loaded", getLocationInfo());
+                }
+                return;
+            }
+            
+            // Schedule block update instead of doing it immediately
+            pendingBlockUpdate = true;
 
             // Schedule neighbor updates with a 1-tick delay to ensure full initialization
             // This prevents ClassCastException when MatterPipeBlock checks for INetworkDirectionalConnection
@@ -607,6 +639,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             // Then force updates to adjacent blocks
                             for (Direction direction : Direction.values()) {
                                 BlockPos neighborPos = worldPosition.relative(direction);
+                                // Safety check: only update if the neighbor chunk is loaded
+                                if (!level.isLoaded(neighborPos)) {
+                                    continue;
+                                }
                                 BlockState neighborState = level.getBlockState(neighborPos);
                                 if (!neighborState.isAir()) {
                                     // Notify the adjacent block (to trigger its connections)
@@ -637,6 +673,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     public void handleNeighborChanged(BlockPos fromPos) {
         if (level != null && !level.isClientSide()) {
+            // Safety check: verify both our chunk and the neighbor's chunk are loaded
+            if (!level.isLoaded(worldPosition) || !level.isLoaded(fromPos)) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.debug("Bridge{}: Skipping handleNeighborChanged - chunk not loaded", getLocationInfo());
+                }
+                return;
+            }
+            
             // If the changed block is another bridge, ignore the update
             Direction directionToNeighbor = null;
             for (Direction dir : Direction.values()) {
@@ -836,12 +880,21 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private boolean forceAE2GridConnection() {
         if (level == null || level.isClientSide()) return false;
         
+        // Safety check: verify the chunk is loaded
+        if (!level.isLoaded(worldPosition)) {
+            return false;
+        }
+        
         // Cerca controller AE2 o cavi nelle vicinanze
         boolean foundAE2Component = false;
         IGrid connectedGrid = null;
         
         for (Direction direction : Direction.values()) {
             BlockPos neighborPos = worldPosition.relative(direction);
+            // Safety check: only query if the neighbor chunk is loaded
+            if (!level.isLoaded(neighborPos)) {
+                continue;
+            }
             BlockEntity neighborEntity = level.getBlockEntity(neighborPos);
             
             if (neighborEntity instanceof IInWorldGridNodeHost) {
@@ -917,11 +970,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (shouldLog) {
                 LOGGER.error("Bridge{}: Calling super.setRemoved()", getLocationInfo());
             }
-            long startTime = System.currentTimeMillis();
             super.setRemoved();
-            long duration = System.currentTimeMillis() - startTime;
             if (shouldLog) {
-                LOGGER.error("Bridge{}: super.setRemoved() completed in {} ms", getLocationInfo(), duration);
+                LOGGER.error("Bridge{}: super.setRemoved() completed", getLocationInfo());
             }
         } catch (Exception e) {
             if (shouldLog) {
@@ -987,11 +1038,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (shouldLog) {
                 LOGGER.error("Bridge{}: Calling super.onChunkUnloaded()", getLocationInfo());
             }
-            long startTime = System.currentTimeMillis();
             super.onChunkUnloaded();
-            long duration = System.currentTimeMillis() - startTime;
             if (shouldLog) {
-                LOGGER.error("Bridge{}: super.onChunkUnloaded() completed in {} ms", getLocationInfo(), duration);
+                LOGGER.error("Bridge{}: super.onChunkUnloaded() completed", getLocationInfo());
             }
         } catch (Exception e) {
             if (shouldLog) {
@@ -1025,11 +1074,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (Config.enableDebugLogging) {
                 LOGGER.error("Bridge{}: Calling super.saveAdditional()", getLocationInfo());
             }
-            long startTime = System.currentTimeMillis();
             super.saveAdditional(tag, registries);
-            long duration = System.currentTimeMillis() - startTime;
             if (Config.enableDebugLogging) {
-                LOGGER.error("Bridge{}: super.saveAdditional() completed in {} ms", getLocationInfo(), duration);
+                LOGGER.error("Bridge{}: super.saveAdditional() completed", getLocationInfo());
             }
         } catch (Exception e) {
             LOGGER.error("Bridge{}: EXCEPTION in super.saveAdditional(): {}", getLocationInfo(), e.getMessage(), e);
@@ -1040,11 +1087,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (Config.enableDebugLogging) {
                 LOGGER.error("Bridge{}: Attempting to save AE2 node to NBT", getLocationInfo());
             }
-            long startTime = System.currentTimeMillis();
             mainNode.saveToNBT(tag);
-            long duration = System.currentTimeMillis() - startTime;
             if (Config.enableDebugLogging) {
-                LOGGER.error("Bridge{}: AE2 node saved to NBT in {} ms", getLocationInfo(), duration);
+                LOGGER.error("Bridge{}: AE2 node saved to NBT", getLocationInfo());
             }
         } catch (Exception e) {
             LOGGER.error("Bridge{}: EXCEPTION saving AE2 node to NBT: {}", getLocationInfo(), e.getMessage(), e);
@@ -1254,6 +1299,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
 
+
+        // Process pending block updates every 20 ticks (1 second) to batch updates
+        if (level.getGameTime() % 20 == 0 && pendingBlockUpdate) {
+            pendingBlockUpdate = false;
+            setChanged();
+            if (level != null && !level.isClientSide()) {
+                level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            }
+        }
 
         // Try to transfer items from local inventory to AE2 every 20 ticks (1 second)
         if (level.getGameTime() % 20 == 0 && initialized == 1) {
