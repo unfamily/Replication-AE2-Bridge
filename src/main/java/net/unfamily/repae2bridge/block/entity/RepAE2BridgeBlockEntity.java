@@ -105,7 +105,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Save
     private int priority = 0;
 
-    // Queue of pending patterns - NON PIÙ USATA, la capacità è gestita dalla rete Replication
+    // Queue of pending patterns - NO LONGER USED, capacity is managed by the Replication network
     // private final Queue<IPatternDetails> pendingPatterns = new LinkedList<>();
     // private final Map<IPatternDetails, KeyCounter[]> pendingInputs = new HashMap<>();
 
@@ -202,10 +202,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private boolean matterTrackingInitialized = false;
     // Buffer for matter changes to be inserted into output inventory
     private final Map<IMatterType, Long> pendingMatterChanges = new HashMap<>();
-    // MAX_MATTER_BUFFER: Ora che gli stacksize possono essere enormi (Integer.MAX_VALUE / 2),
-    // impostiamo un buffer molto più grande. 
-    // 9 slots * 2 rows * stacksize alto = capacità enorme per il buffer
-    private static final long MAX_MATTER_BUFFER = 9L * 2L * (Integer.MAX_VALUE / 2L); // ~19 miliardi per slot
+    // MAX_MATTER_BUFFER: Now that stack sizes can be huge (Integer.MAX_VALUE / 2),
+    // we set a much larger buffer. 
+    // 9 slots * 2 rows * high stacksize = huge capacity for the buffer
+    private static final long MAX_MATTER_BUFFER = 9L * 2L * (Integer.MAX_VALUE / 2L); // ~19 billion per slot
     // Temporary counters for crafting requests
     private final Map<UUID, Map<ItemWithSourceId, Integer>> requestCounters = new HashMap<>();
     private int requestCounterTicks = 0;
@@ -227,8 +227,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private static int globalHiddenDebugMessages = 0; // Global counter for hidden debug messages
 
     // Throttling for spam-prone warning/error logs
-    // Sistema implementato per ridurre lo spam di log durante world unloading e operazioni globali
-    // I log vengono mostrati ogni 300 eventi con un contatore dei messaggi nascosti
+    // System implemented to reduce log spam during world unloading and global operations
+    // Logs are shown every 300 events with a counter for hidden messages
     private static final long WARNING_THROTTLE_INTERVAL = 300; // 15 seconds = 300 events
     private static int worldUnloadingWarningsHidden = 0;
     private static int globalOperationLogsHidden = 0;
@@ -255,9 +255,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * @param pos the position where this was triggered (can be null)
      */
     public static void setWorldUnloading(boolean unloading, @Nullable net.minecraft.world.level.Level level, @Nullable BlockPos pos) {
-        // Solo logga una volta quando viene impostato su true o se sono passati più di 15 secondi
+        // Only log once when set to true or if more than 15 seconds have passed
         if (unloading && !worldUnloading) {
-            // Prima volta che viene impostato su true - logga sempre
+            // First time it's set to true - always log
             String dimensionInfo = level != null ? 
                 " [Dimension: " + level.dimension().location() + "]" : "";
             String positionInfo = pos != null ? 
@@ -277,7 +277,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             disconnectAllBridgesFromNetworks();
             
         } else if (!unloading && worldUnloading) {
-            // Stato cambiato da true a false - logga sempre
+            // State changed from true to false - always log
             String dimensionInfo = level != null ? 
                 " [Dimension: " + level.dimension().location() + "]" : "";
             String positionInfo = pos != null ? 
@@ -474,7 +474,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             };
         } catch (Exception e) {
             LOGGER.error("Failed to create Replication network element: {}", e.getMessage());
-            return null; // O un fallback sicuro
+            return null; // Or a safe fallback
         }
     }
 
@@ -518,7 +518,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // Initialize the AE2 node if it hasn't been done
         if (!nodeCreated && level != null && !level.isClientSide()) {
-            // Verifica se il nodo è già stato inizializzato tramite le API di AE2
+            // Check if the node has already been initialized via AE2 APIs
             boolean nodeAlreadyExists = mainNode.getNode() != null;
             
             if (!nodeAlreadyExists) {
@@ -537,7 +537,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     }
                 }
             } else {
-                // Il nodo esiste già, aggiorna solo lo stato locale
+                // The node already exists, only update local state
                 nodeCreated = true;
                 forceNeighborUpdates();
                 updateConnectedState();
@@ -701,7 +701,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
             // If there is an AE2 connection and the node is not created, initialize the node
             if (hasAE2Connection && !nodeCreated) {
-                // Verifica se il nodo è già stato inizializzato tramite le API di AE2
+                // Check if the node has already been initialized via AE2 APIs
                 boolean nodeAlreadyExists = mainNode.getNode() != null;
                 
                 if (!nodeAlreadyExists) {
@@ -726,7 +726,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         shouldReconnect = true;
                     }
                 } else {
-                    // Il nodo esiste già, aggiorna solo lo stato locale
+                    // The node already exists, only update local state
                     nodeCreated = true;
                     forceNeighborUpdates();
                     updateConnectedState();
@@ -812,33 +812,33 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Inizializza il nodo AE2 con meccanismi migliorati per server dedicati
+     * Initialize the AE2 node with improved mechanisms for dedicated servers
      */
     public void initializeAE2Node() {
         if (level != null && !level.isClientSide() && mainNode != null) {
             try {
-                // Forza la distruzione del nodo esistente prima di ricrearlo
+                // Force destruction of existing node before recreating it
                 if (mainNode.getNode() != null) {
                     mainNode.destroy();
                     LOGGER.debug("Bridge: Destroyed existing AE2 node before recreation");
                 }
                 
-                // Verifica se siamo in un server dedicato
+                // Check if we're on a dedicated server
                 boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
                 
                 if (isDedicatedServer) {
                     LOGGER.info("Bridge: Dedicated server detected, using direct node creation");
-                    // Usa il metodo diretto su server dedicati per evitare problemi di pianificazione
+                    // Use direct method on dedicated servers to avoid scheduling issues
                     try {
-                        // Crea il nodo direttamente
+                        // Create the node directly
                         mainNode.create(level, worldPosition);
                         nodeCreated = true;
                         
-                        // Aggiorna tutti i servizi immediatamente
+                        // Update all services immediately
                         ICraftingProvider.requestUpdate(mainNode);
                         IStorageProvider.requestUpdate(mainNode);
                         
-                        // Forza aggiornamento dei blocchi adiacenti
+                        // Force update of adjacent blocks
                         forceNeighborUpdates();
                         updateConnectedState();
                         
@@ -847,18 +847,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         LOGGER.error("Bridge: Failed to create AE2 node with direct method: {}", e.getMessage());
                     }
                 } else {
-                    // Usa il metodo con task solo in singleplayer/server integrato
+                    // Use task method only in singleplayer/integrated server
                     level.getServer().tell(new net.minecraft.server.TickTask(0, () -> {
                         try {
-                            // Crea il nodo con priorità
+                            // Create the node with priority
                             mainNode.create(level, worldPosition);
                             nodeCreated = true;
                             
-                            // Aggiorna tutti i servizi
+                            // Update all services
                             ICraftingProvider.requestUpdate(mainNode);
                             IStorageProvider.requestUpdate(mainNode);
                             
-                            // Forza aggiornamento dei blocchi adiacenti
+                            // Force update of adjacent blocks
                             forceNeighborUpdates();
                             updateConnectedState();
                             
@@ -875,7 +875,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Verifica se è possibile connettersi a una rete AE2 e lo forza se necessario
+     * Check if it's possible to connect to an AE2 network and force it if necessary
      */
     private boolean forceAE2GridConnection() {
         if (level == null || level.isClientSide()) return false;
@@ -885,7 +885,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return false;
         }
         
-        // Cerca controller AE2 o cavi nelle vicinanze
+        // Search for AE2 controller or cables nearby
         boolean foundAE2Component = false;
         IGrid connectedGrid = null;
         
@@ -909,7 +909,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
-        // Se abbiamo trovato un grid ma il nostro nodo non è connesso, forza la connessione
+        // If we found a grid but our node is not connected, force the connection
         if (connectedGrid != null && (mainNode.getNode() == null || mainNode.getNode().getGrid() == null)) {
             LOGGER.info("Bridge: Found AE2 grid but node not connected, forcing connection");
             initializeAE2Node();
@@ -1159,7 +1159,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     @Override
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
-        // CONTROLLO PRIORITARIO: Exit immediatamente se il mondo si sta scaricando
+        // PRIORITY CHECK: Exit immediately if the world is unloading
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 LOGGER.warn("Bridge{}: EXITING serverTick early - world is unloading (+ {} similar warnings hidden in last 15s)", 
@@ -1185,7 +1185,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             hiddenDebugMessages += 3; // Count the debug messages we're hiding locally
         }
 
-        // UNICA CHIAMATA a super.serverTick() con controllo di sicurezza
+        // SINGLE CALL to super.serverTick() with safety check
         try {
             if (shouldLogDebug) {
                 LOGGER.debug("Bridge at {}: Calling super.serverTick()", worldPosition);
@@ -1196,7 +1196,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         } catch (Exception e) {
             LOGGER.error("Bridge at {}: EXCEPTION in super.serverTick(): {}", worldPosition, e.getMessage(), e);
-            // Se super.serverTick() fallisce, non continuare con le operazioni bridge-specific
+            // If super.serverTick() fails, don't continue with bridge-specific operations
             return;
         }
 
@@ -1205,7 +1205,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             trackMatterCreation();
         }
 
-        // CONTROLLO POST-SUPER: Verifica se il mondo ha iniziato a scaricarsi durante super.serverTick()
+        // POST-SUPER CHECK: Verify if the world has started unloading during super.serverTick()
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 LOGGER.warn("Bridge{}: World unloading detected after super.serverTick() - exiting immediately (+ {} similar warnings hidden)", 
@@ -1221,11 +1221,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.debug("Bridge at {}: Beginning bridge-specific operations", worldPosition);
         }
 
-        // Controlla se siamo in un server dedicato
+        // Check if we're on a dedicated server
         boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
         
-        // All'inizio, controlla se è necessario riconnettersi alla rete AE2
-        if (isDedicatedServer && level.getGameTime() % 100 == 0) {  // Controlla ogni 5 secondi
+        // At the beginning, check if we need to reconnect to the AE2 network
+        if (isDedicatedServer && level.getGameTime() % 100 == 0) {  // Check every 5 seconds
             if (shouldReconnect || mainNode.getNode() == null || !mainNode.getNode().isActive()) {
                 if (Config.enableDebugLogging) {
                     LOGGER.info("Bridge at {}: Performing reconnection check for AE2 network on dedicated server", worldPosition);
@@ -1235,7 +1235,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
-        // CONTROLLO CONTINUO: Se il mondo inizia a scaricarsi durante le nostre operazioni
+        // CONTINUOUS CHECK: If the world starts unloading during our operations
         if (worldUnloading) {
             // Still need to call cleanup even if we don't log
             if (initialized == 1) {
@@ -1379,7 +1379,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Temporary counter management
         if (requestCounterTicks >= REQUEST_ACCUMULATION_TICKS) {
             try {
-                // CONTROLLO SICUREZZA: Verifica di nuovo se il mondo si sta scaricando
+                // SAFETY CHECK: Verify again if the world is unloading
                 if (worldUnloading) {
                     if (initialized == 1) {
                         onWorldUnload();
@@ -1572,8 +1572,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
 
-        // Pattern queue management rimossa - non usiamo più la coda locale
-        // I pattern vengono inviati direttamente alla rete Replication che gestisce la capacità
+        // Pattern queue management removed - we no longer use the local queue
+        // Patterns are sent directly to the Replication network which manages capacity
 
 
         // Check less frequently the state of the AE2 node
@@ -1622,7 +1622,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return null;
         }
         
-        // Se il mondo sta venendo scaricato, evitiamo di accedere alle reti
+        // If the world is being unloaded, avoid accessing networks
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 LOGGER.warn("Bridge{}: getNetwork() called during world unloading - returning null (+ {} similar warnings hidden)", 
@@ -1637,38 +1637,54 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         try {
             NetworkManager networkManager = NetworkManager.get(level);
             if (networkManager == null) {
-                LOGGER.error("Bridge at {}: NetworkManager not found!", worldPosition);
+                // Only log if debug logging is enabled to prevent spam
+                if (Config.enableDebugLogging) {
+                    LOGGER.error("Bridge at {}: NetworkManager not found!", worldPosition);
+                }
                 return null;
             }
             NetworkElement element = networkManager.getElement(worldPosition);
             if (element == null) {
-                // Evitiamo di creare nuovi elementi se il mondo sta venendo scaricato
+                // Avoid creating new elements if the world is being unloaded
                 if (worldUnloading) {
                     // Already throttled by the parent check above, just count
                     worldUnloadingWarningsHidden++;
                     return null;
                 }
                 
-                LOGGER.warn("Bridge at {}: Creating new network element", worldPosition);
+                // Only log if debug logging is enabled to prevent spam
+                if (Config.enableDebugLogging) {
+                    LOGGER.warn("Bridge at {}: Creating new network element", worldPosition);
+                }
                 element = createElement(level, worldPosition);
                 if (element != null) {
                     networkManager.addElement(element);
                     forceNeighborUpdates();
-                    LOGGER.warn("Bridge at {}: Network element created and added successfully", worldPosition);
+                    if (Config.enableDebugLogging) {
+                        LOGGER.warn("Bridge at {}: Network element created and added successfully", worldPosition);
+                    }
                 } else {
-                    LOGGER.error("Bridge at {}: Failed to create network element!", worldPosition);
+                    // Only log if debug logging is enabled to prevent spam
+                    if (Config.enableDebugLogging) {
+                        LOGGER.error("Bridge at {}: Failed to create network element!", worldPosition);
+                    }
                 }
             }
             if (element != null && element.getNetwork() instanceof MatterNetwork matterNetwork) {
                 return matterNetwork;
             } else {
-                LOGGER.error("Bridge at {}: Network element exists but is not a MatterNetwork!", worldPosition);
+                // Only log if debug logging is enabled to prevent spam
+                if (Config.enableDebugLogging) {
+                    LOGGER.error("Bridge at {}: Network element exists but is not a MatterNetwork!", worldPosition);
+                }
             }
         } catch (Exception e) {
-            // Log più dettagliato per aiutare il debug
-            LOGGER.error("Bridge at {}: EXCEPTION accessing Replication network: {}", worldPosition, e.getMessage(), e);
+            // More detailed log to help debug - only if debug logging is enabled
+            if (Config.enableDebugLogging) {
+                LOGGER.error("Bridge at {}: EXCEPTION accessing Replication network: {}", worldPosition, e.getMessage(), e);
+            }
             
-            // Se siamo durante lo scaricamento, è normale avere errori
+            // If we're during unloading, it's normal to have errors
             if (worldUnloading) {
                 // Already throttled by the parent check above, just count
                 worldUnloadingWarningsHidden++;
@@ -1703,7 +1719,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
             return active;
         } catch (Exception e) {
-            // Se c'è un errore nell'accesso al nodo, considera il bridge come non attivo
+            // If there's an error accessing the node, consider the bridge as inactive
             LOGGER.error("Bridge at {}: EXCEPTION checking node activity: {}", worldPosition, e.getMessage(), e);
             return false;
         }
@@ -1718,7 +1734,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (level != null && !level.isClientSide()) {
             try {
                 GridHelper.onFirstTick(this, blockEntity -> {
-                    // Verifica se il nodo è già stato inizializzato tramite le API di AE2
+                    // Check if the node has already been initialized via AE2 APIs
                     boolean nodeAlreadyExists = mainNode.getNode() != null;
                     
                     if ((shouldReconnect || !nodeCreated) && !nodeAlreadyExists) {
@@ -1729,7 +1745,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         ICraftingProvider.requestUpdate(mainNode);
                         shouldReconnect = false;
                     } else if (nodeAlreadyExists) {
-                        // Il nodo esiste già, aggiorna solo lo stato locale
+                        // The node already exists, only update local state
                         nodeCreated = true;
                         shouldReconnect = false;
                         forceNeighborUpdates();
@@ -2102,7 +2118,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (output.what() instanceof AEItemKey itemKey) {
                     //LOGGER.info("Bridge: Request to pushPattern for {}", itemKey.getItem().getDescriptionId());
 
-                    // Non mettiamo più i pattern in coda - la rete Replication gestisce la capacità
+                    // We no longer put patterns in queue - the Replication network manages capacity
                     // Se ci sono replicatori liberi, prenderanno il task
                     // Se sono tutti occupati, il task resta in coda nella rete Replication
 
@@ -2222,8 +2238,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public boolean isBusy() {
         // Il bridge NON deve bloccarsi in base ai task pendenti nella rete Replication
-        // Deve solo tracciare i task completati per aggiornare i contatori
-        // La gestione della capacità è delegata alla rete Replication stessa
+        // Must only track completed tasks to update counters
+        // Capacity management is delegated to the Replication network itself
         
         MatterNetwork network = getNetwork();
         if (network != null) {
@@ -2272,13 +2288,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
             }
 
-            // Aggiorna sempre lo storage per mostrare le nuove quantità
+            // Always update storage to show new quantities
             if (requestCounters.isEmpty() && level != null && level.getGameTime() % 20 == 0) {
                 IStorageProvider.requestUpdate(mainNode);
             }
         }
         
-        // Il bridge non è mai "busy" - lascia che sia la rete Replication a gestire la capacità
+        // The bridge is never "busy" - let the Replication network manage capacity
         return false;
     }
 
@@ -2566,7 +2582,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         // Decide how much to extract (the minimum between the request and the available)
                         long toExtract = Math.min(amount, available);
 
-                        // Se è una simulazione, restituisci solo la quantità che potremmo estrarre
+                        // If it's a simulation, return only the quantity we could extract
                         if (mode == Actionable.SIMULATE) {
                             //LOGGER.debug("Bridge: Simulation extraction of {} {}", toExtract, matterType.getName());
                             return toExtract;
@@ -2795,7 +2811,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.error("Bridge{}: Clearing data structures", getLocationInfo());
             // Clear any pending operations and data structures
             try {
-                // pendingPatterns e pendingInputs rimossi - non più usati
+                // pendingPatterns and pendingInputs removed - no longer used
                 patternRequests.clear();
                 activeTasks.clear();
                 patternRequestsBySource.clear();
