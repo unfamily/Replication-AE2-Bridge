@@ -1,9 +1,9 @@
 {
   "type": "minecraft:crafting_shaped",
   "pattern": [
-    "BAB",
-    "ACA",
-    "BAB"
+    "ABA",
+    "BCB",
+    "ABA"
   ],
   "key": {
     "A": {
@@ -13,11 +13,10 @@
       "item": "ae2:storage_bus"
     },
     "C": {
-      "tag": "c:storage_blocks/replica"
+      "tag": "forge:storage_blocks/replica"
     }
   },
   "result": {
-    "id": "rep_ae2_bridge:rep_ae2_bridge",
-    "count": 1
+    "item": "rep_ae2_bridge:rep_ae2_bridge"
   }
 } 
