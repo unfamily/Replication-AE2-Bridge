@@ -1658,10 +1658,33 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
                 element = createElement(level, worldPosition);
                 if (element != null) {
-                    networkManager.addElement(element);
-                    forceNeighborUpdates();
-                    if (Config.enableDebugLogging) {
-                        LOGGER.warn("Bridge at {}: Network element created and added successfully", worldPosition);
+                    try {
+                        // If the created element doesn't yet have an associated network,
+                        // don't add it to the manager immediately — schedule a retry.
+                        if (element.getNetwork() == null) {
+                            if (Config.enableDebugLogging) {
+                                LOGGER.warn("Bridge at {}: Created element has null network, scheduling retry", worldPosition);
+                            }
+                            if (level != null && !level.isClientSide()) {
+                                level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
+                            }
+                        } else {
+                            try {
+                                networkManager.addElement(element);
+                            } catch (RuntimeException ex) {
+                                LOGGER.warn("Bridge at {}: networkManager.addElement threw {}, scheduling retry", worldPosition, ex.getMessage());
+                                if (level != null && !level.isClientSide()) {
+                                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 60);
+                                }
+                                return null;
+                            }
+                            forceNeighborUpdates();
+                            if (Config.enableDebugLogging) {
+                                LOGGER.warn("Bridge at {}: Network element created and added successfully", worldPosition);
+                            }
+                        }
+                    } catch (Exception e) {
+                        LOGGER.error("Bridge at {}: Error while adding network element: {}", worldPosition, e.getMessage(), e);
                     }
                 } else {
                     // Only log if debug logging is enabled to prevent spam
