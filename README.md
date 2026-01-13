@@ -1,4 +1,4 @@
-<span style="color:#E03E2D;">**Support not guaranteed after January 13, 2026**</span>
+**Support not guaranteed after January 13, 2026**
 
 Adds a system for integrating AE2 and Replication.
 A block is added called AE2-Replication Bridge which allows AE2 to read the Replication netowrk
