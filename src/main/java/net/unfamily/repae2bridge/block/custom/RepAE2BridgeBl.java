@@ -229,7 +229,11 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
     }
 
     /**
-     * Handle scheduled ticks for retrying network initialization
+     * Handle scheduled ticks for retrying network initialization.
+     * 
+     * SAFE APPROACH: Calls onLoad() which internally wraps super.onLoad() in try-catch.
+     * onLoad() will NOT manipulate network elements of other blocks.
+     * If the network still isn't ready, onLoad() will schedule another retry.
      */
     @Override
     public void tick(BlockState state, net.minecraft.server.level.ServerLevel level, BlockPos pos, net.minecraft.util.RandomSource random) {
@@ -237,18 +241,9 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
         
         // Retry network initialization if it failed previously
         if (level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
-            try {
-                // Try to initialize the replication network again
+            if (blockEntity.needsNetworkRetry()) {
+                // onLoad() has its own try-catch; it will schedule further retries if needed
                 blockEntity.onLoad();
-            } catch (RuntimeException e) {
-                if (e.getMessage() != null && e.getMessage().contains("Element network is null")) {
-                    // Still not ready, schedule another retry
-                    LOGGER.warn("Bridge: Replication network still not ready, scheduling another retry");
-                    level.scheduleTick(pos, this, 20); // Retry in 1 second
-                } else {
-                    // Different error, log it
-                    LOGGER.error("Bridge: Unexpected error during network retry: {}", e.getMessage());
-                }
             }
         }
     }

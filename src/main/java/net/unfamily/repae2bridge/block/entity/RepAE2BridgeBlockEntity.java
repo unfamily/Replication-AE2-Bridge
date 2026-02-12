@@ -169,6 +169,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Flag to indicate if we should try to reconnect to networks
     private boolean shouldReconnect = false;
     
+    // Flag to indicate the Replication network element needs to be retried
+    // Set when onLoad() fails due to "Element network is null!" and cleared on successful network access
+    private boolean needsNetworkRetry = false;
+    
+    /**
+     * Returns true if this bridge needs a network retry (onLoad failed for Replication network).
+     * Used by RepAE2BridgeBl.tick() to determine if scheduled retries should call onLoad().
+     */
+    public boolean needsNetworkRetry() {
+        return needsNetworkRetry;
+    }
+    
     // Flag to schedule block update on next tick instead of immediately
     private boolean pendingBlockUpdate = false;
 
@@ -455,255 +467,78 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         return false;
     }
 
+    /**
+     * Creates the network element for this bridge.
+     * 
+     * CRITICAL: This method MUST NOT return null because NetworkBlockEntity.onLoad() passes
+     * the result directly to NetworkManager.addElement() without null-checking:
+     *   networkManager.addElement(createElement(level, worldPosition));
+     * Returning null would cause a NullPointerException inside Titanium's NetworkManager.
+     */
     @Override
     protected NetworkElement createElement(Level level, BlockPos pos) {
         try {
-            // CRITICAL: Check if level and NetworkManager are ready before creating element
-            if (level == null || level.isClientSide()) {
-                return null;
-            }
-            
-            NetworkManager networkManager = NetworkManager.get(level);
-            if (networkManager == null) {
-                if (Config.enableDebugLogging) {
-                    LOGGER.warn("Bridge at {}: NetworkManager not available when creating element", pos);
-                }
-                return null;
-            }
-            
             return new DefaultMatterNetworkElement(level, pos) {
                 @Override
                 public boolean canConnectFrom(Direction direction) {
-                    BlockPos neighborPos = pos.relative(direction);
                     // Safety check: only query if the chunk is loaded
-                    if (!level.isLoaded(neighborPos)) {
+                    if (level != null && !level.isLoaded(pos.relative(direction))) {
                         return false;
                     }
-                    if (level.getBlockEntity(neighborPos) instanceof RepAE2BridgeBlockEntity) {
+                    // Prevent two adjacent bridges from connecting to each other
+                    // (each bridge should connect to the pipe network, not directly to another bridge)
+                    if (level != null && level.getBlockEntity(pos.relative(direction)) instanceof RepAE2BridgeBlockEntity) {
                         return false;
                     }
                     return super.canConnectFrom(direction);
                 }
             };
         } catch (Exception e) {
-            LOGGER.error("Bridge at {}: Failed to create Replication network element: {}", pos, e.getMessage(), e);
-            return null;
+            LOGGER.error("Bridge at {}: Failed to create custom network element, using default: {}", pos, e.getMessage(), e);
+            // Fallback: return a basic element to prevent NPE in NetworkBlockEntity.onLoad()
+            return new DefaultMatterNetworkElement(level, pos);
         }
     }
 
     /**
-     * Called when the BlockEntity is loaded or after placement
+     * Called when the BlockEntity is loaded or after placement.
      * 
-     * CRITICAL FIX: We must create and add the network element ourselves BEFORE calling super.onLoad()
-     * because NetworkBlockEntity.onLoad() will try to add the element without checking if it has a network,
-     * which causes "Element network is null!" crashes.
+     * SAFE APPROACH: Let super.onLoad() handle network element creation/addition normally.
+     * We only wrap it in try-catch to handle "Element network is null!" gracefully.
+     * 
+     * CRITICAL: We NEVER manipulate network elements belonging to other blocks.
+     * Removing or modifying other blocks' network elements corrupts the Replication network
+     * and causes cascading crashes when those blocks try to reload.
      */
     @Override
     public void onLoad() {
-        // CRITICAL: Create and add network element ourselves BEFORE super.onLoad()
-        // This prevents NetworkBlockEntity.onLoad() from adding an element without a network
-        if (level != null && !level.isClientSide()) {
-            NetworkManager networkManager = NetworkManager.get(level);
-            if (networkManager == null) {
-                LOGGER.warn("Bridge{}: NetworkManager not available during onLoad, scheduling retry", getLocationInfo());
-                level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                // Don't call super.onLoad() yet - we need NetworkManager to be available
-                // The retry will handle it properly
-                return;
-            }
-            
-            // Check if element already exists
-            NetworkElement existingElement = networkManager.getElement(worldPosition);
-            if (existingElement == null) {
-                // Create element ourselves with proper safety checks
-                NetworkElement newElement = createElement(level, worldPosition);
-                if (newElement != null) {
-                    // CRITICAL: Check if there are adjacent elements with networks before adding
-                    // We must use the SAME logic as NetworkManager.findAdjacentElements() to be safe
-                    // If there are no adjacent elements, NetworkManager will create a new network (safe)
-                    // If there are adjacent elements, they must have networks (otherwise we'd crash)
-                    boolean hasAdjacentElements = false;
-                    boolean allAdjacentHaveNetworks = true;
-                    
-                    // Use the same logic as NetworkManager.findAdjacentElements()
-                    for (Direction dir : Direction.values()) {
-                        if (!newElement.canConnectFrom(dir)) continue;
-                        
-                        BlockPos neighborPos = worldPosition.relative(dir);
-                        if (!level.isLoaded(neighborPos)) continue;
-                        
-                        NetworkElement neighbor = networkManager.getElement(neighborPos);
-                        if (neighbor != null && 
-                            neighbor.getNetworkType().equals(newElement.getNetworkType()) && 
-                            neighbor.canConnectFrom(dir.getOpposite())) {
-                            hasAdjacentElements = true;
-                            if (neighbor.getNetwork() == null) {
-                                allAdjacentHaveNetworks = false;
-                                if (Config.enableDebugLogging) {
-                                    LOGGER.warn("Bridge{}: Found adjacent element at {} with null network", getLocationInfo(), neighborPos);
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // Only add element if:
-                    // 1. No adjacent elements (NetworkManager will create new network - safe)
-                    // 2. OR all adjacent elements have networks (merge is safe)
-                    if (!hasAdjacentElements || allAdjacentHaveNetworks) {
-                        try {
-                            networkManager.addElement(newElement);
-                            
-                            // CRITICAL: Verify element was added successfully and has a network
-                            NetworkElement addedElement = networkManager.getElement(worldPosition);
-                            if (addedElement == null || addedElement.getNetwork() == null) {
-                                LOGGER.warn("Bridge{}: Element added but has no network, scheduling retry", getLocationInfo());
-                                // Try to remove it if it was partially added
-                                try {
-                                    if (addedElement != null) {
-                                        networkManager.removeElement(worldPosition);
-                                    }
-                                } catch (Exception ex) {
-                                    // Ignore removal errors
-                                }
-                                level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                                return;
-                            }
-                            
-                            if (Config.enableDebugLogging) {
-                                LOGGER.info("Bridge{}: Network element created and added successfully in onLoad", getLocationInfo());
-                            }
-                        } catch (RuntimeException e) {
-                            // CRITICAL: If addElement fails, try to clean up any partially added element
-                            try {
-                                NetworkElement failedElement = networkManager.getElement(worldPosition);
-                                if (failedElement != null && failedElement.getNetwork() == null) {
-                                    LOGGER.warn("Bridge{}: Removing partially added element after failure", getLocationInfo());
-                                    networkManager.removeElement(worldPosition);
-                                }
-                            } catch (Exception cleanupEx) {
-                                // Ignore cleanup errors
-                            }
-                            
-                            if (e.getMessage() != null && e.getMessage().contains("Element network is null")) {
-                                LOGGER.warn("Bridge{}: Element lost network during addElement, scheduling retry: {}", getLocationInfo(), e.getMessage());
-                                level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                                return;
-                            } else {
-                                LOGGER.error("Bridge{}: Error adding network element: {}", getLocationInfo(), e.getMessage(), e);
-                                level.scheduleTick(worldPosition, getBlockState().getBlock(), 40);
-                                return;
-                            }
-                        }
-                    } else {
-                        // Adjacent elements exist but don't have networks - unsafe to add
-                        // CRITICAL: Try to clean up corrupted adjacent elements first
-                        LOGGER.warn("Bridge{}: Adjacent elements have null networks, attempting cleanup", getLocationInfo());
-                        boolean cleanupSuccessful = false;
-                        try {
-                            for (Direction dir : Direction.values()) {
-                                if (!newElement.canConnectFrom(dir)) continue;
-                                BlockPos neighborPos = worldPosition.relative(dir);
-                                if (!level.isLoaded(neighborPos)) continue;
-                                NetworkElement neighbor = networkManager.getElement(neighborPos);
-                                if (neighbor != null && 
-                                    neighbor.getNetworkType().equals(newElement.getNetworkType()) && 
-                                    neighbor.canConnectFrom(dir.getOpposite()) &&
-                                    neighbor.getNetwork() == null) {
-                                    LOGGER.warn("Bridge{}: Removing corrupted adjacent element at {}", getLocationInfo(), neighborPos);
-                                    try {
-                                        networkManager.removeElement(neighborPos);
-                                        cleanupSuccessful = true;
-                                    } catch (Exception cleanupEx) {
-                                        LOGGER.warn("Bridge{}: Error cleaning up corrupted neighbor at {}: {}", getLocationInfo(), neighborPos, cleanupEx.getMessage());
-                                    }
-                                }
-                            }
-                        } catch (Exception e) {
-                            LOGGER.warn("Bridge{}: Error during adjacent element cleanup: {}", getLocationInfo(), e.getMessage());
-                        }
-                        
-                        if (cleanupSuccessful) {
-                            // Retry immediately after cleanup
-                            LOGGER.info("Bridge{}: Cleanup successful, retrying element addition", getLocationInfo());
-                            level.scheduleTick(worldPosition, getBlockState().getBlock(), 5);
-                        } else {
-                            // Schedule normal retry
-                            level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                        }
-                        return; // Don't call super.onLoad() yet
-                    }
-                } else {
-                    LOGGER.error("Bridge{}: Failed to create network element in onLoad", getLocationInfo());
-                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 40);
-                    return;
-                }
-            } else {
-                // Element already exists - check if it's valid
-                if (existingElement.getNetwork() == null) {
-                    LOGGER.warn("Bridge{}: Existing element has null network, removing and retrying", getLocationInfo());
-                    try {
-                        networkManager.removeElement(worldPosition);
-                    } catch (Exception e) {
-                        LOGGER.warn("Bridge{}: Error removing invalid element: {}", getLocationInfo(), e.getMessage());
-                    }
-                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                    return; // Don't call super.onLoad() yet
-                }
-                // Element exists and is valid, we can proceed
-            }
-        }
-        
-        // CRITICAL: Double-check element exists and has network before calling super.onLoad()
-        // This prevents NetworkBlockEntity.onLoad() from trying to add it again
-        if (level != null && !level.isClientSide()) {
-            NetworkManager networkManager = NetworkManager.get(level);
-            if (networkManager != null) {
-                NetworkElement finalCheck = networkManager.getElement(worldPosition);
-                if (finalCheck == null || finalCheck.getNetwork() == null) {
-                    LOGGER.warn("Bridge{}: Element missing or invalid before super.onLoad(), scheduling retry", getLocationInfo());
-                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                    return;
-                }
-            }
-        }
-        
-        // Now call super.onLoad() - NetworkBlockEntity.onLoad() will see the element already exists
-        // and won't try to add it again (it checks networkManager.getElement(worldPosition) == null)
+        // Let super.onLoad() handle the Replication network element lifecycle.
+        // NetworkBlockEntity.onLoad() will create and add the element via createElement().
+        // We wrap it in try-catch to handle cases where the network isn't ready yet.
         try {
             super.onLoad();
         } catch (RuntimeException e) {
-            // CRITICAL: If super.onLoad() fails, clean up any partially added element
-            if (level != null && !level.isClientSide()) {
-                try {
-                    NetworkManager networkManager = NetworkManager.get(level);
-                    if (networkManager != null) {
-                        NetworkElement failedElement = networkManager.getElement(worldPosition);
-                        if (failedElement != null && failedElement.getNetwork() == null) {
-                            LOGGER.warn("Bridge{}: Removing invalid element after super.onLoad() failure", getLocationInfo());
-                            networkManager.removeElement(worldPosition);
-                        }
-                    }
-                } catch (Exception cleanupEx) {
-                    // Ignore cleanup errors
-                }
-            }
-            
             if (e.getMessage() != null && (e.getMessage().contains("Element network is null") || e.getMessage().contains("network is null"))) {
-                LOGGER.warn("Bridge{}: Replication network error in super.onLoad(), will retry later. Error: {}", getLocationInfo(), e.getMessage());
+                // Network not ready yet - this is normal during world loading.
+                // Schedule a retry via the block's scheduled tick. Do NOT manipulate other blocks' elements.
                 if (level != null && !level.isClientSide()) {
-                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 60);
+                    if (Config.enableDebugLogging) {
+                        LOGGER.warn("Bridge{}: Replication network not ready during onLoad, scheduling retry. Error: {}", getLocationInfo(), e.getMessage());
+                    }
+                    needsNetworkRetry = true;
+                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 40);
                 }
-                return;
+                // Still proceed with AE2 initialization and bridge registration below
             } else {
-                LOGGER.error("Bridge{}: Unexpected error during super.onLoad(): {}", getLocationInfo(), e.getMessage(), e);
+                // Unexpected error - log and schedule retry
+                LOGGER.error("Bridge{}: Unexpected error during onLoad(): {}", getLocationInfo(), e.getMessage(), e);
                 if (level != null && !level.isClientSide()) {
+                    needsNetworkRetry = true;
                     level.scheduleTick(worldPosition, getBlockState().getBlock(), 100);
                 }
                 return;
             }
         }
-        //LOGGER.info("Bridge: onLoad called at {}", worldPosition);
 
         // Register this bridge in the global registry for emergency cleanup (server-side only)
         // IMPORTANT: This must be done ALWAYS, not just when !nodeCreated
@@ -746,7 +581,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         // Reset the flag if it was loaded but the node no longer exists
         else if (nodeCreated && mainNode.getNode() == null) {
-            // LOGGER.warn("Bridge: Existing node not found, requesting reconnection");
             nodeCreated = false;
             shouldReconnect = true;
             // Schedule a retry
@@ -1399,22 +1233,22 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return;
         }
 
-        // CRITICAL: Periodic validation of network element health (every 5 seconds = 100 ticks)
-        // This prevents corruption from accumulating over time
+        // Periodic check of network element health (every 5 seconds = 100 ticks)
+        // Only logs status - does NOT remove or manipulate elements to avoid corruption
         if (level.getGameTime() % 100 == 0 && initialized == 1) {
             try {
                 NetworkManager networkManager = NetworkManager.get(level);
                 if (networkManager != null) {
                     NetworkElement element = networkManager.getElement(worldPosition);
-                    if (element != null && element.getNetwork() == null) {
-                        LOGGER.warn("Bridge{}: Periodic check found corrupted element (network == null), removing and scheduling retry", getLocationInfo());
-                        try {
-                            networkManager.removeElement(worldPosition);
+                    if (element == null || element.getNetwork() == null) {
+                        // Element missing or has null network - mark for retry via onLoad()
+                        if (!needsNetworkRetry) {
+                            needsNetworkRetry = true;
+                            if (Config.enableDebugLogging) {
+                                LOGGER.warn("Bridge{}: Periodic check found missing/invalid element, flagging for retry", getLocationInfo());
+                            }
                             level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                        } catch (Exception e) {
-                            LOGGER.error("Bridge{}: Error removing corrupted element during periodic check: {}", getLocationInfo(), e.getMessage());
                         }
-                        return; // Exit early, don't continue with operations
                     }
                 }
             } catch (Exception e) {
@@ -1787,70 +1621,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         // Check network connection to the Replication network
-        if (getNetwork() == null) {
-            // LOGGER.warn("Bridge: No Replication network found during tick");
-            // If not connected to the Replication network, try to connect
-            NetworkManager networkManager = NetworkManager.get(level);
-            if (networkManager != null) {
-                NetworkElement existingElement = networkManager.getElement(pos);
-                
-                // CRITICAL: Check if existing element is corrupted (has null network)
-                if (existingElement != null && existingElement.getNetwork() == null) {
-                    LOGGER.warn("Bridge at {}: Found corrupted element in serverTick, removing it", pos);
-                    try {
-                        networkManager.removeElement(pos);
-                    } catch (Exception e) {
-                        LOGGER.warn("Bridge at {}: Error removing corrupted element: {}", pos, e.getMessage());
-                    }
-                    existingElement = null; // Reset to trigger recreation
+        // SAFE APPROACH: If our network is null and we need a retry, schedule it via onLoad().
+        // We NEVER manipulate network elements belonging to other blocks (neighbors).
+        if (getNetwork() == null && needsNetworkRetry) {
+            // Only retry periodically (every 2 seconds) to avoid spam
+            if (level.getGameTime() % 40 == 0) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.debug("Bridge at {}: Network still null, scheduling onLoad retry", pos);
                 }
-                
-                if (existingElement == null) {
-                    // LOGGER.info("Bridge: Attempting to reconnect to the Replication network");
-                    NetworkElement element = createElement(level, pos);
-                    if (element != null) {
-                        // CRITICAL: Check adjacent elements before adding
-                        boolean hasAdjacentCorrupted = false;
-                        for (Direction dir : Direction.values()) {
-                            if (!element.canConnectFrom(dir)) continue;
-                            BlockPos neighborPos = pos.relative(dir);
-                            if (!level.isLoaded(neighborPos)) continue;
-                            NetworkElement neighbor = networkManager.getElement(neighborPos);
-                            if (neighbor != null && 
-                                neighbor.getNetworkType().equals(element.getNetworkType()) && 
-                                neighbor.canConnectFrom(dir.getOpposite()) &&
-                                neighbor.getNetwork() == null) {
-                                hasAdjacentCorrupted = true;
-                                LOGGER.warn("Bridge at {}: Found corrupted adjacent element at {}, cleaning up", pos, neighborPos);
-                                try {
-                                    networkManager.removeElement(neighborPos);
-                                } catch (Exception cleanupEx) {
-                                    LOGGER.warn("Bridge at {}: Error cleaning up corrupted neighbor: {}", pos, cleanupEx.getMessage());
-                                }
-                            }
-                        }
-                        
-                        // CRITICAL: Only add element if it has a network, or schedule a retry
-                        try {
-                            if (element.getNetwork() != null && !hasAdjacentCorrupted) {
-                                networkManager.addElement(element);
-                            } else {
-                                // Element doesn't have a network yet, or we just cleaned up neighbors - schedule retry
-                                if (Config.enableDebugLogging) {
-                                    LOGGER.warn("Bridge at {}: Created element has null network or neighbors were cleaned, scheduling retry", pos);
-                                }
-                                level.scheduleTick(pos, getBlockState().getBlock(), hasAdjacentCorrupted ? 5 : 20);
-                            }
-                        } catch (RuntimeException e) {
-                            if (e.getMessage() != null && e.getMessage().contains("Element network is null")) {
-                                LOGGER.warn("Bridge at {}: Network not ready, scheduling retry. Error: {}", pos, e.getMessage());
-                                level.scheduleTick(pos, getBlockState().getBlock(), 40);
-                            } else {
-                                LOGGER.error("Bridge at {}: Error adding network element: {}", pos, e.getMessage(), e);
-                            }
-                        }
-                    }
-                }
+                level.scheduleTick(pos, getBlockState().getBlock(), 20);
             }
         }
 
@@ -1895,8 +1674,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Improved implementation to get the Replication network
-     * with error handling and greater robustness
+     * Get the Replication network for this bridge.
+     * 
+     * SAFE APPROACH: Only reads the existing network element state.
+     * NEVER creates, adds, or removes network elements here.
+     * Element lifecycle is handled exclusively by onLoad() (via super.onLoad())
+     * and setRemoved() (via super.setRemoved()).
      */
     @Override
     public MatterNetwork getNetwork() {
@@ -1919,113 +1702,33 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         try {
             NetworkManager networkManager = NetworkManager.get(level);
             if (networkManager == null) {
-                // Only log if debug logging is enabled to prevent spam
-                if (Config.enableDebugLogging) {
-                    LOGGER.error("Bridge at {}: NetworkManager not found!", worldPosition);
-                }
                 return null;
             }
             NetworkElement element = networkManager.getElement(worldPosition);
             if (element == null) {
-                // Avoid creating new elements if the world is being unloaded
-                if (worldUnloading) {
-                    // Already throttled by the parent check above, just count
-                    worldUnloadingWarningsHidden++;
-                    return null;
-                }
-                
-                // CRITICAL: Double-check that element is still null (avoid race condition with onLoad)
-                // Also check if we're in the middle of initialization
-                element = networkManager.getElement(worldPosition);
-                if (element != null) {
-                    // Element was just added by another thread, use it
-                    if (element.getNetwork() instanceof MatterNetwork matterNetwork) {
-                        return matterNetwork;
-                    }
-                }
-                
-                // Only log if debug logging is enabled to prevent spam
-                if (Config.enableDebugLogging) {
-                    LOGGER.warn("Bridge at {}: Creating new network element", worldPosition);
-                }
-                element = createElement(level, worldPosition);
-                if (element != null) {
-                    try {
-                        // CRITICAL: Only add element if it has a network, or schedule a retry
-                        // If the created element doesn't yet have an associated network,
-                        // don't add it to the manager immediately — schedule a retry.
-                        if (element.getNetwork() == null) {
-                            if (Config.enableDebugLogging) {
-                                LOGGER.warn("Bridge at {}: Created element has null network, scheduling retry", worldPosition);
-                            }
-                            if (level != null && !level.isClientSide()) {
-                                level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                            }
-                            return null; // Don't return a network that doesn't exist
-                        } else {
-                            try {
-                                networkManager.addElement(element);
-                            } catch (RuntimeException ex) {
-                                if (ex.getMessage() != null && ex.getMessage().contains("Element network is null")) {
-                                    LOGGER.warn("Bridge at {}: Network not ready when adding element, scheduling retry: {}", worldPosition, ex.getMessage());
-                                } else {
-                                    LOGGER.warn("Bridge at {}: networkManager.addElement threw {}, scheduling retry", worldPosition, ex.getMessage());
-                                }
-                                if (level != null && !level.isClientSide()) {
-                                    level.scheduleTick(worldPosition, getBlockState().getBlock(), 60);
-                                }
-                                return null;
-                            }
-                            forceNeighborUpdates();
-                            if (Config.enableDebugLogging) {
-                                LOGGER.warn("Bridge at {}: Network element created and added successfully", worldPosition);
-                            }
-                        }
-                    } catch (Exception e) {
-                        LOGGER.error("Bridge at {}: Error while adding network element: {}", worldPosition, e.getMessage(), e);
-                    }
-                } else {
-                    // Only log if debug logging is enabled to prevent spam
-                    if (Config.enableDebugLogging) {
-                        LOGGER.error("Bridge at {}: Failed to create network element!", worldPosition);
-                    }
-                }
+                // Element doesn't exist yet - this is normal if onLoad() hasn't run
+                // or if the network retry is pending. Don't create elements here.
+                return null;
             }
-            if (element != null) {
-                // CRITICAL: Check if element is corrupted (has null network)
-                if (element.getNetwork() == null) {
-                    LOGGER.warn("Bridge at {}: Element has null network in getNetwork(), removing corrupted element", worldPosition);
-                    try {
-                        networkManager.removeElement(worldPosition);
-                        // Schedule retry to recreate element
-                        if (level != null && !level.isClientSide()) {
-                            level.scheduleTick(worldPosition, getBlockState().getBlock(), 20);
-                        }
-                    } catch (Exception e) {
-                        LOGGER.error("Bridge at {}: Error removing corrupted element in getNetwork(): {}", worldPosition, e.getMessage());
-                    }
-                    return null;
-                }
-                
-                if (element.getNetwork() instanceof MatterNetwork matterNetwork) {
-                    return matterNetwork;
-                } else {
-                    // Only log if debug logging is enabled to prevent spam
-                    if (Config.enableDebugLogging) {
-                        LOGGER.error("Bridge at {}: Network element exists but is not a MatterNetwork!", worldPosition);
-                    }
+            
+            if (element.getNetwork() == null) {
+                // Element exists but has no network - this can happen during loading.
+                // Don't remove or manipulate it; let the normal lifecycle handle it.
+                return null;
+            }
+            
+            if (element.getNetwork() instanceof MatterNetwork matterNetwork) {
+                // Network is valid - clear any pending retry flag
+                needsNetworkRetry = false;
+                return matterNetwork;
+            } else {
+                if (Config.enableDebugLogging) {
+                    LOGGER.error("Bridge at {}: Network element exists but is not a MatterNetwork!", worldPosition);
                 }
             }
         } catch (Exception e) {
-            // More detailed log to help debug - only if debug logging is enabled
             if (Config.enableDebugLogging) {
                 LOGGER.error("Bridge at {}: EXCEPTION accessing Replication network: {}", worldPosition, e.getMessage(), e);
-            }
-            
-            // If we're during unloading, it's normal to have errors
-            if (worldUnloading) {
-                // Already throttled by the parent check above, just count
-                worldUnloadingWarningsHidden++;
             }
         }
         return null;
