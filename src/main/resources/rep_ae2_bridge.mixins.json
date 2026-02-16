@@ -5,7 +5,9 @@
     "compatibilityLevel": "JAVA_21",
     "mixins": [
       "ItemStackMixin",
-      "DataComponentsMixin"
+      "DataComponentsMixin",
+      "NetworkManagerMixin",
+      "NetworkBlockEntityMixin"
     ],
     "client": [
       "SpriteLoaderMixin"

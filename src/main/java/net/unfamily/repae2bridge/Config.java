@@ -27,11 +27,29 @@ public class Config
                     "Default: 'config'")
             .define("bridgeCustomMatterConfigPath", "config");
 
+    private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_MANAGER_FIX = BUILDER
+            .comment("Enable the Titanium NetworkManager mixin that prevents 'Element network is null' crashes",
+                    "during world loading. This fixes a race condition in Titanium's mergeNetworksIntoOne()",
+                    "that affects ALL Replication network blocks (pipes, replicators, etc.).",
+                    "Only disable this if another mod provides the same fix or it causes conflicts.",
+                    "Requires game restart to take effect.")
+            .define("enableNetworkManagerFix", true);
+
+    private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_BLOCK_ENTITY_FIX = BUILDER
+            .comment("Enable the Replication NetworkBlockEntity mixin that wraps addElement() in onLoad()",
+                    "with a try-catch safety net. This prevents ANY RuntimeException during network",
+                    "element registration from crashing the server.",
+                    "Only disable this if another mod provides the same fix or it causes conflicts.",
+                    "Requires game restart to take effect.")
+            .define("enableNetworkBlockEntityFix", true);
+
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static int bridgeEnergyConsumption;
     public static boolean enableDebugLogging;
     public static String bridgeCustomMatterConfigPath;
+    public static volatile boolean enableNetworkManagerFix = true;
+    public static volatile boolean enableNetworkBlockEntityFix = true;
 
     @SubscribeEvent
     static void onLoad(final ModConfigEvent event)
@@ -39,5 +57,7 @@ public class Config
         bridgeEnergyConsumption = BRIDGE_ENERGY_CONSUMPTION.get();
         enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
         bridgeCustomMatterConfigPath = BRIDGE_CUSTOM_MATTER_CONFIG_PATH.get();
+        enableNetworkManagerFix = ENABLE_NETWORK_MANAGER_FIX.get();
+        enableNetworkBlockEntityFix = ENABLE_NETWORK_BLOCK_ENTITY_FIX.get();
     }
 }
