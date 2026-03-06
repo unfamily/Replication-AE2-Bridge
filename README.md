@@ -1,5 +1,4 @@
-# MOD X
-
+# Replication AE2 Bridge
 | Version | Support Status |
 |--------|---------------|
 | 1.21.1 | Supported |
