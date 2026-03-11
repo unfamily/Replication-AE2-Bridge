@@ -10,7 +10,8 @@
       "NetworkBlockEntityMixin"
     ],
     "client": [
-      "SpriteLoaderMixin"
+      "SpriteLoaderMixin",
+      "RepoMixin"
     ],
     "injectors": {
       "defaultRequire": 1

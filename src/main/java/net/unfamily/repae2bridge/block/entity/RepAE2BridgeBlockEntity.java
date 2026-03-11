@@ -24,6 +24,7 @@ import appeng.api.stacks.KeyCounter;
 import appeng.api.storage.IStorageProvider;
 import appeng.api.storage.IStorageMounts;
 import appeng.api.storage.MEStorage;
+
 import com.buuz135.replication.block.tile.ReplicationMachine;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.MatterNetwork;
@@ -1571,31 +1572,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                     for (MatterValue matterValue : matterCompound.getValues().values()) {
                                                         var matterType = matterValue.getMatter();
                                                         var matterAmount = (long)Math.ceil(matterValue.getAmount()) * count;
-
-                                                        // Find the corresponding virtual item
                                                         Item matterItem = getItemForMatterType(matterType);
                                                         if (matterItem != null) {
                                                             AEItemKey matterKey;
                                                             if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
-                                                                // For universal matter, create a key with the correct component
                                                                 ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
                                                                 matterKey = AEItemKey.of(matterStack);
                                                             } else {
                                                                 matterKey = AEItemKey.of(matterItem);
                                                             }
-
-                                                            // Note: now we extract real matter for replication
-                                                            // LOGGER.info("Bridge: Extracting {} real matter {} for replication",
-                                                            //    matterAmount, matterType.getName());
-
-                                                            // Extract matter from the Replication network
-                                                            // Decrease the matter available from the network
-                                                            // In Replication, there is no direct method to extract matter from the network
-                                                            // so here we simulate extraction by removing the count from the virtual display
-
-                                                            // We consume virtual matter always to avoid pattern blockages
-                                                            long extracted = extract(matterKey, matterAmount, Actionable.MODULATE);
-                                                            // LOGGER.info("Bridge: Consumed virtual matter {}: {}", matterType.getName(), extracted);
+                                                            extract(matterKey, matterAmount, Actionable.MODULATE);
                                                         }
                                                     }
                                                 }
@@ -2017,9 +2003,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             AEItemKey itemKey = (AEItemKey) what;
             Item item = itemKey.getItem();
             if (isVirtualMatterItem(item)) {
-                // For virtual matter, now allow extraction
-                // the matterItemsStorage will handle the logic
-                // Create a valid IActionSource instead of passing null
                 MachineSource machineSource = new MachineSource(this);
                 return matterItemsStorage.extract(what, amount, mode, machineSource);
             }
@@ -2093,28 +2076,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                     // Create the processing pattern with the actual matter requirements
                                     List<GenericStack> inputs = new ArrayList<>();
 
-                                    // Add each type of matter required as input
+                                    // Add each type of matter required as input (as items; Matter tab via mixin)
                                     for (MatterValue matterValue : matterCompound.getValues().values()) {
                                         var matterType = matterValue.getMatter();
                                         var matterAmount = (long)Math.ceil(matterValue.getAmount());
-
-                                        // Find the virtual item corresponding to the matter type
                                         Item matterItem = getItemForMatterType(matterType);
                                         if (matterItem != null) {
-                                            // Add the matter as input
                                             AEItemKey matterKey;
                                             if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
-                                                // For universal matter, create a key with the correct component
                                                 ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
                                                 matterKey = AEItemKey.of(matterStack);
                                             } else {
                                                 matterKey = AEItemKey.of(matterItem);
                                             }
                                             inputs.add(new GenericStack(matterKey, matterAmount));
-                                            //LOGGER.info("Bridge: Pattern for {} requires {} of {} matter",
-                                            //    pattern.getStack().getItem().getDescriptionId(),
-                                            //    matterAmount,
-                                            //    matterType.getName());
                                         }
                                     }
 
@@ -2219,25 +2194,16 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                 for (MatterValue matterValue : matterCompound.getValues().values()) {
                                                     var matterType = matterValue.getMatter();
                                                     var matterAmount = (long)Math.ceil(matterValue.getAmount());
-
-                                                    // Find the virtual item corresponding to the matter type
                                                     Item matterItem = getItemForMatterType(matterType);
                                                     if (matterItem != null) {
                                                         AEItemKey matterKey;
                                                         if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
-                                                            // For universal matter, create a key with the correct component
                                                             ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
                                                             matterKey = AEItemKey.of(matterStack);
                                                         } else {
                                                             matterKey = AEItemKey.of(matterItem);
                                                         }
-
-                                                        // Note: now we extract the real matter for replication
-                                                        //LOGGER.info("Bridge: Extraction of {} real matter {} for replication",
-                                                        //    matterAmount, matterType.getName());
-
-                                                        long extracted = extract(matterKey, matterAmount, Actionable.MODULATE);
-                                                        //LOGGER.info("Bridge: Consumed virtual matter {}: {}", matterType.getName(), extracted);
+                                                        extract(matterKey, matterAmount, Actionable.MODULATE);
                                                     }
                                                 }
                                             } else {
@@ -2603,46 +2569,36 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 return 0;
             }
 
-            // We allow extraction, but only for autocrafting operations
+            // We allow extraction for virtual matter items (AEItemKey)
             if (what instanceof AEItemKey itemKey && isVirtualMatterItem(itemKey.getItem())) {
+                IMatterType matterType = getMatterTypeForItem(itemKey.getItem());
+                if (matterType == null) {
+                    return 0;
+                }
                 // Get the network
                 MatterNetwork network = getNetwork();
                 if (network != null) {
-                    // Find the corresponding matter type
-                    IMatterType matterType = getMatterTypeForItem(itemKey.getItem());
-                    if (matterType != null) {
-                        // Check how much matter is available in the network
-                        long available = network.calculateMatterAmount(matterType);
+                    // Check how much matter is available in the network
+                    long available = network.calculateMatterAmount(matterType);
 
-                        // Log for debugging availability
-                        if (available < amount) {
-                            //LOGGER.info("Bridge: Insufficient availability of {} - Requested: {}, Available: {}",
-                            //    matterType.getName(), amount, available);
-                        }
+                    // Log for debugging availability
+                    if (available < amount) {
+                        //LOGGER.info("Bridge: Insufficient availability of {} - Requested: {}, Available: {}",
+                        //    matterType.getName(), amount, available);
+                    }
 
-                        // Decide how much to extract (the minimum between the request and the available)
-                        long toExtract = Math.min(amount, available);
+                    // Decide how much to extract (the minimum between the request and the available)
+                    long toExtract = Math.min(amount, available);
 
-                        // If it's a simulation, return only the quantity we could extract
-                        if (mode == Actionable.SIMULATE) {
-                            //LOGGER.debug("Bridge: Simulation extraction of {} {}", toExtract, matterType.getName());
-                            return toExtract;
-                        }
+                    // If it's a simulation, return only the quantity we could extract
+                    if (mode == Actionable.SIMULATE) {
+                        //LOGGER.debug("Bridge: Simulation extraction of {} {}", toExtract, matterType.getName());
+                        return toExtract;
+                    }
 
-                        // Check if the source is an export bus or automatic interface (which we want to block)
-                        /*if (source != null && isAutomationPart(source)) {
-                            // Block requests from export bus
-                            //LOGGER.warn("Bridge: Block extraction from export bus of {} {}",
-                            //    amount, matterType.getName());
-                            return 0;
-                        }*/
-
-                        // Allow all other operations
-                        if (toExtract > 0) {
-                            //LOGGER.info("Bridge: Virtual extraction of {} {}",
-                            //    toExtract, matterType.getName());
-                            return toExtract;
-                        }
+                    // Allow all other operations
+                    if (toExtract > 0) {
+                        return toExtract;
                     }
                 }
             }
@@ -2742,28 +2698,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     }
                 }
 
-                // Show current matter amounts in AE2 terminal - usa tutti i matter types registrati
+                // Show current matter amounts in AE2 terminal as items (Matter tab via mixin on Repo)
                 List<IMatterType> allMatterTypes = ReplicationRegistry.MATTER_TYPES_REGISTRY.stream().toList();
 
                 for (IMatterType matterType : allMatterTypes) {
                     long amount = network.calculateMatterAmount(matterType);
-                    //LOGGER.info("Bridge: Matter {} available: {}", matterType.getName(), amount);
                     if (amount > 0) {
                         Item item = getItemForMatterType(matterType);
                         if (item != null) {
-                            // For universal matter, create a stack with the correct matter component
-                            // so that AE2 sees different items for different matter types
                             if (item == ModItems.UNIVERSAL_MATTER.get()) {
                                 ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
                                 out.add(AEItemKey.of(matterStack), amount);
-                                //LOGGER.info("Bridge: Adding universal matter stack {} quantity {}", matterType.getName(), amount);
                             } else {
-                                // For specific matter items, use the regular approach
                                 out.add(AEItemKey.of(item), amount);
-                                //LOGGER.info("Bridge: Adding specific matter item {} quantity {}", item, amount);
                             }
-                        } else {
-                            //LOGGER.info("Bridge: No item associated with {}", matterType.getName());
                         }
                     }
                 }

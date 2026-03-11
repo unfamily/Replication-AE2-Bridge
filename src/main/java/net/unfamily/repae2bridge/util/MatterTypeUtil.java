@@ -2,9 +2,11 @@ package net.unfamily.repae2bridge.util;
 
 import com.buuz135.replication.ReplicationRegistry;
 import com.buuz135.replication.api.IMatterType;
-import net.unfamily.repae2bridge.RepAE2Bridge;
+import net.unfamily.repae2bridge.events.ServerLifecycleEventHandler;
+import net.unfamily.repae2bridge.item.ModItems;
 
 import com.mojang.logging.LogUtils;
+import net.minecraft.world.item.Item;
 import net.minecraft.core.Registry;
 import net.minecraft.resources.ResourceLocation;
 import org.slf4j.Logger;
@@ -109,12 +111,41 @@ public class MatterTypeUtil {
     }
 
     /**
+     * Returns true if the item is a matter item (built-in or custom).
+     * Used by the AE2 terminal mixin to show matter items in the separate "Matter" tab.
+     */
+    public static boolean isMatterItem(Item item) {
+        return getMatterTypeFromItem(item) != null;
+    }
+
+    /**
+     * Gets the matter type from an item (built-in matter items and custom map).
+     * Use this when you only have the Item; for Universal Matter use getMatterTypeFromItemStack.
+     */
+    @org.jetbrains.annotations.Nullable
+    public static IMatterType getMatterTypeFromItem(Item item) {
+        if (item == null) return null;
+        if (item == ModItems.EARTH_MATTER.get()) return ReplicationRegistry.Matter.EARTH.get();
+        if (item == ModItems.NETHER_MATTER.get()) return ReplicationRegistry.Matter.NETHER.get();
+        if (item == ModItems.ORGANIC_MATTER.get()) return ReplicationRegistry.Matter.ORGANIC.get();
+        if (item == ModItems.ENDER_MATTER.get()) return ReplicationRegistry.Matter.ENDER.get();
+        if (item == ModItems.METALLIC_MATTER.get()) return ReplicationRegistry.Matter.METALLIC.get();
+        if (item == ModItems.PRECIOUS_MATTER.get()) return ReplicationRegistry.Matter.PRECIOUS.get();
+        if (item == ModItems.LIVING_MATTER.get()) return ReplicationRegistry.Matter.LIVING.get();
+        if (item == ModItems.QUANTUM_MATTER.get()) return ReplicationRegistry.Matter.QUANTUM.get();
+        return ServerLifecycleEventHandler.getCustomItemToMatterMap().get(item);
+    }
+
+    /**
      * Gets the matter type from a dynamic matter item stack.
      * @param stack The item stack
      * @return IMatterType or null if not a matter item
      */
     public static IMatterType getMatterTypeFromItemStack(net.minecraft.world.item.ItemStack stack) {
         if (stack == null || stack.isEmpty()) return null;
+
+        IMatterType fromItem = getMatterTypeFromItem(stack.getItem());
+        if (fromItem != null) return fromItem;
 
         if (MATTER_CACHE.isEmpty()) {
             loadAllMatters();
@@ -137,5 +168,28 @@ public class MatterTypeUtil {
 
         MatterTypeInfo info = MATTER_CACHE.get(component.matterTypeName());
         return info != null ? info.matterType() : null;
+    }
+
+    /**
+     * Returns the item to use for displaying this matter type (same logic as bridge getItemForMatterType).
+     * Built-in types use dedicated MatterItem; custom types use custom item when bound (server) or null (client);
+     * fallback is Universal Matter (caller should then use UniversalMatterItem.createMatterStack with component).
+     */
+    @org.jetbrains.annotations.Nullable
+    public static Item getDisplayItemForMatterType(IMatterType type) {
+        if (type == null) return null;
+        String name = type.getName();
+        if (name == null) return ModItems.UNIVERSAL_MATTER.get();
+        if (name.equalsIgnoreCase("earth")) return ModItems.EARTH_MATTER.get();
+        if (name.equalsIgnoreCase("nether")) return ModItems.NETHER_MATTER.get();
+        if (name.equalsIgnoreCase("organic")) return ModItems.ORGANIC_MATTER.get();
+        if (name.equalsIgnoreCase("ender")) return ModItems.ENDER_MATTER.get();
+        if (name.equalsIgnoreCase("metallic")) return ModItems.METALLIC_MATTER.get();
+        if (name.equalsIgnoreCase("precious")) return ModItems.PRECIOUS_MATTER.get();
+        if (name.equalsIgnoreCase("living")) return ModItems.LIVING_MATTER.get();
+        if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
+        Item custom = ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
+        if (custom != null) return custom;
+        return ModItems.UNIVERSAL_MATTER.get();
     }
 }

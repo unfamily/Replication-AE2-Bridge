@@ -35,7 +35,12 @@ import net.unfamily.repae2bridge.component.ModDataComponents;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import appeng.api.networking.IInWorldGridNodeHost;
+import appeng.api.stacks.AEKeyType;
+import appeng.api.stacks.AEKeyTypes;
 import com.buuz135.replication.block.MatterPipeBlock;
+import net.neoforged.neoforge.registries.RegisterEvent;
+import net.unfamily.repae2bridge.ae2.MatterKeyType;
+import net.unfamily.repae2bridge.client.MatterKeyRenderHandler;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 import java.util.ArrayList;
@@ -44,6 +49,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import java.util.function.BiConsumer;
 import net.neoforged.fml.ModList;
+
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(RepAE2Bridge.MOD_ID)
@@ -88,6 +94,18 @@ public class RepAE2Bridge
         ModBlocks.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModDataComponents.register(modEventBus);
+
+        modEventBus.addListener((RegisterEvent event) -> {
+            if (event.getRegistryKey() == AEKeyType.REGISTRY_KEY) {
+                AEKeyTypes.register(MatterKeyType.INSTANCE);
+                LOGGER.info("RepAE2Bridge: Registered AE2 matter key type");
+            }
+        });
+        modEventBus.addListener(this::onClientSetup);
+    }
+
+    private void onClientSetup(final FMLClientSetupEvent event) {
+        event.enqueueWork(MatterKeyRenderHandler::register);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)

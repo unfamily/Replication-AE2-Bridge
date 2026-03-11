@@ -1,7 +1,6 @@
 package net.unfamily.repae2bridge.component;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
-import com.mojang.serialization.Codec;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
 import net.neoforged.bus.api.IEventBus;
