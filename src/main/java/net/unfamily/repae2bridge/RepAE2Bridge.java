@@ -22,13 +22,13 @@ import net.neoforged.fml.config.ModConfig;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.BuildCreativeModeTabContentsEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.ModifyDefaultComponentsEvent;
 import net.neoforged.bus.api.EventPriority;
 import net.minecraft.core.component.DataComponents;
 import net.unfamily.repae2bridge.item.ModItems;
+import net.unfamily.repae2bridge.item.ModCreativeModeTabs;
 import net.unfamily.repae2bridge.item.MatterItem;
 import net.unfamily.repae2bridge.item.UniversalMatterItem;
 import net.unfamily.repae2bridge.component.ModDataComponents;
@@ -79,9 +79,6 @@ public class RepAE2Bridge
         // Do not add this line if there are no @SubscribeEvent-annotated functions in this class, like onServerStarting() below.
         NeoForge.EVENT_BUS.register(this);
 
-        // Register the item to a creative tab
-        modEventBus.addListener(this::addCreative);
-
         // Register config
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         LOGGER.info("RepAE2Bridge: Config registered");
@@ -92,6 +89,7 @@ public class RepAE2Bridge
         // Register modules
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
+        ModCreativeModeTabs.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModDataComponents.register(modEventBus);
 
@@ -185,15 +183,6 @@ public class RepAE2Bridge
 
         // Registra le capabilities del bridge per il trasferimento di item
         RepAE2BridgeCapabilities.register(event);
-    }
-
-    // Add the example block item to the building blocks tab
-    private void addCreative(BuildCreativeModeTabContentsEvent event)
-    {
-        // Add the bridge to AE2's main creative tab
-        if (event.getTabKey() == appeng.api.ids.AECreativeTabIds.MAIN) {
-            event.accept(ModBlocks.REPAE2BRIDGE.get());
-        }
     }
 
     // You can use SubscribeEvent and let the Event Bus discover methods to call
