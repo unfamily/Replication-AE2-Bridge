@@ -22,9 +22,9 @@ public class ModBlocks {
 
     public static final DeferredBlock<Block> REPAE2BRIDGE = registerBlock("rep_ae2_bridge",
             () -> new RepAE2BridgeBl(BlockBehaviour.Properties.of()
-                .strength(0.3F, 0.3F)  // Very easy to break
-                .sound(SoundType.COPPER)  // Copper sound
-                .noOcclusion()));      // Maintains noOcclusion property
+                .strength(5.0F, 6.0F)
+                .sound(SoundType.COPPER)
+                .noOcclusion()));
 
     private static <T extends Block> DeferredBlock<T> registerBlock(String name, Supplier<T> block) {
         DeferredBlock<T> toReturn = BLOCKS.register(name, block);

@@ -25,7 +25,6 @@ import net.unfamily.repae2bridge.util.MatterTypeInfo;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.function.Function;
@@ -71,18 +70,9 @@ public abstract class SpriteLoaderMixin {
 
     @Unique
     private void rep_ae2_bridge$appendMatterFactories(List<Function<SpriteResourceLoader, SpriteContents>> factories, ResourceManager resourceManager) {
-        // Load all matter type info to ensure textures are available
         MatterTypeUtil.loadAllMatters();
 
         for (MatterTypeInfo info : MatterTypeUtil.getAllMatters().values()) {
-            // Skip custom matter types that don't have real textures
-            String matterName = info.matterType().getName();
-            if (matterName.equals("crystal") || matterName.equals("plasma") || matterName.equals("bio_energy")) {
-                // These are custom matter types from JSON that don't have real textures
-                // They will use fallback textures in the model, so skip loading here
-                continue;
-            }
-
             factories.add(loader -> rep_ae2_bridge$loadMatterSprite(loader, info, resourceManager));
         }
     }
@@ -98,9 +88,16 @@ public abstract class SpriteLoaderMixin {
         LOGGER.debug("Looking for matter texture at: {}", texturePath);
         var resourceOpt = resourceManager.getResource(texturePath);
         var resource = resourceOpt.orElse(null);
+
+        // Fallback to shared Replication matter block texture (tinted by matter color)
         if (resource == null) {
-            LOGGER.warn("Matter texture not found: {} (for matter type: {})", texturePath, info.name());
-            return null;
+            ResourceLocation fallbackPath = ResourceLocation.fromNamespaceAndPath("replication", "textures/block/matter.png");
+            resource = resourceManager.getResource(fallbackPath).orElse(null);
+            if (resource == null) {
+                LOGGER.warn("Matter texture not found: {} (for matter type: {})", texturePath, info.name());
+                return null;
+            }
+            LOGGER.debug("Using fallback matter texture for '{}'", info.name());
         }
 
         LOGGER.debug("Matter texture found, loading sprite: {}", spriteId);

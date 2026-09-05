@@ -69,10 +69,9 @@ public class MatterTypeUtil {
      * @return The texture resource location
      */
     private static ResourceLocation resolveTexture(ResourceLocation id, String name) {
-        return ResourceLocation.fromNamespaceAndPath(
-                id.getNamespace(),
-                "gui/mattertypes/" + name.toLowerCase()
-        );
+        // Replication (and KubeJS custom types) resolve GUI icons as replication:gui/mattertypes/{name}
+        String pathName = (name == null ? id.getPath() : name).toLowerCase();
+        return ResourceLocation.fromNamespaceAndPath("replication", "gui/mattertypes/" + pathName);
     }
 
     /**

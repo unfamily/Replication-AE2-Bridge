@@ -83,10 +83,7 @@ public class RepAE2Bridge
         modContainer.registerConfig(ModConfig.Type.COMMON, Config.SPEC);
         LOGGER.info("RepAE2Bridge: Config registered");
 
-        // Register custom matter items BEFORE registering the main items
-        ModItems.registerCustomMatterItems();
-
-        // Register modules
+        // Builtin items; custom matter items are auto-registered in CustomMatterAutoRegistrar
         ModItems.register(modEventBus);
         ModBlocks.register(modEventBus);
         ModCreativeModeTabs.register(modEventBus);

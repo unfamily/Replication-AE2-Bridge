@@ -1,25 +1,21 @@
 package net.unfamily.repae2bridge.item;
 
-import net.minecraft.world.item.Item;
+import com.buuz135.replication.api.IMatterType;
+import net.minecraft.network.chat.Component;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
 
 /**
- * Custom matter item that represents a specific matter type defined in configuration.
- * These items will disappear if left in the player's inventory.
+ * Dedicated virtual matter item for a custom (non-builtin) matter type.
+ * Texture/color come from the bound {@link IMatterType}; no per-item JSON assets required.
  */
 public class CustomMatterItem extends MatterItem {
+    private final String itemId;
     private String matterTypeId;
-    private final String itemId; // The registry name of this item
-    private final int cachedColor; // Pre-calculated color based on itemId for consistency
 
     public CustomMatterItem(Properties properties, String itemId) {
         super(properties);
         this.itemId = itemId;
-        this.matterTypeId = null; // Will be set later during binding phase
-        this.cachedColor = calculateColor(itemId); // Cache color based on itemId for client-server consistency
+        this.matterTypeId = null;
     }
 
     public String getItemId() {
@@ -30,49 +26,79 @@ public class CustomMatterItem extends MatterItem {
         return matterTypeId;
     }
 
-    /**
-     * Bind this item to a specific matter type.
-     * This is called during the late binding phase when matter types become available.
-     */
     public void bindToMatterType(String matterTypeId) {
         this.matterTypeId = matterTypeId;
     }
 
-    /**
-     * Check if this item is bound to a matter type.
-     */
     public boolean isBound() {
         return matterTypeId != null;
     }
 
     /**
-     * Get the cached color for this item.
-     * The color is pre-calculated based on itemId for client-server consistency.
+     * ARGB color from the bound matter type, or a deterministic fallback from itemId.
      */
     public int getMatterTypeColor() {
-        return cachedColor;
+        IMatterType type = CustomMatterBindings.itemToMatter().get(this);
+        if (type != null) {
+            float[] rgba = type.getColor().get();
+            int r = (int) (clamp(rgba[0]) * 255);
+            int g = (int) (clamp(rgba[1]) * 255);
+            int b = (int) (clamp(rgba[2]) * 255);
+            int a = rgba.length > 3 ? (int) (clamp(rgba[3]) * 255) : 255;
+            return (a << 24) | (r << 16) | (g << 8) | b;
+        }
+        return fallbackColor(itemId);
     }
 
-    /**
-     * Calculate a deterministic color based on the given ID.
-     * Uses a simple but consistent hash function to ensure client-server compatibility.
-     */
-    private static int calculateColor(String id) {
-        // Use a simple deterministic hash function for consistent colors
-        // This ensures the same ID always produces the same color on client and server
+    @Override
+    public Component getName(ItemStack stack) {
+        IMatterType type = CustomMatterBindings.itemToMatter().get(this);
+        if (type != null) {
+            String name = type.getName();
+            Component translated = Component.translatable("replication.matter_type." + name);
+            if (!translated.getString().equals("replication.matter_type." + name)) {
+                return Component.translatable("item.rep_ae2_bridge.custom_matter", translated);
+            }
+            return Component.literal(formatDisplayName(name));
+        }
+        return Component.literal(formatDisplayName(itemId));
+    }
+
+    private static String formatDisplayName(String path) {
+        String formatted = path.replace('_', ' ').replace('-', ' ');
+        String[] words = formatted.split(" ");
+        StringBuilder result = new StringBuilder();
+        for (String word : words) {
+            if (word.isEmpty()) continue;
+            if (result.length() > 0) result.append(' ');
+            result.append(Character.toUpperCase(word.charAt(0)));
+            if (word.length() > 1) {
+                result.append(word.substring(1).toLowerCase());
+            }
+        }
+        if (result.isEmpty()) {
+            return "Custom Matter";
+        }
+        String base = result.toString();
+        if (!base.toLowerCase().endsWith("matter")) {
+            base = base + " Matter";
+        }
+        return base;
+    }
+
+    private static float clamp(float value) {
+        return Math.max(0f, Math.min(1f, value));
+    }
+
+    private static int fallbackColor(String id) {
         int hash = 0;
         for (char c : id.toCharArray()) {
             hash = 31 * hash + c;
         }
-
-        // Use absolute value to ensure positive numbers
         hash = Math.abs(hash);
-
-        // Generate RGB values from different parts of the hash
-        int r = 55 + (hash % 201);        // Red: 55-255
-        int g = 55 + ((hash >> 8) % 201); // Green: 55-255
-        int b = 55 + ((hash >> 16) % 201); // Blue: 55-255
-
-        return 0xFF000000 | (r << 16) | (g << 8) | b; // Full alpha + RGB
+        int r = 55 + (hash % 201);
+        int g = 55 + ((hash >> 8) % 201);
+        int b = 55 + ((hash >> 16) % 201);
+        return 0xFF000000 | (r << 16) | (g << 8) | b;
     }
 }

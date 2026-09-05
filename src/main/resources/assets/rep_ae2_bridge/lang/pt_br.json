@@ -10,6 +10,7 @@
     "block.rep_ae2_bridge.rep_ae2_bridge": "AE2-Replication Bridge",
     "block.rep_ae2_bridge.repae2bridge": "RepAE2Bridge",
     "item.rep_ae2_bridge.repae2bridge": "RepAE2Bridge",
-    "item.rep_ae2_bridge.universal_matter.warning": "Aviso: esta é uma matéria de substituição universal; para a operação correta, reinicie o cliente e o servidor. Além disso, para matérias personalizadas, infelizmente, você também terá que criar texturas, modelos de item e arquivos de linguagem.",
+    "item.rep_ae2_bridge.universal_matter.warning": "Aviso: esta é uma matéria de substituição universal; reinicie o cliente e o servidor se itens de matéria personalizada acabaram de ser adicionados.",
+    "item.rep_ae2_bridge.custom_matter": "%s",
     "itemGroup.rep_ae2_bridge.rep_ae2_bridge_tab": "AE2-Replication Bridge"
 }

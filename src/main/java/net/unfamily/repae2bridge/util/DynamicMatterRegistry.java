@@ -36,7 +36,10 @@ public class DynamicMatterRegistry {
      */
     public static Item getMatterItem(IMatterType matterType) {
         DeferredHolder<Item, Item> holder = MATTER_TO_ITEM.get(matterType);
-        return holder != null ? holder.get() : null;
+        if (holder != null) {
+            return holder.get();
+        }
+        return net.unfamily.repae2bridge.item.CustomMatterBindings.matterToItem().get(matterType);
     }
 
     /**
@@ -52,6 +55,12 @@ public class DynamicMatterRegistry {
         IMatterType matterType = ITEM_TO_MATTER.get(itemId);
         if (matterType != null) {
             return matterType;
+        }
+
+        // Check dedicated custom matter items
+        IMatterType fromCustom = net.unfamily.repae2bridge.item.CustomMatterBindings.itemToMatter().get(stack.getItem());
+        if (fromCustom != null) {
+            return fromCustom;
         }
 
         // Check if it's a universal matter item with component

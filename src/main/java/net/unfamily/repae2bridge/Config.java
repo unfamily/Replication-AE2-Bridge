@@ -23,8 +23,8 @@ public class Config
             .define("enableDebugLogging", false);
 
     private static final ModConfigSpec.ConfigValue<String> BRIDGE_CUSTOM_MATTER_CONFIG_PATH = BUILDER
-            .comment("Path to directory containing replication bridge matter declaration files",
-                    "Default: 'config'")
+            .comment("Legacy option (unused). Custom matter items are auto-created from the matter type registry;",
+                    "rep_ae2_bridge_matters.json is no longer read or written.")
             .define("bridgeCustomMatterConfigPath", "config");
 
     private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_MANAGER_FIX = BUILDER

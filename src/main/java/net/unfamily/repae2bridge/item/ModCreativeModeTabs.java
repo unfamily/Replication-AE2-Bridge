@@ -28,6 +28,9 @@ public class ModCreativeModeTabs {
                                 output.accept(ModItems.PRECIOUS_MATTER.get());
                                 output.accept(ModItems.LIVING_MATTER.get());
                                 output.accept(ModItems.QUANTUM_MATTER.get());
+                                for (var custom : ModItems.CUSTOM_MATTER_ITEMS.values()) {
+                                    output.accept(custom);
+                                }
                                 output.accept(ModBlocks.REPAE2BRIDGE.get());
                             })
                             .build());

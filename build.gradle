@@ -21,6 +21,13 @@ repositories {
     maven {
         url = "https://www.cursemaven.com"
     }
+    maven {
+        name = "Modrinth"
+        url = "https://api.modrinth.com/maven"
+        content {
+            includeGroup "maven.modrinth"
+        }
+    }
 }
 
 base {
@@ -115,10 +122,22 @@ configurations {
 }
 
 dependencies {
-    implementation "curse.maven:titanium-287342:6875285"
-    implementation "curse.maven:replication-638351:7331983"
-    implementation "curse.maven:applied-energistics-2-223794:7027323"
-    implementation "curse.maven:guideme-1173950:7127444"
+    // Required
+    implementation "curse.maven:titanium-287342:${titanium_file_id}"
+    implementation "curse.maven:replication-638351:${replication_file_id}"
+    implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
+    implementation "curse.maven:guideme-1173950:${guideme_file_id}"
+
+    // Optional: IDE compile/runtime only (not hard deps of the published jar). Versions in gradle.properties.
+    compileOnly "maven.modrinth:kubejs:${kubejs_version}"
+    compileOnly "maven.modrinth:rhino:${rhino_version}"
+    localRuntime "curse.maven:mekanism-268560:${mekanism_file_id}"
+    localRuntime "curse.maven:mekanism-generators-268566:${mekanism_generators_file_id}"
+    localRuntime "maven.modrinth:replicatemekanism:${replicatemekanism_version}"
+    localRuntime "maven.modrinth:applied-mekanistics:${applied_mekanistics_version}"
+    localRuntime "maven.modrinth:kubejs:${kubejs_version}"
+    localRuntime "maven.modrinth:rhino:${rhino_version}"
+    localRuntime "maven.modrinth:architectury-api:${architectury_version}"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
