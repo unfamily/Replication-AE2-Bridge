@@ -40,7 +40,15 @@ public class ModClientSetup {
      */
     @SubscribeEvent
     public static void onModifyBakingResult(ModelEvent.ModifyBakingResult event) {
-        for (Map.Entry<Item, IMatterType> entry : CustomMatterBindings.itemToMatter().entrySet()) {
+        Map<Item, IMatterType> bindings = CustomMatterBindings.itemToMatter();
+        if (bindings.isEmpty()) {
+            LOGGER.warn("RepAE2Bridge: No custom matter bindings at model bake — dynamic item models skipped. "
+                    + "If KubeJS custom types exist, check Auto-registered count at registry time.");
+            return;
+        }
+
+        int baked = 0;
+        for (Map.Entry<Item, IMatterType> entry : bindings.entrySet()) {
             Item item = entry.getKey();
             if (!(item instanceof CustomMatterItem)) {
                 continue;
@@ -57,20 +65,22 @@ public class ModClientSetup {
                         .withGui3d(false)
                         .withUseBlockLight(false)
                         .build(itemId);
-                BakedModel baked = unbaked.bake(
+                BakedModel model = unbaked.bake(
                         context,
                         null,
                         event.getTextureGetter(),
                         BlockModelRotation.X0_Y0,
                         ItemOverrides.EMPTY
                 );
-                event.getModels().put(ModelResourceLocation.inventory(itemId), baked);
+                event.getModels().put(ModelResourceLocation.inventory(itemId), model);
+                baked++;
                 if (Config.enableDebugLogging) {
-                    LOGGER.debug("RepAE2Bridge: Baked dynamic model for custom matter item {}", itemId);
+                    LOGGER.info("RepAE2Bridge: Baked dynamic model for custom matter item {} (matter={})", itemId, matterName);
                 }
             } catch (Exception e) {
                 LOGGER.warn("RepAE2Bridge: Failed to bake model for custom matter item {}", itemId, e);
             }
         }
+        LOGGER.info("RepAE2Bridge: Baked {} dynamic custom matter item model(s) (bindings={})", baked, bindings.size());
     }
 }

@@ -21,13 +21,6 @@ repositories {
     maven {
         url = "https://www.cursemaven.com"
     }
-    maven {
-        name = "Modrinth"
-        url = "https://api.modrinth.com/maven"
-        content {
-            includeGroup "maven.modrinth"
-        }
-    }
 }
 
 base {
@@ -122,22 +115,22 @@ configurations {
 }
 
 dependencies {
-    // Required
+    // Required (CurseMaven file IDs in gradle.properties)
     implementation "curse.maven:titanium-287342:${titanium_file_id}"
     implementation "curse.maven:replication-638351:${replication_file_id}"
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
 
-    // Optional: IDE compile/runtime only (not hard deps of the published jar). Versions in gradle.properties.
-    compileOnly "maven.modrinth:kubejs:${kubejs_version}"
-    compileOnly "maven.modrinth:rhino:${rhino_version}"
+    // Optional: IDE compile/runtime only (not hard deps of the published jar)
+    compileOnly "curse.maven:kubejs-238086:${kubejs_file_id}"
+    compileOnly "curse.maven:rhino-416294:${rhino_file_id}"
     localRuntime "curse.maven:mekanism-268560:${mekanism_file_id}"
     localRuntime "curse.maven:mekanism-generators-268566:${mekanism_generators_file_id}"
-    localRuntime "maven.modrinth:replicatemekanism:${replicatemekanism_version}"
-    localRuntime "maven.modrinth:applied-mekanistics:${applied_mekanistics_version}"
-    localRuntime "maven.modrinth:kubejs:${kubejs_version}"
-    localRuntime "maven.modrinth:rhino:${rhino_version}"
-    localRuntime "maven.modrinth:architectury-api:${architectury_version}"
+    localRuntime "curse.maven:replicatemekanism-1562720:${replicatemekanism_file_id}"
+    localRuntime "curse.maven:applied-mekanistics-574300:${applied_mekanistics_file_id}"
+    localRuntime "curse.maven:kubejs-238086:${kubejs_file_id}"
+    localRuntime "curse.maven:rhino-416294:${rhino_file_id}"
+    localRuntime "curse.maven:architectury-api-419699:${architectury_file_id}"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

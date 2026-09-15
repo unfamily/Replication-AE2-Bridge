@@ -7,9 +7,11 @@ import net.unfamily.repae2bridge.RepAE2Bridge;
 import net.unfamily.repae2bridge.component.MatterComponent;
 import net.unfamily.repae2bridge.component.ModDataComponents;
 import net.unfamily.repae2bridge.util.MatterTypeUtil;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.RenderType;
 import net.minecraft.client.renderer.block.model.ItemOverrides;
+import net.minecraft.client.renderer.texture.TextureAtlas;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.resources.model.*;
 import net.minecraft.resources.ResourceLocation;
@@ -56,7 +58,7 @@ public record UniversalMatterItemModel(String defaultMatterType) implements IUnb
         if (info != null) {
             return info.texture();
         }
-        return ResourceLocation.fromNamespaceAndPath("replication", "gui/mattertypes/" + matterTypeName.toLowerCase());
+        return MatterTypeUtil.flatGuiTexture(matterTypeName);
     }
 
     public static class Loader implements IGeometryLoader<UniversalMatterItemModel> {
@@ -99,7 +101,11 @@ public record UniversalMatterItemModel(String defaultMatterType) implements IUnb
 
             if (!cache.containsKey(cacheKey)) {
                 UniversalMatterItemModel unbaked = new UniversalMatterItemModel(matterTypeName);
-                BakedModel bakedModel = unbaked.bake(owner, baker, Material::sprite, BlockModelRotation.X0_Y0, this);
+                Function<Material, TextureAtlasSprite> atlasGetter = material -> {
+                    TextureAtlas atlas = Minecraft.getInstance().getModelManager().getAtlas(material.atlasLocation());
+                    return atlas.getSprite(material.texture());
+                };
+                BakedModel bakedModel = unbaked.bake(owner, baker, atlasGetter, BlockModelRotation.X0_Y0, this);
                 cache.put(cacheKey, bakedModel);
                 return bakedModel;
             }

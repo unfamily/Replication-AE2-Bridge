@@ -40,7 +40,7 @@ public class UniversalMatterItem extends Item {
         if (component != null) {
             String matterName = component.matterTypeName();
             String capitalizedName = matterName.substring(0, 1).toUpperCase() + matterName.substring(1);
-            return Component.literal(capitalizedName + " Matter");
+            return Component.literal(capitalizedName);
         }
         return super.getName(stack);
     }

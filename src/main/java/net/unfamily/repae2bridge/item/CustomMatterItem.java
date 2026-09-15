@@ -77,13 +77,9 @@ public class CustomMatterItem extends MatterItem {
             }
         }
         if (result.isEmpty()) {
-            return "Custom Matter";
+            return "Custom";
         }
-        String base = result.toString();
-        if (!base.toLowerCase().endsWith("matter")) {
-            base = base + " Matter";
-        }
-        return base;
+        return result.toString();
     }
 
     private static float clamp(float value) {

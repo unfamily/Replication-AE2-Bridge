@@ -58,7 +58,7 @@ public record CustomMatterItemModel(String matterTypeName) implements IUnbakedGe
         if (info != null) {
             return info.texture();
         }
-        return ResourceLocation.fromNamespaceAndPath("replication", "gui/mattertypes/" + matterTypeName.toLowerCase());
+        return MatterTypeUtil.flatGuiTexture(matterTypeName);
     }
 
     public static class Loader implements IGeometryLoader<CustomMatterItemModel> {

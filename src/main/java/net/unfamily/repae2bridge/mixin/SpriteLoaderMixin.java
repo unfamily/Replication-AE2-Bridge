@@ -19,6 +19,7 @@ import org.spongepowered.asm.mixin.Unique;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfoReturnable;
+import net.unfamily.repae2bridge.Config;
 import net.unfamily.repae2bridge.util.MatterTypeUtil;
 import net.unfamily.repae2bridge.util.MatterTypeInfo;
 
@@ -30,12 +31,15 @@ import java.util.concurrent.Executor;
 import java.util.function.Function;
 
 /**
- * Mixin that dynamically adds sprites for dynamic matter items to the block atlas.
- * Each matter type gets its own texture loaded dynamically.
+ * Mixin that dynamically adds sprites for matter items to the block atlas.
+ * Dedicated PNG (as-is) or white GUI template + matter color tint.
  */
 @Mixin(SpriteLoader.class)
 public abstract class SpriteLoaderMixin {
     private static final Logger LOGGER = LogUtils.getLogger();
+
+    private static final ResourceLocation EARTH_TEMPLATE =
+            ResourceLocation.fromNamespaceAndPath("replication", "textures/gui/mattertypes/earth.png");
 
     @Shadow
     @Final
@@ -71,55 +75,85 @@ public abstract class SpriteLoaderMixin {
     @Unique
     private void rep_ae2_bridge$appendMatterFactories(List<Function<SpriteResourceLoader, SpriteContents>> factories, ResourceManager resourceManager) {
         MatterTypeUtil.loadAllMatters();
-
-        for (MatterTypeInfo info : MatterTypeUtil.getAllMatters().values()) {
-            factories.add(loader -> rep_ae2_bridge$loadMatterSprite(loader, info, resourceManager));
+        Collection<MatterTypeInfo> matters = MatterTypeUtil.getAllMatterInfos();
+        if (matters.isEmpty()) {
+            LOGGER.warn("RepAE2Bridge: No matter types available while stitching block atlas — custom matter sprites skipped.");
+            return;
         }
+
+        int added = 0;
+        for (MatterTypeInfo info : matters) {
+            factories.add(loader -> rep_ae2_bridge$loadMatterSprite(loader, info, resourceManager));
+            added++;
+        }
+        LOGGER.info("RepAE2Bridge: Queued {} matter sprite(s) for block atlas", added);
     }
 
     @Unique
     private SpriteContents rep_ae2_bridge$loadMatterSprite(SpriteResourceLoader loader, MatterTypeInfo info, ResourceManager resourceManager) {
         ResourceLocation spriteId = info.texture();
-        ResourceLocation texturePath = ResourceLocation.fromNamespaceAndPath(
+
+        // 1) Path matching unique sprite id (e.g. textures/gui/mattertypes/kubejs/plasma.png)
+        ResourceLocation primaryPath = ResourceLocation.fromNamespaceAndPath(
                 spriteId.getNamespace(),
                 "textures/" + spriteId.getPath() + ".png"
         );
+        Resource resource = resourceManager.getResource(primaryPath).orElse(null);
+        boolean dedicatedPng = resource != null;
+        String sourceLabel = "primary";
 
-        LOGGER.debug("Looking for matter texture at: {}", texturePath);
-        var resourceOpt = resourceManager.getResource(texturePath);
-        var resource = resourceOpt.orElse(null);
+        // 2) Flat pack path used by Replication / KubeJS: textures/gui/mattertypes/{name}.png
+        if (resource == null && info.name() != null) {
+            ResourceLocation flatPath = ResourceLocation.fromNamespaceAndPath(
+                    "replication",
+                    "textures/gui/mattertypes/" + info.name().toLowerCase() + ".png"
+            );
+            resource = resourceManager.getResource(flatPath).orElse(null);
+            if (resource != null) {
+                dedicatedPng = true;
+                sourceLabel = "flat:" + flatPath;
+            }
+        }
 
-        // Fallback to shared Replication matter block texture (tinted by matter color)
+        // 3) White GUI template when no dedicated art
         if (resource == null) {
-            ResourceLocation fallbackPath = ResourceLocation.fromNamespaceAndPath("replication", "textures/block/matter.png");
-            resource = resourceManager.getResource(fallbackPath).orElse(null);
+            resource = resourceManager.getResource(EARTH_TEMPLATE).orElse(null);
             if (resource == null) {
-                LOGGER.warn("Matter texture not found: {} (for matter type: {})", texturePath, info.name());
+                LOGGER.warn("RepAE2Bridge: Matter texture missing for '{}' (tried {}, flat name, earth template)",
+                        info.name(), primaryPath);
                 return null;
             }
-            LOGGER.debug("Using fallback matter texture for '{}'", info.name());
+            dedicatedPng = false;
+            sourceLabel = "template:earth";
         }
 
-        LOGGER.debug("Matter texture found, loading sprite: {}", spriteId);
-        SpriteContents contents = loader.loadSprite(spriteId, resource);
-        if (contents != null) {
-            rep_ae2_bridge$applyTint(contents.getOriginalImage(), info.color());
-            LOGGER.debug("Matter sprite loaded successfully: {} (for matter type: {})", spriteId, info.name());
-        } else {
-            LOGGER.warn("Failed to load matter sprite: {} (for matter type: {})", spriteId, info.name());
+        if (Config.enableDebugLogging) {
+            LOGGER.info("RepAE2Bridge: Matter sprite '{}' source={} (dedicatedPng={})", spriteId, sourceLabel, dedicatedPng);
         }
+
+        SpriteContents contents = loader.loadSprite(spriteId, resource);
+        if (contents == null) {
+            LOGGER.warn("RepAE2Bridge: Failed to load matter sprite {} for '{}'", spriteId, info.name());
+            return null;
+        }
+
+        // Match Replication GUI: multiply by matter color (identity when color is 1,1,1).
+        rep_ae2_bridge$applyTint(contents.getOriginalImage(), info.color());
         return contents;
     }
 
+    /**
+     * Multiplies RGB by matter color. NativeImage pixels are ABGR (despite getPixelRGBA name).
+     */
     @Unique
     private void rep_ae2_bridge$applyTint(NativeImage image, float[] color) {
-        if (color == null || color.length < 3) {
+        if (color == null || color.length < 3 || image == null) {
             return;
         }
 
-        final float r = clampColor(color[0]);
-        final float g = clampColor(color[1]);
-        final float b = clampColor(color[2]);
+        final float rf = clampColor(color[0]);
+        final float gf = clampColor(color[1]);
+        final float bf = clampColor(color[2]);
 
         int height = image.getHeight();
         int width = image.getWidth();
@@ -128,13 +162,15 @@ public abstract class SpriteLoaderMixin {
             for (int x = 0; x < width; x++) {
                 int pixel = image.getPixelRGBA(x, y);
                 int a = (pixel >>> 24) & 0xFF;
-                int rr = (int) Math.min(255, ((pixel >>> 16) & 0xFF) * r);
-                int gg = (int) Math.min(255, ((pixel >>> 8) & 0xFF) * g);
-                int bb = (int) Math.min(255, (pixel & 0xFF) * b);
+                int b = (pixel >>> 16) & 0xFF;
+                int g = (pixel >>> 8) & 0xFF;
+                int r = pixel & 0xFF;
 
-                // convert to ABGR as used by NativeImage
-                int tinted = (a << 24) | (bb << 16) | (gg << 8) | rr;
-                image.setPixelRGBA(x, y, tinted);
+                int nr = (int) Math.min(255, r * rf);
+                int ng = (int) Math.min(255, g * gf);
+                int nb = (int) Math.min(255, b * bf);
+
+                image.setPixelRGBA(x, y, (a << 24) | (nb << 16) | (ng << 8) | nr);
             }
         }
     }
