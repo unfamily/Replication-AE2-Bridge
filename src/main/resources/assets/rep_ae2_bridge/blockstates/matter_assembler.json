@@ -1,0 +1,17 @@
+{
+  "multipart": [
+    {
+      "apply": {
+        "model": "rep_ae2_bridge:block/matter_assembler"
+      }
+    },
+    {
+      "apply": {
+        "model": "rep_ae2_bridge:block/matter_assembler_lights"
+      },
+      "when": {
+        "powered": "true"
+      }
+    }
+  ]
+}

@@ -5,7 +5,9 @@ import com.buuz135.replication.api.IMatterType;
 import com.mojang.logging.LogUtils;
 import net.minecraft.core.Registry;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.item.Item;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -25,7 +27,7 @@ import java.util.Set;
  * registered. ITEM is still unfrozen between RegisterEvents, so direct {@link Registry#register}
  * is valid here.
  */
-@EventBusSubscriber(modid = RepAE2Bridge.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
+@EventBusSubscriber(modid = RepAE2Bridge.MOD_ID)
 public final class CustomMatterAutoRegistrar {
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -52,7 +54,7 @@ public final class CustomMatterAutoRegistrar {
 
         int registered = 0;
         for (var entry : matterRegistry.entrySet()) {
-            ResourceLocation matterId = entry.getKey().location();
+            Identifier matterId = entry.getKey().identifier();
             IMatterType matterType = entry.getValue();
 
             if (isBuiltin(matterType, matterId)) {
@@ -60,8 +62,9 @@ public final class CustomMatterAutoRegistrar {
             }
 
             String itemName = toItemRegistryName(matterId);
-            if (BuiltInRegistries.ITEM.containsKey(ResourceLocation.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, itemName))) {
-                Item existing = BuiltInRegistries.ITEM.get(ResourceLocation.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, itemName));
+            Identifier itemId = Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, itemName);
+            if (BuiltInRegistries.ITEM.containsKey(itemId)) {
+                Item existing = BuiltInRegistries.ITEM.getValue(itemId);
                 if (existing instanceof CustomMatterItem custom) {
                     custom.bindToMatterType(matterId.toString());
                     CustomMatterBindings.bind(existing, matterType, itemName);
@@ -70,13 +73,11 @@ public final class CustomMatterAutoRegistrar {
                 continue;
             }
 
-            CustomMatterItem item = new CustomMatterItem(new Item.Properties(), itemName);
+            Item.Properties properties = new Item.Properties()
+                    .setId(ResourceKey.create(Registries.ITEM, itemId));
+            CustomMatterItem item = new CustomMatterItem(properties, itemName);
             item.bindToMatterType(matterId.toString());
-            Registry.register(
-                    BuiltInRegistries.ITEM,
-                    ResourceLocation.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, itemName),
-                    item
-            );
+            Registry.register(BuiltInRegistries.ITEM, itemId, item);
 
             CustomMatterBindings.bind(item, matterType, itemName);
             ModItems.CUSTOM_MATTER_ITEMS.put(itemName, item);
@@ -90,7 +91,7 @@ public final class CustomMatterAutoRegistrar {
         LOGGER.info("RepAE2Bridge: Auto-registered {} custom matter item(s) from matter type registry", registered);
     }
 
-    private static boolean isBuiltin(IMatterType matterType, ResourceLocation matterId) {
+    private static boolean isBuiltin(IMatterType matterType, Identifier matterId) {
         if (matterId.getNamespace().equals("replication") && BUILTIN_MATTER_NAMES.contains(matterId.getPath())) {
             return true;
         }
@@ -101,7 +102,7 @@ public final class CustomMatterAutoRegistrar {
     /**
      * Stable item registry path: {@code namespace_path} with non-[a-z0-9_] replaced by underscore.
      */
-    public static String toItemRegistryName(ResourceLocation matterId) {
+    public static String toItemRegistryName(Identifier matterId) {
         String raw = matterId.getNamespace() + "_" + matterId.getPath();
         return raw.toLowerCase().replaceAll("[^a-z0-9_/]", "_").replace('/', '_');
     }

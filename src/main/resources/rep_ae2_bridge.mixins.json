@@ -1,23 +1,26 @@
 {
-    "required": true,
-    "minVersion": "0.8",
-    "package": "net.unfamily.repae2bridge.mixin",
-    "compatibilityLevel": "JAVA_21",
-    "mixins": [
-      "ItemStackMixin",
-      "DataComponentsMixin",
-      "NetworkManagerMixin",
-      "NetworkBlockEntityMixin",
-      "MatterNetworkImaginatorCompatMixin"
-    ],
-    "client": [
-      "SpriteLoaderMixin",
-      "RepoMixin"
-    ],
-    "injectors": {
-      "defaultRequire": 1
-    },
-    "overwrites": {
-      "requireAnnotations": true
-    }
+  "required": true,
+  "minVersion": "0.8",
+  "package": "net.unfamily.repae2bridge.mixin",
+  "compatibilityLevel": "JAVA_25",
+  "mixins": [
+    "NetworkBlockEntityMixin",
+    "MatterNetworkImaginatorCompatMixin",
+    "AbstractMonitorPartMixin",
+    "GenericStackMixin",
+    "ConfigInventoryMixin",
+    "PatternEncodingLogicMixin",
+    "PatternEncodingTermMenuMixin",
+    "CraftingCpuLogicMixin"
+  ],
+  "client": [
+    "PatternEncodingTermScreenMixin",
+    "ProcessingEncodingPanelMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  },
+  "overwrites": {
+    "requireAnnotations": true
   }
+}

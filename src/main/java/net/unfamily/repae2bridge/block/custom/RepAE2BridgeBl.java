@@ -5,11 +5,13 @@ import com.mojang.serialization.MapCodec;
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.RenderShape;
 import net.minecraft.world.level.block.entity.BlockEntityType;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.redstone.Orientation;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import com.hrznstudio.titanium.block.BasicTileBlock;
@@ -20,9 +22,9 @@ import net.minecraft.world.level.block.state.StateDefinition;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.Containers;
+import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import net.unfamily.repae2bridge.item.MatterItem;
-import net.unfamily.repae2bridge.item.UniversalMatterItem;
 
 
 public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> implements INetworkDirectionalConnection {
@@ -53,11 +55,8 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
             if (MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS != null) {
                 // Add a predicate for this specific block
                 MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> block instanceof RepAE2BridgeBl);
-                // Debug log disabled for production
-                // LOGGER.debug("Registered RepAE2BridgeBl with Replication mod pipes");
             }
         } catch (Exception e) {
-            // Keep error logs for critical failures
             LOGGER.error("Failed to register block with Replication: " + e.getMessage());
         }
     }
@@ -78,8 +77,6 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
         return CODEC;
     }
 
-    /* BLOCK ENTITY */
-
     @Override
     public RenderShape getRenderShape(BlockState state) {
         return RenderShape.MODEL;
@@ -91,106 +88,96 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
     }
     
     @Override
-    public void setPlacedBy(Level level, BlockPos pos, BlockState state, @org.jetbrains.annotations.Nullable net.minecraft.world.entity.LivingEntity entity, net.minecraft.world.item.ItemStack stack) {
+    public void setPlacedBy(Level level, BlockPos pos, BlockState state, @Nullable net.minecraft.world.entity.LivingEntity entity, net.minecraft.world.item.ItemStack stack) {
         super.setPlacedBy(level, pos, state, entity, stack);
         
-        // Force an update to neighboring blocks when the bridge is placed
         if (!level.isClientSide()) {
-            // Initialize the BlockEntity immediately
             if (level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
-                // Initialize the AE2 node
                 blockEntity.handleNeighborChanged(pos);
             }
-            
-            // Notify neighboring blocks
             updateNeighbors(level, pos, state);
         }
     }
     
-    /**
-     * Useful method to update neighboring blocks
-     */
     private void updateNeighbors(Level level, BlockPos pos, BlockState state) {
-        // Update the block itself
         level.sendBlockUpdated(pos, state, state, 3);
-        
-        // Update all adjacent blocks to ensure they detect the connection
+
         for (Direction direction : Direction.values()) {
             BlockPos neighborPos = pos.relative(direction);
             BlockState neighborState = level.getBlockState(neighborPos);
-            
-            // Notify the neighboring block of the change
-            level.neighborChanged(neighborPos, state.getBlock(), pos);
-            
-            // If the neighboring block is a Replication network pipe, force it to update
+
+            // Adjacent bridges: notify with explicit fromPos so their anti-cascade guard works.
+            // (MC 26 neighborChanged no longer carries BlockPos fromPos.)
+            if (level.getBlockEntity(neighborPos) instanceof RepAE2BridgeBlockEntity otherBridge) {
+                otherBridge.handleNeighborChanged(pos);
+            } else {
+                level.neighborChanged(neighborPos, state.getBlock(), null);
+            }
+
             if (neighborState.getBlock() instanceof MatterPipeBlock) {
-                // Update the visual state of the pipe
                 level.sendBlockUpdated(neighborPos, neighborState, neighborState, 3);
-                
-                // Force a more aggressive recalculation of the connection
+
                 if (neighborState.hasProperty(MatterPipeBlock.DIRECTIONS.get(direction.getOpposite()))) {
-                    // This forces a recalculation both via block event and via state change
                     level.setBlock(neighborPos, neighborState.setValue(
-                            MatterPipeBlock.DIRECTIONS.get(direction.getOpposite()), 
+                            MatterPipeBlock.DIRECTIONS.get(direction.getOpposite()),
                             true), 3);
                 }
             }
         }
     }
-    
+
     @Override
-    public void neighborChanged(BlockState state, Level level, BlockPos pos, net.minecraft.world.level.block.Block blockIn, BlockPos fromPos, boolean isMoving) {
-        super.neighborChanged(state, level, pos, blockIn, fromPos, isMoving);
-        
-        // If a neighboring block changes, inform the BlockEntity
-        if (!level.isClientSide()) {
-            // Check if the adjacent block is a Replication pipe
-            Direction directionToPipe = null;
-            for (Direction direction : Direction.values()) {
-                if (pos.relative(direction).equals(fromPos) && 
-                    level.getBlockState(fromPos).getBlock() instanceof MatterPipeBlock) {
-                    directionToPipe = direction;
-                    break;
-                }
-            }
-            
-            // Notify the BlockEntity of the update
-            if (level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
-                // Use the handleNeighborChanged method
-                blockEntity.handleNeighborChanged(fromPos);
-                
-                // Update the visual state of the block based on connections
-                boolean isConnected = blockEntity.isActive() && blockEntity.getNetwork() != null;
-                if (state.getValue(CONNECTED) != isConnected) {
-                    level.setBlock(pos, state.setValue(CONNECTED, isConnected), 3);
-                }
-                
-                // If an adjacent pipe was found, force the pipe to update
-                if (directionToPipe != null) {
-                    BlockState pipeState = level.getBlockState(fromPos);
-                    if (pipeState.getBlock() instanceof MatterPipeBlock) {
-                        level.sendBlockUpdated(fromPos, pipeState, pipeState, 3);
-                    }
-                }
-            }
+    public void neighborChanged(BlockState state, Level level, BlockPos pos, Block blockIn,
+            @Nullable Orientation orientation, boolean isMoving) {
+        super.neighborChanged(state, level, pos, blockIn, orientation, isMoving);
+
+        if (level.isClientSide()) {
+            return;
         }
+        if (!(level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity)) {
+            return;
+        }
+
+        // MC 26 dropped fromPos; Orientation is often null. Prefer a resolved source when available,
+        // otherwise do a soft refresh that never re-fans neighbor updates (avoids bridge↔bridge TPS storms).
+        BlockPos fromPos = resolveNeighborSource(pos, orientation);
+        if (fromPos != null) {
+            blockEntity.handleNeighborChanged(fromPos);
+            if (level.getBlockState(fromPos).getBlock() instanceof MatterPipeBlock) {
+                BlockState pipeState = level.getBlockState(fromPos);
+                level.sendBlockUpdated(fromPos, pipeState, pipeState, 3);
+            }
+        } else {
+            blockEntity.handleNeighborChangedUnknownSource();
+        }
+
+        boolean isConnected = blockEntity.isActive() && blockEntity.getNetwork() != null;
+        if (state.getValue(CONNECTED) != isConnected) {
+            level.setBlock(pos, state.setValue(CONNECTED, isConnected), 3);
+        }
+    }
+
+    /**
+     * Best-effort source position for a neighbor update. Orientation.front points toward the
+     * update direction when present; opposite is the neighbor that changed.
+     */
+    @Nullable
+    private static BlockPos resolveNeighborSource(BlockPos pos, @Nullable Orientation orientation) {
+        if (orientation == null) {
+            return null;
+        }
+        return pos.relative(orientation.getFront().getOpposite());
     }
     
     @Override
-    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean moving) {
-        if (!state.is(newState.getBlock())) {
-            if (!level.isClientSide() && level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
-                dropInventory(level, pos, blockEntity);
-                blockEntity.disconnectFromNetworks();
-            }
+    protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean moving) {
+        if (level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
+            dropInventory(level, pos, blockEntity);
+            blockEntity.disconnectFromNetworks();
         }
-
-        super.onRemove(state, level, pos, newState, moving);
-
-        if (!state.is(newState.getBlock()) && !level.isClientSide()) {
-            for (Direction direction : Direction.values()) {
-                level.updateNeighborsAt(pos.relative(direction), this);
-            }
+        super.affectNeighborsAfterRemoval(state, level, pos, moving);
+        for (Direction direction : Direction.values()) {
+            level.updateNeighborsAt(pos.relative(direction), this);
         }
     }
 
@@ -205,7 +192,7 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
             if (stack.isEmpty()) {
                 continue;
             }
-            if (stack.getItem() instanceof MatterItem || stack.getItem() instanceof UniversalMatterItem) {
+            if (stack.getItem() instanceof MatterItem) {
                 stack.setCount(0);
                 continue;
             }
@@ -216,25 +203,15 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
 
     @Override
     public boolean canConnect(Level level, BlockPos pos, BlockState state, Direction direction) {
-        // Allow connection from all directions for the Replication network
         return true;
     }
 
-    /**
-     * Handle scheduled ticks for retrying network initialization.
-     * 
-     * SAFE APPROACH: Calls onLoad() which internally wraps super.onLoad() in try-catch.
-     * onLoad() will NOT manipulate network elements of other blocks.
-     * If the network still isn't ready, onLoad() will schedule another retry.
-     */
     @Override
-    public void tick(BlockState state, net.minecraft.server.level.ServerLevel level, BlockPos pos, net.minecraft.util.RandomSource random) {
+    public void tick(BlockState state, ServerLevel level, BlockPos pos, net.minecraft.util.RandomSource random) {
         super.tick(state, level, pos, random);
         
-        // Retry network initialization if it failed previously
         if (level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
             if (blockEntity.needsNetworkRetry()) {
-                // onLoad() has its own try-catch; it will schedule further retries if needed
                 blockEntity.onLoad();
             }
         }

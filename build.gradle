@@ -2,7 +2,7 @@ plugins {
     id 'idea'
     id 'java-library'
     id 'maven-publish'
-    id 'net.neoforged.moddev' version '2.0.78'
+    id 'net.neoforged.moddev' version '2.0.148'
 }
 
 tasks.named('wrapper', Wrapper).configure {
@@ -21,26 +21,28 @@ repositories {
     maven {
         url = "https://www.cursemaven.com"
     }
+    maven {
+        name = "Modmaven"
+        url = "https://modmaven.dev/"
+    }
+    maven {
+        url = "https://maven.latvian.dev/releases"
+        content {
+            includeGroup "dev.latvian.mods"
+            includeGroup "dev.latvian.apps"
+        }
+    }
 }
 
 base {
     archivesName = mod_id
 }
 
-// Mojang ships Java 21 to end users starting in 1.20.5, so mods should target Java 21.
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+java.toolchain.languageVersion = JavaLanguageVersion.of(25)
 
 neoForge {
     // Specify the version of NeoForge to use.
     version = project.neo_version
-
-    parchment {
-        mappingsVersion = project.parchment_mappings_version
-        minecraftVersion = project.parchment_minecraft_version
-    }
-
-    // This line is optional. Access Transformers are automatically detected
-    // accessTransformers = project.files('src/main/resources/META-INF/accesstransformer.cfg')
 
     // Default run configurations.
     // These can be tweaked, removed, or duplicated as needed.
@@ -67,10 +69,7 @@ neoForge {
         }
 
         data {
-            data()
-
-            // example of overriding the workingDirectory set in configureEach above, uncomment if you want to use it
-            // gameDirectory = project.file('run-data')
+            clientData()
 
             // Specify the modid for data generation, where to output the resulting resource, and where to look for existing resources.
             programArguments.addAll '--mod', project.mod_id, '--all', '--output', file('src/generated/resources/').getAbsolutePath(), '--existing', file('src/main/resources/').getAbsolutePath()
@@ -120,17 +119,14 @@ dependencies {
     implementation "curse.maven:replication-638351:${replication_file_id}"
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
+    implementation "curse.maven:better-advanced-tooltips-1637623:${better_advanced_tooltips_file_id}"
 
     // Optional: IDE compile/runtime only (not hard deps of the published jar)
+    // Mekanism ecosystem not available for 26.1.2 yet
     compileOnly "curse.maven:kubejs-238086:${kubejs_file_id}"
     compileOnly "curse.maven:rhino-416294:${rhino_file_id}"
-    localRuntime "curse.maven:mekanism-268560:${mekanism_file_id}"
-    localRuntime "curse.maven:mekanism-generators-268566:${mekanism_generators_file_id}"
-    localRuntime "curse.maven:replicatemekanism-1562720:${replicatemekanism_file_id}"
-    localRuntime "curse.maven:applied-mekanistics-574300:${applied_mekanistics_file_id}"
     localRuntime "curse.maven:kubejs-238086:${kubejs_file_id}"
     localRuntime "curse.maven:rhino-416294:${rhino_file_id}"
-    localRuntime "curse.maven:architectury-api-419699:${architectury_file_id}"
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.
@@ -176,6 +172,7 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8' // Use the UTF-8 charset for Java compilation
+    options.compilerArgs << '-Xmaxerrs' << '2000'
 }
 
 // IDEA no longer automatically downloads sources/javadoc jars for dependencies, so we need to explicitly enable the behavior.

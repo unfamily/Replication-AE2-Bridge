@@ -8,18 +8,18 @@ import com.buuz135.replication.api.IMatterType;
 import io.netty.buffer.ByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 
 public record MatterTypeInfo(String name,
-                             ResourceLocation texture,
+                             Identifier texture,
                              float[] color,
-                             ResourceLocation registryId,
+                             Identifier registryId,
                              IMatterType matterType) {
 
     public static final StreamCodec<ByteBuf, MatterTypeInfo> STREAM_CODEC = StreamCodec.composite(
         ByteBufCodecs.STRING_UTF8,
         MatterTypeInfo::name,
-        ResourceLocation.STREAM_CODEC,
+        Identifier.STREAM_CODEC,
         MatterTypeInfo::texture,
         ByteBufCodecs.FLOAT.apply(ByteBufCodecs.list()).map(
             list -> {
@@ -38,7 +38,7 @@ public record MatterTypeInfo(String name,
             }
         ),
         MatterTypeInfo::color,
-        ResourceLocation.STREAM_CODEC,
+        Identifier.STREAM_CODEC,
         MatterTypeInfo::registryId,
         (name, texture, color, registryId) -> new MatterTypeInfo(name, texture, color, registryId, null)
     );

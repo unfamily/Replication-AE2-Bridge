@@ -1,10 +1,12 @@
 package net.unfamily.repae2bridge.item;
 
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.entity.Entity;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.level.Level;
+import org.jetbrains.annotations.Nullable;
 
 /**
  * Base class for all virtual matter items.
@@ -15,14 +17,11 @@ public class MatterItem extends Item {
     public MatterItem(Properties properties) {
         super(properties);
     }
-    
+
     @Override
-    public void inventoryTick(ItemStack stack, Level level, Entity entity, int slotId, boolean isSelected) {
-        // Makes the item disappear if it's in a player's inventory
-        if (entity instanceof Player && !level.isClientSide()) {
-            // Remove the item from inventory
+    public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, @Nullable EquipmentSlot slot) {
+        if (entity instanceof Player) {
             stack.setCount(0);
         }
     }
 }
-

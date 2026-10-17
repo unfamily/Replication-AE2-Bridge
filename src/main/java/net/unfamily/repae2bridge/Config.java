@@ -5,59 +5,82 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-
 /**
- * Configuration class for RepAE2Bridge
+ * Configuration for RepAE2Bridge (numbered keys + categories, iskandert style).
  */
-@EventBusSubscriber(modid = RepAE2Bridge.MOD_ID, bus = EventBusSubscriber.Bus.MOD)
-public class Config
-{
+@EventBusSubscriber(modid = RepAE2Bridge.MOD_ID)
+public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
+    static {
+        BUILDER.comment("AE2–Replication Bridge").push("bridge");
+    }
+
     private static final ModConfigSpec.IntValue BRIDGE_ENERGY_CONSUMPTION = BUILDER
-            .comment("Energy consumption rate (AE/t) for the RepAE2Bridge")
-            .defineInRange("bridgeEnergyConsumption", 500, 0, Integer.MAX_VALUE);
+            .comment("Idle AE/t drain of the Bridge AE2 node")
+            .defineInRange("000_bridgeEnergyConsumption", 500, 0, Integer.MAX_VALUE);
+
+    static {
+        BUILDER.pop();
+        BUILDER.comment("Matter storage cells").push("matter_cells");
+    }
+
+    private static final ModConfigSpec.IntValue MATTER_CELL_MAX_TYPES = BUILDER
+            .comment("Maximum distinct matter types a matter storage cell can hold (AE2 clamps to 63).")
+            .defineInRange("000_matterCellMaxTypes", 6, 1, Integer.MAX_VALUE);
+
+    static {
+        BUILDER.pop();
+        BUILDER.comment("Matter Assembler").push("matter_assembler");
+    }
+
+    private static final ModConfigSpec.IntValue MATTER_ASSEMBLER_MAX_PROGRESS = BUILDER
+            .comment("Ticks required for a Matter Assembler to finish one craft unit (Replicator uses ~100).")
+            .defineInRange("000_matterAssemblerMaxProgress", 5, 1, 1000);
+
+    private static final ModConfigSpec.IntValue MATTER_ASSEMBLER_ENERGY_PER_TICK = BUILDER
+            .comment("AE/t drained from the AE2 grid while a Matter Assembler is working.")
+            .defineInRange("001_matterAssemblerEnergyPerTick", 80, 0, Integer.MAX_VALUE);
+
+    static {
+        BUILDER.pop();
+        BUILDER.comment("Logging / development").push("logging");
+    }
 
     private static final ModConfigSpec.BooleanValue ENABLE_DEBUG_LOGGING = BUILDER
-            .comment("Enable aggressive debug logging for troubleshooting (includes network state dumps and reconnection logs)")
-            .define("enableDebugLogging", false);
+            .comment("Enable aggressive debug logging for troubleshooting")
+            .define("000_enableDebugLogging", false);
 
-    private static final ModConfigSpec.ConfigValue<String> BRIDGE_CUSTOM_MATTER_CONFIG_PATH = BUILDER
-            .comment("Legacy option (unused). Custom matter items are auto-created from the matter type registry;",
-                    "rep_ae2_bridge_matters.json is no longer read or written.")
-            .define("bridgeCustomMatterConfigPath", "config");
-
-    private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_MANAGER_FIX = BUILDER
-            .comment("Enable the Titanium NetworkManager mixin that prevents 'Element network is null' crashes",
-                    "during world loading. This fixes a race condition in Titanium's mergeNetworksIntoOne()",
-                    "that affects ALL Replication network blocks (pipes, replicators, etc.).",
-                    "Only disable this if another mod provides the same fix or it causes conflicts.",
-                    "Requires game restart to take effect.")
-            .define("enableNetworkManagerFix", true);
+    static {
+        BUILDER.pop();
+        BUILDER.comment("Compatibility / safety fixes").push("fixes");
+    }
 
     private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_BLOCK_ENTITY_FIX = BUILDER
             .comment("Enable the Replication NetworkBlockEntity mixin that wraps addElement() in onLoad()",
-                    "with a try-catch safety net. This prevents ANY RuntimeException during network",
-                    "element registration from crashing the server.",
-                    "Only disable this if another mod provides the same fix or it causes conflicts.",
-                    "Requires game restart to take effect.")
-            .define("enableNetworkBlockEntityFix", true);
+                    "with a try-catch safety net. Requires game restart to take effect.")
+            .define("000_enableNetworkBlockEntityFix", true);
+
+    static {
+        BUILDER.pop();
+    }
 
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static int bridgeEnergyConsumption;
+    public static int matterCellMaxTypes;
+    public static int matterAssemblerMaxProgress;
+    public static int matterAssemblerEnergyPerTick;
     public static boolean enableDebugLogging;
-    public static String bridgeCustomMatterConfigPath;
-    public static volatile boolean enableNetworkManagerFix = true;
     public static volatile boolean enableNetworkBlockEntityFix = true;
 
     @SubscribeEvent
-    static void onLoad(final ModConfigEvent event)
-    {
+    static void onLoad(final ModConfigEvent event) {
         bridgeEnergyConsumption = BRIDGE_ENERGY_CONSUMPTION.get();
+        matterCellMaxTypes = MATTER_CELL_MAX_TYPES.get();
+        matterAssemblerMaxProgress = MATTER_ASSEMBLER_MAX_PROGRESS.get();
+        matterAssemblerEnergyPerTick = MATTER_ASSEMBLER_ENERGY_PER_TICK.get();
         enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
-        bridgeCustomMatterConfigPath = BRIDGE_CUSTOM_MATTER_CONFIG_PATH.get();
-        enableNetworkManagerFix = ENABLE_NETWORK_MANAGER_FIX.get();
         enableNetworkBlockEntityFix = ENABLE_NETWORK_BLOCK_ENTITY_FIX.get();
     }
 }

@@ -1,6 +1,7 @@
 {
   "replace": false,
   "values": [
-    "rep_ae2_bridge:rep_ae2_bridge"
+    "rep_ae2_bridge:rep_ae2_bridge",
+    "rep_ae2_bridge:matter_assembler"
   ]
 }

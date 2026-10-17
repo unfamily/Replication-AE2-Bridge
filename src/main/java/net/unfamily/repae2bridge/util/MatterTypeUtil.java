@@ -8,7 +8,7 @@ import net.unfamily.repae2bridge.item.ModItems;
 import com.mojang.logging.LogUtils;
 import net.minecraft.world.item.Item;
 import net.minecraft.core.Registry;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.resources.Identifier;
 import org.slf4j.Logger;
 
 import java.util.Collection;
@@ -46,12 +46,12 @@ public class MatterTypeUtil {
             }
 
             for (var entry : registry.entrySet()) {
-                ResourceLocation id = entry.getKey().location();
+                Identifier id = entry.getKey().identifier();
                 IMatterType matterType = entry.getValue();
 
                 String name = matterType.getName();
                 float[] color = matterType.getColor().get();
-                ResourceLocation texture = resolveTexture(id, name);
+                Identifier texture = resolveTexture(id, name);
 
                 MatterTypeInfo info = new MatterTypeInfo(name, texture, color, id, matterType);
                 MATTER_BY_ID.put(id.toString(), info);
@@ -85,12 +85,12 @@ public class MatterTypeUtil {
      * Builtins: {@code replication:gui/mattertypes/{name}}.
      * Custom: {@code replication:gui/mattertypes/{namespace}/{path}} (unique); file lookup also tries flat {@code {name}.png}.
      */
-    private static ResourceLocation resolveTexture(ResourceLocation id, String name) {
+    private static Identifier resolveTexture(Identifier id, String name) {
         if (id.getNamespace().equals("replication")) {
             String pathName = (name == null ? id.getPath() : name).toLowerCase();
-            return ResourceLocation.fromNamespaceAndPath("replication", "gui/mattertypes/" + pathName);
+            return Identifier.fromNamespaceAndPath("replication", "gui/mattertypes/" + pathName);
         }
-        return ResourceLocation.fromNamespaceAndPath(
+        return Identifier.fromNamespaceAndPath(
                 "replication",
                 "gui/mattertypes/" + id.getNamespace() + "/" + id.getPath()
         );
@@ -99,9 +99,9 @@ public class MatterTypeUtil {
     /**
      * Flat GUI icon path used by Replication / KubeJS packs: {@code gui/mattertypes/{name}}.
      */
-    public static ResourceLocation flatGuiTexture(String name) {
+    public static Identifier flatGuiTexture(String name) {
         String pathName = name == null ? "empty" : name.toLowerCase();
-        return ResourceLocation.fromNamespaceAndPath("replication", "gui/mattertypes/" + pathName);
+        return Identifier.fromNamespaceAndPath("replication", "gui/mattertypes/" + pathName);
     }
 
     /**
@@ -144,7 +144,7 @@ public class MatterTypeUtil {
     /**
      * Gets matter info by registry id.
      */
-    public static MatterTypeInfo getMatterInfoById(ResourceLocation registryId) {
+    public static MatterTypeInfo getMatterInfoById(Identifier registryId) {
         if (MATTER_BY_ID.isEmpty()) {
             loadAllMatters();
         }
@@ -174,7 +174,6 @@ public class MatterTypeUtil {
 
     /**
      * Gets the matter type from an item (built-in matter items and custom map).
-     * Use this when you only have the Item; for Universal Matter use getMatterTypeFromItemStack.
      */
     @org.jetbrains.annotations.Nullable
     public static IMatterType getMatterTypeFromItem(Item item) {
@@ -207,27 +206,13 @@ public class MatterTypeUtil {
     }
 
     /**
-     * Gets the matter type from a MatterComponent.
-     */
-    public static IMatterType getMatterTypeFromComponent(net.unfamily.repae2bridge.component.MatterComponent component) {
-        if (component == null) return null;
-
-        if (MATTER_BY_ID.isEmpty()) {
-            loadAllMatters();
-        }
-
-        MatterTypeInfo info = getMatterInfo(component.matterTypeName());
-        return info != null ? info.matterType() : null;
-    }
-
-    /**
-     * Returns the item to use for displaying this matter type (same logic as bridge getItemForMatterType).
+     * Returns the dedicated matter item for display, or null if none is registered.
      */
     @org.jetbrains.annotations.Nullable
     public static Item getDisplayItemForMatterType(IMatterType type) {
         if (type == null) return null;
         String name = type.getName();
-        if (name == null) return ModItems.UNIVERSAL_MATTER.get();
+        if (name == null) return null;
         if (name.equalsIgnoreCase("earth")) return ModItems.EARTH_MATTER.get();
         if (name.equalsIgnoreCase("nether")) return ModItems.NETHER_MATTER.get();
         if (name.equalsIgnoreCase("organic")) return ModItems.ORGANIC_MATTER.get();
@@ -236,9 +221,7 @@ public class MatterTypeUtil {
         if (name.equalsIgnoreCase("precious")) return ModItems.PRECIOUS_MATTER.get();
         if (name.equalsIgnoreCase("living")) return ModItems.LIVING_MATTER.get();
         if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
-        Item custom = ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
-        if (custom != null) return custom;
-        return ModItems.UNIVERSAL_MATTER.get();
+        return ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
     }
 
     public static boolean isMatterCacheEmpty() {

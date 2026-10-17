@@ -2,9 +2,11 @@ package net.unfamily.repae2bridge.item;
 
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.world.item.CreativeModeTab;
 import net.minecraft.world.item.ItemStack;
 import net.neoforged.bus.api.IEventBus;
+import net.neoforged.fml.ModList;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.unfamily.repae2bridge.RepAE2Bridge;
@@ -32,6 +34,18 @@ public class ModCreativeModeTabs {
                                     output.accept(custom);
                                 }
                                 output.accept(ModBlocks.REPAE2BRIDGE.get());
+                                output.accept(ModBlocks.MATTER_ASSEMBLER.get());
+                                output.accept(ModItems.MATTER_CELL_HOUSING.get());
+                                output.accept(ModItems.MATTER_CELL_1K.get());
+                                output.accept(ModItems.MATTER_CELL_4K.get());
+                                output.accept(ModItems.MATTER_CELL_16K.get());
+                                output.accept(ModItems.MATTER_CELL_64K.get());
+                                output.accept(ModItems.MATTER_CELL_256K.get());
+                                output.accept(ModItems.MATTER_CELL_CREATIVE.get());
+                                if (ModList.get().isLoaded("guideme")) {
+                                    output.accept(guideme.Guides.createGuideItem(
+                                            Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "guide")));
+                                }
                             })
                             .build());
 

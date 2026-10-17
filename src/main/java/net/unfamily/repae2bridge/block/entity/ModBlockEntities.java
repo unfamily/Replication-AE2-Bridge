@@ -14,8 +14,12 @@ public class ModBlockEntities {
             DeferredRegister.create(BuiltInRegistries.BLOCK_ENTITY_TYPE, RepAE2Bridge.MOD_ID);
 
     public static final Supplier<BlockEntityType<RepAE2BridgeBlockEntity>> REPAE2BRIDGE_BE =
-            BLOCK_ENTITIES.register("bridge_be", () -> BlockEntityType.Builder.of(
-                    RepAE2BridgeBlockEntity::new, ModBlocks.REPAE2BRIDGE.get()).build(null));
+            BLOCK_ENTITIES.register("bridge_be", () -> new BlockEntityType<>(
+                    RepAE2BridgeBlockEntity::new, ModBlocks.REPAE2BRIDGE.get()));
+
+    public static final Supplier<BlockEntityType<MatterAssemblerBlockEntity>> MATTER_ASSEMBLER_BE =
+            BLOCK_ENTITIES.register("matter_assembler", () -> new BlockEntityType<>(
+                    MatterAssemblerBlockEntity::new, ModBlocks.MATTER_ASSEMBLER.get()));
 
     public static void register(IEventBus eventBus) {
         BLOCK_ENTITIES.register(eventBus);

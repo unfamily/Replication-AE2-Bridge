@@ -91,7 +91,7 @@ config="${mod_id}.mixins.json"
 [[dependencies.${mod_id}]]
     modId="ae2"
     type="required"
-    versionRange="15.0.0"
+    versionRange="[26.1.0,)"
     ordering="AFTER"
     side="BOTH"
     reason="Needed for grid connectivity"
@@ -99,7 +99,7 @@ config="${mod_id}.mixins.json"
 [[dependencies.${mod_id}]]
     modId="replication"
     type="required"
-    versionRange="[1.21.1-1.2.0,)"
+    versionRange="[26.1.2-1.2.0,)"
     ordering="AFTER"
     side="BOTH"
     reason="Needed for matter network and matter types"
@@ -107,47 +107,30 @@ config="${mod_id}.mixins.json"
 [[dependencies.${mod_id}]]
     modId="titanium"
     type="required"
-    versionRange="[4.0.0,)"
+    versionRange="[4.0.8,)"
     ordering="AFTER"
     side="BOTH"
     reason="Required by Replication network elements"
 
 # Optional integrations (IDE/runtime testing; never hard-required)
 [[dependencies.${mod_id}]]
-    modId="mekanism"
-    type="optional"
-    versionRange="[10.7.0,)"
-    ordering="AFTER"
-    side="BOTH"
-    reason="Optional: ReplicateMekanism / Applied Mekanistics ecosystem"
-
-[[dependencies.${mod_id}]]
-    modId="replicatemekanism"
-    type="optional"
-    versionRange="[1.0.0,)"
-    ordering="AFTER"
-    side="BOTH"
-    reason="Optional: Mekanism machines on the Replication matter network"
-
-[[dependencies.${mod_id}]]
-    modId="appmek"
+    modId="kubejs"
     type="optional"
     versionRange="*"
     ordering="AFTER"
     side="BOTH"
-    reason="Optional: AE2 chemical keys via Applied Mekanistics"
+    reason="Optional: custom matter types from startup scripts"
 
 [[dependencies.${mod_id}]]
-    modId="kubejs"
+    modId="guideme"
     type="optional"
-    versionRange="[2101.0.0,)"
+    versionRange="*"
     ordering="AFTER"
-    side="BOTH"
-    reason="Optional: custom matter types from startup scripts"
+    side="CLIENT"
+    reason="Optional: standalone in-game guide for this addon"
 
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't
 # stop your mod loading on the server for example.
 #[features.${mod_id}]
 #openGLVersion="[3.2,)"
-

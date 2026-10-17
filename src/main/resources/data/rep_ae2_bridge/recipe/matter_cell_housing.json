@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "aba",
+    "b b",
+    "ccc"
+  ],
+  "key": {
+    "a": "ae2:quartz_glass",
+    "b": "#c:dusts/redstone",
+    "c": "replication:replica_ingot"
+  },
+  "result": {
+    "id": "rep_ae2_bridge:matter_cell_housing"
+  }
+}
