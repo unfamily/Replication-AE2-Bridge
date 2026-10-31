@@ -262,6 +262,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     /** Matter types waiting for a coalesced {@link MatterNetwork#onTankValueChanged} flush. */
     private final Set<IMatterType> dirtyReplicationMatterTypes = new HashSet<>();
     private int replicationTankSyncTicks = 0;
+    /** Coalesce AE2 {@link IStorageProvider#requestUpdate} — per-unit updates spike TPS. */
+    private boolean ae2StorageUpdateDirty;
+    private int ae2InternalPruneCooldown;
 
     /** When true, each tick feeds AE power into the Replication matter network as FE. Default ON. */
     @Save
@@ -1363,14 +1366,19 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (initialized == 1 && getNetwork() != null && isActive()) {
             trackMatterCreation();
             feedEnergyToMatterNetwork();
-            // Chambers finish in 1 tick at max speed — assign every tick so they never idle waiting.
-            assignReplicationTasksToAssemblers();
-            // Drop AE2-internal work when the crafting CPU was cancelled (AdvancedAE included).
-            pruneOrphanedAe2InternalWork();
+            // Replication-terminal task assign: not every tick when idle (TPS).
+            if (level.getGameTime() % 5 == 0) {
+                assignReplicationTasksToAssemblers();
+            }
+            // Cancel detection — throttle CPU scans.
+            if (--ae2InternalPruneCooldown <= 0) {
+                ae2InternalPruneCooldown = 20;
+                pruneOrphanedAe2InternalWork();
+            }
             feedAe2InternalJobs();
-            // Flush matter UI sync when quiet, or every REPLICATION_TANK_SYNC_INTERVAL ticks.
             boolean craftQuiet = ae2InternalPending.isEmpty() && requestCounters.isEmpty();
             flushReplicationTankSync(craftQuiet);
+            flushAe2StorageUpdate(craftQuiet);
         }
 
         // POST-SUPER CHECK: Verify if the world has started unloading during super.serverTick()
@@ -2140,7 +2148,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         // "missing" outputs that were already sitting in the network.
                                         ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
                                         ae2InternalPending.merge(key, 1, Integer::sum);
-                                        feedAe2InternalJobs();
+                                        // Feed once per bridge tick — not on every pushPattern (TPS).
                                         return true;
                                     }
                                     // 3) No AE2 workers: Replication accumulation → possible ReplicationTask.
@@ -3134,9 +3142,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             flushCraftTankIntoAe2(craftTank, craftTank.getMatterType(), network);
         }
         setChanged();
-        if (mainNode != null && mainNode.isReady()) {
-            IStorageProvider.requestUpdate(mainNode);
-        }
+        markAe2StorageDirty();
     }
 
     /**
@@ -3392,14 +3398,106 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Drains one craft's worth of matter for an AE2-internal chamber/MA unit (taskId null path).
+     * Fast AE2-internal matter drain for {@code count} crafts: AE2 cells + local craft buffer only.
+     * Skips full Replication-holder scans and per-call storage updates (those spiked TPS).
      */
-    public boolean drainOneMatterForAe2Internal(ItemStack patternStack) {
-        MatterNetwork network = getNetworkSafe();
-        if (network == null || patternStack == null || patternStack.isEmpty()) {
+    public boolean drainMatterForAe2Internal(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack == null || patternStack.isEmpty()) {
             return false;
         }
-        return drainMatterForCraft(network, patternStack, 1);
+        var matterCompound = ReplicationCalculation.getMatterCompound(patternStack);
+        if (matterCompound == null) {
+            return true;
+        }
+        // Simulate
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (needed <= 0) {
+                continue;
+            }
+            IMatterType type = matterValue.getMatter();
+            long have = extractAe2Matter(type, needed, true);
+            if (have < needed) {
+                CraftMatterTank craft = findCraftMatterTank(type);
+                if (craft != null) {
+                    have += (long) Math.floor(craft.getMatterAmount());
+                }
+            }
+            if (have < needed) {
+                return false;
+            }
+        }
+        // Execute
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (needed <= 0) {
+                continue;
+            }
+            IMatterType type = matterValue.getMatter();
+            long got = extractAe2Matter(type, needed, false);
+            long left = needed - got;
+            if (left > 0) {
+                CraftMatterTank craft = findCraftMatterTank(type);
+                if (craft != null) {
+                    var drained = craft.drain(
+                            (double) left,
+                            net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                    left -= (long) Math.floor(drained.getAmount());
+                }
+            }
+            if (left > 0) {
+                return false;
+            }
+            scheduleReplicationTankSync(type);
+        }
+        markAe2StorageDirty();
+        return true;
+    }
+
+    /** @see #drainMatterForAe2Internal(ItemStack, int) */
+    public boolean drainOneMatterForAe2Internal(ItemStack patternStack) {
+        return drainMatterForAe2Internal(patternStack, 1);
+    }
+
+    /**
+     * Inserts {@code count} copies of {@code stack}'s item into AE2 (one storage op).
+     */
+    public int insertCraftedToAe2(ItemStack stack, int count) {
+        if (stack.isEmpty() || count <= 0 || !mainNode.isActive() || mainNode.getNode() == null) {
+            return 0;
+        }
+        IGrid grid = mainNode.getNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storageService = grid.getStorageService();
+        if (storageService == null) {
+            return 0;
+        }
+        AEItemKey key = AEItemKey.of(stack);
+        long inserted = storageService.getInventory().insert(
+                key, count, Actionable.MODULATE, new MachineSource(this));
+        if (inserted > 0) {
+            markAe2StorageDirty();
+        }
+        return (int) Math.min(Integer.MAX_VALUE, inserted);
+    }
+
+    private void markAe2StorageDirty() {
+        ae2StorageUpdateDirty = true;
+    }
+
+    private void flushAe2StorageUpdate(boolean force) {
+        if (!ae2StorageUpdateDirty) {
+            return;
+        }
+        if (!force && level != null && level.getGameTime() % 10 != 0) {
+            return;
+        }
+        ae2StorageUpdateDirty = false;
+        if (mainNode != null && mainNode.isReady()) {
+            IStorageProvider.requestUpdate(mainNode);
+        }
     }
 
     /**

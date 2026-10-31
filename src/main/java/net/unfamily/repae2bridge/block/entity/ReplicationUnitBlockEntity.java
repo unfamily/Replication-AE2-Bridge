@@ -232,20 +232,67 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         }
 
         progress += getProgressPointsPerTick();
-        boolean crafted = false;
-        while (progress >= PROGRESS_PER_ITEM && remainingCount > 0) {
-            progress -= PROGRESS_PER_ITEM;
-            if (!finishOneUnit()) {
-                // Delivery blocked — refund this item's progress and wait.
-                progress += PROGRESS_PER_ITEM;
+        int want = Math.min(remainingCount, progress / PROGRESS_PER_ITEM);
+        if (want <= 0) {
+            return;
+        }
+        int done;
+        if (replicationTaskId == null) {
+            // AE2-internal: one drain + one AE2 insert for the whole tick (avoids TPS spikes).
+            done = finishAe2InternalBatch(want);
+        } else {
+            done = 0;
+            for (int i = 0; i < want; i++) {
+                if (!finishOneUnit()) {
+                    break;
+                }
+                done++;
+            }
+        }
+        if (done > 0) {
+            progress -= done * PROGRESS_PER_ITEM;
+            setChanged();
+        }
+    }
+
+    /**
+     * Crafts up to {@code want} AE2-internal units with batched matter drain / AE2 insert.
+     * @return how many units completed
+     */
+    private int finishAe2InternalBatch(int want) {
+        if (level == null || craftingStack.isEmpty() || bridgePos == null || want <= 0) {
+            return 0;
+        }
+        BlockEntity be = level.getBlockEntity(bridgePos);
+        if (!(be instanceof RepAE2BridgeBlockEntity bridge)) {
+            return 0;
+        }
+        int batch = want;
+        while (batch > 0) {
+            if (bridge.drainMatterForAe2Internal(craftingStack, batch)) {
                 break;
             }
-            crafted = true;
+            if (batch == 1) {
+                return 0;
+            }
+            batch = Math.max(1, batch / 2);
         }
-        setChanged();
-        if (crafted && level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
+        int inserted = bridge.insertCraftedToAe2(craftingStack, batch);
+        if (inserted <= 0) {
+            // Matter already drained — try one-by-one into buffer as last resort.
+            if (bridge.receiveItemFromReplicator(craftingStack.copyWithCount(1))) {
+                inserted = 1;
+            } else {
+                return 0;
+            }
         }
+        remainingCount -= inserted;
+        if (remainingCount <= 0) {
+            clearJob();
+            refreshModeFromJob();
+            syncModeToChamber();
+        }
+        return inserted;
     }
 
     /**
@@ -268,8 +315,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
                     delivered = bridge.deliverMatterAssemblerReplicationUnit(
                             output, replicationTaskId, worldPosition);
                 } else {
-                    // AE2-internal: matter is parked progressively — drain one unit as we craft.
-                    if (!bridge.drainOneMatterForAe2Internal(craftingStack)) {
+                    if (!bridge.drainMatterForAe2Internal(craftingStack, 1)) {
                         return false;
                     }
                     delivered = bridge.receiveItemFromReplicator(output);
@@ -282,9 +328,9 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         remainingCount--;
         if (remainingCount <= 0) {
             clearJob();
+            refreshModeFromJob();
+            syncModeToChamber();
         }
-        refreshModeFromJob();
-        syncModeToChamber();
         return true;
     }
 
