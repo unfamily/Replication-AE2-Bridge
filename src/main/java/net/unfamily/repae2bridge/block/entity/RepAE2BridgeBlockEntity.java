@@ -270,6 +270,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private List<MatterAssemblerBlockEntity> cachedOnlineAssemblers = List.of();
     private long ae2WorkerCacheTick = Long.MIN_VALUE;
     private static final int AE2_WORKER_CACHE_TTL = 40;
+    /** Round-robin cursor so pushPattern +1 units rotate across chambers instead of sticking to the first. */
+    private int ae2FeedCursor;
+    /** Coalesce craft-buffer→AE2 park to once per bridge tick (not every pushPattern). */
+    private boolean ae2CraftParkPending;
 
     /** When true, each tick feeds AE power into the Replication matter network as FE. Default ON. */
     @Save
@@ -1380,6 +1384,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 ae2InternalPruneCooldown = 20;
                 pruneOrphanedAe2InternalWork();
             }
+            if (ae2CraftParkPending) {
+                ae2CraftParkPending = false;
+                parkCraftBufferPreferAe2KeepRest();
+            }
             feedAe2InternalJobs();
             boolean craftQuiet = ae2InternalPending.isEmpty() && requestCounters.isEmpty();
             flushReplicationTankSync(craftQuiet);
@@ -2147,7 +2155,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                     // Must NOT fall through to ReplicationTask — a failed cell park used to
                                     // flood the terminal and freeze it on open.
                                     if (hasAe2GridWorker()) {
-                                        parkCraftBufferPreferAe2KeepRest();
+                                        // Defer cell park to bridge tick — avoid O(pushes) storage ops under AdvancedAE.
+                                        ae2CraftParkPending = true;
                                         // Only count real pushPattern units — never prefill from CPU job size.
                                         ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
                                         ae2InternalPending.merge(key, 1, Integer::sum);
@@ -3138,21 +3147,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         return !cachedChamberLeaders.isEmpty() || !cachedOnlineAssemblers.isEmpty();
     }
 
-    private boolean hasIdleReplicationWorker() {
-        refreshAe2WorkerCache();
-        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
-            if (unit != null && unit.isChamberWorkerReady()) {
-                return true;
-            }
-        }
-        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
-            if (assembler != null && assembler.isIdle()) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     /**
      * O(workers) feed on pushPattern using the worker cache — keeps remainingCount topped up
      * at AE2 push rate without scanning the grid every call.
@@ -3161,22 +3155,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (patternStack.isEmpty() || worldUnloading) {
             return;
         }
-        refreshAe2WorkerCache();
         ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
         Integer boxed = ae2InternalPending.get(key);
         if (boxed == null || boxed <= 0) {
             return;
         }
-
-        // Dump the full pending pile into workers (not +1): chambers finish hundreds/tick and
-        // +1 top-up left them starving between bridge ticks under AdvancedAE push rates.
-        int pending = boxed;
-        if (hasIdleReplicationWorker()) {
-            pending = dispatchAe2InternalDeferred(patternStack, pending);
-        }
-        if (pending > 0) {
-            pending -= topUpRunningAe2InternalWorkers(patternStack, pending);
-        }
+        int pending = feedAe2InternalToEligibleWorkers(patternStack, boxed);
         if (pending <= 0) {
             ae2InternalPending.remove(key);
         } else {
@@ -3275,8 +3259,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Feeds {@link #ae2InternalPending} to chambers/MAs: top-up running jobs first (no idle flash),
-     * then start idle workers with the full pending pile.
+     * Feeds {@link #ae2InternalPending} to chambers/MAs.
      * Only real {@code pushPattern} units — each output must match an AE2 {@code waitingFor} slot.
      * Matter is drained per crafted unit. Never creates {@link ReplicationTask} entries.
      */
@@ -3297,19 +3280,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 ae2InternalPending.remove(key);
                 continue;
             }
-            ItemStack patternStack = key.getItemStack();
-            int pending = boxed;
-
-            // 1) Idle workers first — otherwise the first RUNNING chamber eats the whole backlog
-            // and the second chamber stays purple / the first flashes between batches.
-            if (hasIdleReplicationWorker()) {
-                int rem = dispatchAe2InternalDeferred(patternStack, pending);
-                pending = rem;
-            }
-            // 2) Split any remainder evenly across already-RUNNING same-item workers.
-            if (pending > 0) {
-                pending -= topUpRunningAe2InternalWorkers(patternStack, pending);
-            }
+            int pending = feedAe2InternalToEligibleWorkers(key.getItemStack(), boxed);
             if (pending <= 0) {
                 ae2InternalPending.remove(key);
             } else {
@@ -3319,53 +3290,138 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Append {@code count} split across all same-item AE2-internal chamber/MA jobs.
-     * Returns how many units were applied.
+     * Split {@code count} across idle + same-item running chambers/MAs (cached workers only).
+     * When {@code count < N}, round-robin one unit at a time so multi-chamber setups share +1 pushes.
+     * @return units still pending
      */
-    private int topUpRunningAe2InternalWorkers(ItemStack patternStack, int count) {
-        if (count <= 0) {
-            return 0;
+    private int feedAe2InternalToEligibleWorkers(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack.isEmpty()) {
+            return count;
         }
         refreshAe2WorkerCache();
-        java.util.List<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
+        Item item = patternStack.getItem();
+
+        java.util.ArrayList<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
         for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
-            if (unit != null && !unit.isIdle()
+            if (unit == null) {
+                continue;
+            }
+            if (unit.isChamberWorkerReady()) {
+                chambers.add(unit);
+            } else if (!unit.isIdle()
+                    && unit.getReplicationTaskId() == null
                     && worldPosition.equals(unit.getBridgePos())
-                    && unit.getCraftingStack().getItem().equals(patternStack.getItem())
-                    && unit.getReplicationTaskId() == null) {
+                    && unit.getCraftingStack().getItem().equals(item)) {
                 chambers.add(unit);
             }
         }
-        java.util.List<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
+        java.util.ArrayList<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
         for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
-            if (assembler != null && !assembler.isIdle()
+            if (assembler == null) {
+                continue;
+            }
+            if (assembler.isIdle()) {
+                assemblers.add(assembler);
+            } else if (assembler.getReplicationTaskId() == null
                     && worldPosition.equals(assembler.getBridgePos())
-                    && assembler.getCraftingStack().getItem().equals(patternStack.getItem())
-                    && assembler.getReplicationTaskId() == null) {
+                    && assembler.getCraftingStack().getItem().equals(item)) {
                 assemblers.add(assembler);
             }
         }
 
-        int left = count;
-        for (int i = 0; i < chambers.size() && left > 0; i++) {
-            int workersLeft = chambers.size() - i;
-            int batch = (left + workersLeft - 1) / workersLeft;
-            ReplicationUnitBlockEntity chamber = chambers.get(i);
-            int before = chamber.getRemainingCount();
-            if (chamber.extendAe2InternalJob(patternStack, batch, worldPosition)) {
-                left -= chamber.getRemainingCount() - before;
+        int n = chambers.size() + assemblers.size();
+        if (n == 0) {
+            return count;
+        }
+
+        int remaining = count;
+        if (remaining < n) {
+            // Round-robin single units — prevents the first idle chamber from monopolizing +1 pushes.
+            while (remaining > 0) {
+                int idx = Math.floorMod(ae2FeedCursor++, n);
+                boolean ok;
+                if (idx < chambers.size()) {
+                    ok = assignAe2InternalToChamber(chambers.get(idx), patternStack, 1);
+                } else {
+                    ok = assignAe2InternalToAssembler(assemblers.get(idx - chambers.size()), patternStack, 1);
+                }
+                if (ok) {
+                    remaining--;
+                } else {
+                    // Skip a dead slot once; stop if nobody accepts (avoid infinite loop).
+                    boolean any = false;
+                    for (ReplicationUnitBlockEntity unit : chambers) {
+                        if (assignAe2InternalToChamber(unit, patternStack, 1)) {
+                            remaining--;
+                            any = true;
+                            break;
+                        }
+                    }
+                    if (!any) {
+                        for (MatterAssemblerBlockEntity assembler : assemblers) {
+                            if (assignAe2InternalToAssembler(assembler, patternStack, 1)) {
+                                remaining--;
+                                any = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!any) {
+                        break;
+                    }
+                }
+            }
+            return remaining;
+        }
+
+        // Ceil-split across every eligible worker (idle start or running extend).
+        int i = 0;
+        for (ReplicationUnitBlockEntity unit : chambers) {
+            int workersLeft = n - i;
+            int batch = (remaining + workersLeft - 1) / workersLeft;
+            if (batch > 0 && assignAe2InternalToChamber(unit, patternStack, batch)) {
+                remaining -= batch;
+            }
+            i++;
+            if (remaining <= 0) {
+                return 0;
             }
         }
-        for (int i = 0; i < assemblers.size() && left > 0; i++) {
-            int workersLeft = assemblers.size() - i;
-            int batch = (left + workersLeft - 1) / workersLeft;
-            MatterAssemblerBlockEntity assembler = assemblers.get(i);
-            int before = assembler.getRemainingCount();
-            if (assembler.extendAe2InternalJob(patternStack, batch, worldPosition)) {
-                left -= assembler.getRemainingCount() - before;
+        for (MatterAssemblerBlockEntity assembler : assemblers) {
+            int workersLeft = n - i;
+            int batch = (remaining + workersLeft - 1) / workersLeft;
+            if (batch > 0 && assignAe2InternalToAssembler(assembler, patternStack, batch)) {
+                remaining -= batch;
+            }
+            i++;
+            if (remaining <= 0) {
+                return 0;
             }
         }
-        return count - left;
+        return remaining;
+    }
+
+    private boolean assignAe2InternalToChamber(ReplicationUnitBlockEntity unit, ItemStack patternStack, int batch) {
+        if (unit.isChamberWorkerReady()) {
+            return unit.tryStartJob(patternStack, batch, worldPosition, null);
+        }
+        int before = unit.getRemainingCount();
+        if (!unit.extendAe2InternalJob(patternStack, batch, worldPosition)) {
+            return false;
+        }
+        // extend may clamp at Integer.MAX_VALUE — treat any growth as success for this batch.
+        return unit.getRemainingCount() >= before;
+    }
+
+    private boolean assignAe2InternalToAssembler(MatterAssemblerBlockEntity assembler, ItemStack patternStack, int batch) {
+        if (assembler.isIdle()) {
+            return assembler.tryStartJob(patternStack, batch, worldPosition, null);
+        }
+        int before = assembler.getRemainingCount();
+        if (!assembler.extendAe2InternalJob(patternStack, batch, worldPosition)) {
+            return false;
+        }
+        return assembler.getRemainingCount() >= before;
     }
 
     /**
@@ -3390,62 +3446,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         return best;
-    }
-
-    /**
-     * Assign AE2-internal work without draining matter upfront (drained per unit while crafting).
-     */
-    private int dispatchAe2InternalDeferred(ItemStack patternStack, int count) {
-        if (count <= 0 || patternStack.isEmpty()) {
-            return count;
-        }
-        refreshAe2WorkerCache();
-        int remaining = count;
-
-        java.util.List<ReplicationUnitBlockEntity> idleChambers = new java.util.ArrayList<>();
-        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
-            if (unit != null && unit.isChamberWorkerReady()) {
-                idleChambers.add(unit);
-            }
-        }
-        for (int i = 0; i < idleChambers.size() && remaining > 0; i++) {
-            ReplicationUnitBlockEntity chamber = idleChambers.get(i);
-            int leftWorkers = idleChambers.size() - i;
-            int batch = (remaining + leftWorkers - 1) / leftWorkers;
-            if (batch <= 0) {
-                break;
-            }
-            if (chamber.tryStartJob(patternStack, batch, worldPosition, null)) {
-                remaining -= batch;
-            } else {
-                break;
-            }
-        }
-        if (remaining <= 0) {
-            return 0;
-        }
-
-        java.util.List<MatterAssemblerBlockEntity> idle = new java.util.ArrayList<>();
-        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
-            if (assembler != null && assembler.isIdle()) {
-                idle.add(assembler);
-            }
-        }
-        idle.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
-        for (int i = 0; i < idle.size() && remaining > 0; i++) {
-            MatterAssemblerBlockEntity assembler = idle.get(i);
-            int leftWorkers = idle.size() - i;
-            int batch = (remaining + leftWorkers - 1) / leftWorkers;
-            if (batch <= 0) {
-                break;
-            }
-            if (assembler.tryStartJob(patternStack, batch, worldPosition, null)) {
-                remaining -= batch;
-            } else {
-                break;
-            }
-        }
-        return remaining;
     }
 
     /**
