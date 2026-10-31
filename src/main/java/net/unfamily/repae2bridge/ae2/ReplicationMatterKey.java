@@ -2,9 +2,11 @@ package net.unfamily.repae2bridge.ae2;
 
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 
 import com.buuz135.replication.ReplicationRegistry;
 import com.buuz135.replication.api.IMatterType;
+import com.buuz135.replication.api.MatterType;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
@@ -23,39 +25,56 @@ import net.minecraft.world.level.Level;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.AEKeyType;
 
-import net.unfamily.repae2bridge.item.ModItems;
-import net.unfamily.repae2bridge.item.UniversalMatterItem;
 import net.unfamily.repae2bridge.util.MatterTypeUtil;
 
 /**
  * AE2 key implementation representing a Replication matter type.
  * Each distinct {@link IMatterType} is represented by a single key instance,
  * identified by the registry id of the matter type.
+ * <p>
+ * {@link #getPrimaryKey()} returns the cached key singleton from {@link #ofId}:
+ * AE2's {@code KeyCounter} indexes by primary key with a reference map.
  */
 public final class ReplicationMatterKey extends AEKey {
+
+    private static final ConcurrentHashMap<ResourceLocation, ResourceLocation> INTERNED_IDS = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<ResourceLocation, ReplicationMatterKey> CACHE = new ConcurrentHashMap<>();
 
     public static final MapCodec<ReplicationMatterKey> MAP_CODEC = RecordCodecBuilder.mapCodec(
             instance -> instance.group(
                     ResourceLocation.CODEC
                             .fieldOf("matter")
                             .forGetter(ReplicationMatterKey::getRegistryId))
-                    .apply(instance, ReplicationMatterKey::new));
+                    .apply(instance, ReplicationMatterKey::ofId));
 
     public static final Codec<ReplicationMatterKey> CODEC = MAP_CODEC.codec();
 
     private final ResourceLocation registryId;
     private final int hashCode;
 
-    public ReplicationMatterKey(ResourceLocation registryId) {
-        this.registryId = Objects.requireNonNull(registryId, "registryId");
-        this.hashCode = registryId.hashCode();
+    private ReplicationMatterKey(ResourceLocation registryId) {
+        this.registryId = intern(Objects.requireNonNull(registryId, "registryId"));
+        this.hashCode = this.registryId.hashCode();
+    }
+
+    private static ResourceLocation intern(ResourceLocation id) {
+        ResourceLocation existing = INTERNED_IDS.putIfAbsent(id, id);
+        return existing != null ? existing : id;
+    }
+
+    /**
+     * Canonical key for a registry id (identity-stable primary key).
+     */
+    public static ReplicationMatterKey ofId(ResourceLocation registryId) {
+        ResourceLocation interned = intern(Objects.requireNonNull(registryId, "registryId"));
+        return CACHE.computeIfAbsent(interned, ReplicationMatterKey::new);
     }
 
     /**
      * Creates a key for the given matter type.
      */
     public static ReplicationMatterKey of(IMatterType matterType) {
-        if (matterType == null) {
+        if (matterType == null || matterType.equals(MatterType.EMPTY)) {
             return null;
         }
 
@@ -63,18 +82,15 @@ public final class ReplicationMatterKey extends AEKey {
         if (registry != null) {
             var key = registry.getResourceKey(matterType).orElse(null);
             if (key != null) {
-                return new ReplicationMatterKey(key.location());
+                return ofId(key.location());
             }
         }
 
-        // Fallback: best-effort key based on the matter name
-        return new ReplicationMatterKey(
-                ResourceLocation.fromNamespaceAndPath("replication", matterType.getName().toLowerCase()));
+        return ofId(ResourceLocation.fromNamespaceAndPath("replication", matterType.getName().toLowerCase()));
     }
 
     public static ReplicationMatterKey fromPacket(RegistryFriendlyByteBuf data) {
-        ResourceLocation id = ResourceLocation.STREAM_CODEC.decode(data);
-        return new ReplicationMatterKey(id);
+        return ofId(ResourceLocation.STREAM_CODEC.decode(data));
     }
 
     public ResourceLocation getRegistryId() {
@@ -110,7 +126,7 @@ public final class ReplicationMatterKey extends AEKey {
 
     @Override
     public Object getPrimaryKey() {
-        return registryId;
+        return ofId(registryId);
     }
 
     @Override
@@ -148,13 +164,11 @@ public final class ReplicationMatterKey extends AEKey {
         if (matterType == null) {
             return super.wrapForDisplayOrFilter();
         }
-        // Same logic as bridge: use dedicated MatterItem/CustomMatterItem when available,
-        // otherwise Universal Matter with component (placeholder for custom types on client or fallback).
         Item item = MatterTypeUtil.getDisplayItemForMatterType(matterType);
-        if (item != null && item != ModItems.UNIVERSAL_MATTER.get()) {
+        if (item != null) {
             return new ItemStack(item, 1);
         }
-        return UniversalMatterItem.createMatterStack(matterType, 1);
+        return super.wrapForDisplayOrFilter();
     }
 
     @Override
@@ -178,4 +192,3 @@ public final class ReplicationMatterKey extends AEKey {
         return "ReplicationMatterKey[" + registryId + "]";
     }
 }
-

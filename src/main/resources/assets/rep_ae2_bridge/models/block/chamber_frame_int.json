@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:block/cube_all",
+  "textures": {
+    "all": "rep_ae2_bridge:block/chamber_frame_int"
+  }
+}

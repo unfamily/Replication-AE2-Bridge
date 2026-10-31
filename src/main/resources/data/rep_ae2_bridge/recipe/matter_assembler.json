@@ -1,0 +1,17 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "ABA",
+    "BCB",
+    "ABA"
+  ],
+  "key": {
+    "A": {"item": "rep_ae2_bridge:replica_processor"},
+    "B": {"item": "rep_ae2_bridge:fluixing_replica_alloy"},
+    "C": {"item": "ae2:molecular_assembler"}
+  },
+  "result": {
+    "id": "rep_ae2_bridge:matter_assembler"
+  }
+}

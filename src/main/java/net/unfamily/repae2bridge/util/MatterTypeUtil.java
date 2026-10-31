@@ -134,6 +134,10 @@ public class MatterTypeUtil {
         if (matterTypeName == null) {
             return null;
         }
+        MatterTypeInfo byId = MATTER_BY_ID.get(matterTypeName);
+        if (byId != null) {
+            return byId;
+        }
         MatterTypeInfo byName = MATTER_BY_NAME.get(matterTypeName);
         if (byName != null) {
             return byName;
@@ -207,27 +211,13 @@ public class MatterTypeUtil {
     }
 
     /**
-     * Gets the matter type from a MatterComponent.
-     */
-    public static IMatterType getMatterTypeFromComponent(net.unfamily.repae2bridge.component.MatterComponent component) {
-        if (component == null) return null;
-
-        if (MATTER_BY_ID.isEmpty()) {
-            loadAllMatters();
-        }
-
-        MatterTypeInfo info = getMatterInfo(component.matterTypeName());
-        return info != null ? info.matterType() : null;
-    }
-
-    /**
-     * Returns the item to use for displaying this matter type (same logic as bridge getItemForMatterType).
+     * Returns the dedicated matter item for display, or null if none is registered.
      */
     @org.jetbrains.annotations.Nullable
     public static Item getDisplayItemForMatterType(IMatterType type) {
         if (type == null) return null;
         String name = type.getName();
-        if (name == null) return ModItems.UNIVERSAL_MATTER.get();
+        if (name == null) return null;
         if (name.equalsIgnoreCase("earth")) return ModItems.EARTH_MATTER.get();
         if (name.equalsIgnoreCase("nether")) return ModItems.NETHER_MATTER.get();
         if (name.equalsIgnoreCase("organic")) return ModItems.ORGANIC_MATTER.get();
@@ -236,9 +226,7 @@ public class MatterTypeUtil {
         if (name.equalsIgnoreCase("precious")) return ModItems.PRECIOUS_MATTER.get();
         if (name.equalsIgnoreCase("living")) return ModItems.LIVING_MATTER.get();
         if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
-        Item custom = ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
-        if (custom != null) return custom;
-        return ModItems.UNIVERSAL_MATTER.get();
+        return ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
     }
 
     public static boolean isMatterCacheEmpty() {

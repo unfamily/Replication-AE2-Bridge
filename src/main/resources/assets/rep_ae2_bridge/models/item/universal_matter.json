@@ -1,4 +1,0 @@
-{
-  "parent": "neoforge:item/default",
-  "loader": "rep_ae2_bridge:universal_matter"
-}

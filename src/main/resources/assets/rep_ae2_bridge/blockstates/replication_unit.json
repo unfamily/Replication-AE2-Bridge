@@ -1,0 +1,16 @@
+{
+  "variants": {
+    "formed=false,powered=false,mode=0": { "model": "rep_ae2_bridge:block/replication_unit" },
+    "formed=false,powered=false,mode=1": { "model": "rep_ae2_bridge:block/replication_unit" },
+    "formed=false,powered=false,mode=2": { "model": "rep_ae2_bridge:block/replication_unit" },
+    "formed=false,powered=true,mode=0": { "model": "rep_ae2_bridge:block/replication_unit" },
+    "formed=false,powered=true,mode=1": { "model": "rep_ae2_bridge:block/replication_unit" },
+    "formed=false,powered=true,mode=2": { "model": "rep_ae2_bridge:block/replication_unit" },
+    "formed=true,powered=false,mode=0": { "model": "rep_ae2_bridge:block/replication_unit_formed" },
+    "formed=true,powered=false,mode=1": { "model": "rep_ae2_bridge:block/replication_unit_formed" },
+    "formed=true,powered=false,mode=2": { "model": "rep_ae2_bridge:block/replication_unit_formed" },
+    "formed=true,powered=true,mode=0": { "model": "rep_ae2_bridge:block/replication_unit_formed" },
+    "formed=true,powered=true,mode=1": { "model": "rep_ae2_bridge:block/replication_unit_formed" },
+    "formed=true,powered=true,mode=2": { "model": "rep_ae2_bridge:block/replication_unit_formed" }
+  }
+}

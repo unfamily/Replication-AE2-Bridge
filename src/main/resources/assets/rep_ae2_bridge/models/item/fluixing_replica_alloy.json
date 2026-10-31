@@ -1,0 +1,11 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "rep_ae2_bridge:item/fluixing_replica_alloy",
+    "layer1": "rep_ae2_bridge:item/fluixing_replica_alloy_stand"
+  },
+  "overrides": [
+    { "predicate": { "rep_ae2_bridge:irregular_pulse": 0.5 }, "model": "rep_ae2_bridge:item/fluixing_replica_alloy_normal" },
+    { "predicate": { "rep_ae2_bridge:irregular_pulse": 1.0 }, "model": "rep_ae2_bridge:item/fluixing_replica_alloy_fast" }
+  ]
+}

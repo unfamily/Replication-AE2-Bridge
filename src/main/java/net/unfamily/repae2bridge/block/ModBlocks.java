@@ -5,6 +5,7 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.*;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.block.SoundType;
+import net.minecraft.world.level.material.MapColor;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredBlock;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -26,6 +27,38 @@ public class ModBlocks {
                 .sound(SoundType.COPPER)
                 .noOcclusion()));
 
+    public static final DeferredBlock<Block> MATTER_ASSEMBLER = registerBlock("matter_assembler",
+            () -> new MatterAssemblerBlock(BlockBehaviour.Properties.of()
+                .strength(2.2F, 11.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion()));
+
+    public static final DeferredBlock<Block> MATTER_FOUNDRY = registerBlock("matter_foundry",
+            () -> new MatterFoundryBlock(BlockBehaviour.Properties.of()
+                .strength(3.5F, 12.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion()));
+
+    public static final DeferredBlock<Block> CHAMBER_FRAME = registerBlock("chamber_frame",
+            () -> new ChamberFrameBlock(BlockBehaviour.Properties.of()
+                .strength(3.0F, 10.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion()));
+
+    public static final DeferredBlock<Block> REPLICATION_UNIT = registerBlock("replication_unit",
+            () -> new ReplicationUnitBlock(BlockBehaviour.Properties.of()
+                .strength(3.0F, 10.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion()));
+
     private static <T extends Block> DeferredBlock<T> registerBlock(String name, Supplier<T> block) {
         DeferredBlock<T> toReturn = BLOCKS.register(name, block);
         registerBlockItem(name, toReturn);
@@ -38,20 +71,14 @@ public class ModBlocks {
 
     public static void register(IEventBus eventBus) {
         BLOCKS.register(eventBus);
-        
-        // Add our block to the list of blocks the pipe can connect to
-        // This is done after registration so the block is available
         registerConnectableBlocks();
     }
-    
-    /**
-     * Register our block in the list of blocks to which Matter Network pipes can connect
-     */
+
     private static void registerConnectableBlocks() {
         try {
-            // Add our namespace to the list of allowed namespaces
-            MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block -> 
-                block instanceof RepAE2BridgeBl || 
+            MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block ->
+                block instanceof RepAE2BridgeBl ||
+                block instanceof MatterFoundryBlock ||
                 (block.getClass().getName().contains("repae2bridge"))
             );
         } catch (NoClassDefFoundError | NullPointerException e) {

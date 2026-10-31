@@ -1,0 +1,8 @@
+{
+  "parent": "minecraft:block/orientable",
+  "textures": {
+    "top":    "rep_ae2_bridge:block/matter_foundry_top_on",
+    "front":  "rep_ae2_bridge:block/matter_foundry_front_on",
+    "side":   "rep_ae2_bridge:block/matter_foundry_side"
+  }
+}

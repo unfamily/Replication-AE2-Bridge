@@ -30,10 +30,14 @@ import net.minecraft.core.component.DataComponents;
 import net.unfamily.repae2bridge.item.ModItems;
 import net.unfamily.repae2bridge.item.ModCreativeModeTabs;
 import net.unfamily.repae2bridge.item.MatterItem;
-import net.unfamily.repae2bridge.item.UniversalMatterItem;
-import net.unfamily.repae2bridge.component.ModDataComponents;
+import net.unfamily.repae2bridge.menu.ModMenus;
+import net.unfamily.repae2bridge.recipe.ModRecipes;
+import net.unfamily.repae2bridge.block.entity.ChamberFrameBlockEntity;
+import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
+import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.neoforged.neoforge.capabilities.BlockCapability;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
+import appeng.api.AECapabilities;
 import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.api.stacks.AEKeyType;
 import appeng.api.stacks.AEKeyTypes;
@@ -49,6 +53,7 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import java.util.function.BiConsumer;
 import net.neoforged.fml.ModList;
+import net.unfamily.iskalib.crafting.RecipeBundleSplitter;
 
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
@@ -59,10 +64,6 @@ public class RepAE2Bridge
     public static final String MOD_ID = "rep_ae2_bridge";
     // Directly reference a slf4j logger
     private static final Logger LOGGER = LogUtils.getLogger();
-
-    // Define the capability for IInWorldGridNodeHost
-    private static final BlockCapability<IInWorldGridNodeHost, Void> IN_WORLD_GRID_NODE_HOST =
-        BlockCapability.createVoid(ResourceLocation.parse("ae2:inworld_gridnode_host"), IInWorldGridNodeHost.class);
 
     // The constructor for the mod class is the first code that is run when your mod is loaded.
     // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
@@ -75,8 +76,6 @@ public class RepAE2Bridge
         modEventBus.addListener(this::registerCapabilities);
 
         // Register ourselves for server and other game events we are interested in.
-        // Note that this is necessary if and only if we want *this* class (ExampleMod) to respond directly to events.
-        // Do not add this line if there are no @SubscribeEvent-annotated functions in this class, like onServerStarting() below.
         NeoForge.EVENT_BUS.register(this);
 
         // Register config
@@ -88,7 +87,9 @@ public class RepAE2Bridge
         ModBlocks.register(modEventBus);
         ModCreativeModeTabs.register(modEventBus);
         ModBlockEntities.register(modEventBus);
-        ModDataComponents.register(modEventBus);
+                ModMenus.register(modEventBus);
+        ModRecipes.register(modEventBus);
+        net.unfamily.repae2bridge.particle.ModParticles.register(modEventBus);
 
         modEventBus.addListener((RegisterEvent event) -> {
             if (event.getRegistryKey() == AEKeyType.REGISTRY_KEY) {
@@ -135,40 +136,41 @@ public class RepAE2Bridge
 
         // Register our mod's namespace as an allowed namespace for Replication pipes
         event.enqueueWork(() -> {
-            // This ensures it runs on the main thread
             registerWithReplicationMod();
         });
         
-        // Check if GuideME is loaded
-        boolean guideMeLoaded = ModList.get().isLoaded("guideme");
-        if (guideMeLoaded) {
-            LOGGER.info("GuideME detected, guide system will be available");
-            // Register the guide association with RepAE2Bridge pipes
-            event.enqueueWork(() -> {
-                registerGuideAssociation();
-            });
-        } else {
-            LOGGER.info("GuideME not detected, guide system will not be available");
+        if (ModList.get().isLoaded("guideme")) {
+            LOGGER.info("GuideME detected — standalone guide available (rep_ae2_bridge:guide)");
         }
 
-        // Log the current energy consumption setting
+        appeng.api.storage.StorageCells.addCellHandler(
+                net.unfamily.repae2bridge.ae2.cells.MatterCreativeCellHandler.INSTANCE);
+
+        event.enqueueWork(() -> {
+            net.unfamily.repae2bridge.ae2.matter.MatterBehaviors.register();
+            appeng.api.behaviors.ContainerItemStrategy.register(
+                    MatterKeyType.INSTANCE,
+                    net.unfamily.repae2bridge.ae2.ReplicationMatterKey.class,
+                    new net.unfamily.repae2bridge.ae2.matter.MatterContainerItemStrategy());
+            appeng.api.upgrades.Upgrades.add(
+                    appeng.core.definitions.AEItems.SPEED_CARD,
+                    ModBlocks.MATTER_ASSEMBLER,
+                    5);
+            appeng.api.upgrades.Upgrades.add(
+                    appeng.core.definitions.AEItems.SPEED_CARD,
+                    ModBlocks.MATTER_FOUNDRY,
+                    5);
+            RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
+        });
+
         LOGGER.info("RepAE2Bridge: Bridge energy consumption set to {} AE/t", Config.bridgeEnergyConsumption);
-    }
-    
-    /**
-     * Register the association between the guide and the pipes
-     */
-    private void registerGuideAssociation() {
-        LOGGER.info("Registering guide association for RepAE2Bridge");
-        // The guide extension is provided through assets/rep_ae2_bridge/ae2guide/ files
-        // following the approach used by ExtendedAE2
     }
 
     // Register bridge capabilities
     private void registerCapabilities(RegisterCapabilitiesEvent event) {
         // Register the IInWorldGridNodeHost capability for the bridge block
         event.registerBlock(
-            IN_WORLD_GRID_NODE_HOST,
+            AECapabilities.IN_WORLD_GRID_NODE_HOST,
             (level, pos, state, be, context) -> {
                 if (be instanceof RepAE2BridgeBlockEntity bridge) {
                     return bridge;
@@ -178,7 +180,40 @@ public class RepAE2Bridge
             ModBlocks.REPAE2BRIDGE.get()
         );
 
-        // Registra le capabilities del bridge per il trasferimento di item
+        event.registerBlock(
+            AECapabilities.IN_WORLD_GRID_NODE_HOST,
+            (level, pos, state, be, context) -> {
+                if (be instanceof MatterAssemblerBlockEntity assembler) {
+                    return assembler;
+                }
+                return null;
+            },
+            ModBlocks.MATTER_ASSEMBLER.get()
+        );
+
+        event.registerBlock(
+            AECapabilities.IN_WORLD_GRID_NODE_HOST,
+            (level, pos, state, be, context) -> {
+                if (be instanceof MatterFoundryBlockEntity foundry) {
+                    return foundry;
+                }
+                return null;
+            },
+            ModBlocks.MATTER_FOUNDRY.get()
+        );
+
+        event.registerBlock(
+            AECapabilities.IN_WORLD_GRID_NODE_HOST,
+            (level, pos, state, be, context) -> {
+                if (be instanceof ChamberFrameBlockEntity frame && frame.isChamberOnline()) {
+                    return frame;
+                }
+                return null;
+            },
+            ModBlocks.CHAMBER_FRAME.get()
+        );
+
+        // Bridge + Foundry item handler and energy capabilities
         RepAE2BridgeCapabilities.register(event);
     }
 
@@ -229,9 +264,8 @@ public class RepAE2Bridge
             final java.util.concurrent.atomic.AtomicInteger modifiedCount = new java.util.concurrent.atomic.AtomicInteger(0);
             
             // Filtra solo i matter items usando instanceof
-            // Questo include: MatterItem (base matters), CustomMatterItem (extends MatterItem) e UniversalMatterItem
             event.getAllItems()
-                    .filter(item -> item instanceof MatterItem || item instanceof UniversalMatterItem)
+                    .filter(item -> item instanceof MatterItem)
                     .forEach(item -> {
                         // Imposta il MAX_STACK_SIZE solo per i matter items
                         event.modify(item, builder -> 

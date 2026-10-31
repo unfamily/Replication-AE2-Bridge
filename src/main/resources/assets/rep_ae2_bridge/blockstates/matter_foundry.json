@@ -1,0 +1,12 @@
+{
+  "variants": {
+    "active=false,facing=north": { "model": "rep_ae2_bridge:block/matter_foundry" },
+    "active=false,facing=south": { "model": "rep_ae2_bridge:block/matter_foundry", "y": 180 },
+    "active=false,facing=west":  { "model": "rep_ae2_bridge:block/matter_foundry", "y": 270 },
+    "active=false,facing=east":  { "model": "rep_ae2_bridge:block/matter_foundry", "y": 90 },
+    "active=true,facing=north":  { "model": "rep_ae2_bridge:block/matter_foundry_on" },
+    "active=true,facing=south":  { "model": "rep_ae2_bridge:block/matter_foundry_on", "y": 180 },
+    "active=true,facing=west":   { "model": "rep_ae2_bridge:block/matter_foundry_on", "y": 270 },
+    "active=true,facing=east":   { "model": "rep_ae2_bridge:block/matter_foundry_on", "y": 90 }
+  }
+}

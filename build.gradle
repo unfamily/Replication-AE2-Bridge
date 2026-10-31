@@ -21,6 +21,17 @@ repositories {
     maven {
         url = "https://www.cursemaven.com"
     }
+    maven {
+        name = "Modmaven"
+        url = "https://modmaven.dev/"
+    }
+    maven {
+        name = "Modrinth"
+        url = "https://api.modrinth.com/maven"
+        content {
+            includeGroup "maven.modrinth"
+        }
+    }
 }
 
 base {
@@ -120,6 +131,8 @@ dependencies {
     implementation "curse.maven:replication-638351:${replication_file_id}"
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
+    implementation "curse.maven:iskanderts-library-1516512:${iska_lib_file_id}"
+    implementation "curse.maven:another-config-manager-1719301:${another_config_manager_file_id}"
 
     // Optional: IDE compile/runtime only (not hard deps of the published jar)
     compileOnly "curse.maven:kubejs-238086:${kubejs_file_id}"
@@ -131,6 +144,27 @@ dependencies {
     localRuntime "curse.maven:kubejs-238086:${kubejs_file_id}"
     localRuntime "curse.maven:rhino-416294:${rhino_file_id}"
     localRuntime "curse.maven:architectury-api-419699:${architectury_file_id}"
+
+    // Soft-dep MEGA Cells (optional runtime for testing mega matter cells)
+    compileOnly "curse.maven:mega-cells-622112:${megacells_file_id}"
+    localRuntime "curse.maven:mega-cells-622112:${megacells_file_id}"
+
+    // Recipe viewers (JEI + EMI + REI APIs; one runtime viewer)
+    compileOnly "curse.maven:jei-238222:${jei_file_id}"
+    compileOnly "curse.maven:${emi_mod_maven}:${emi_file_id}"
+    compileOnly "curse.maven:${rei_mod_maven}:${rei_file_id}"
+    // REI transitive (me.shedaniel.math Point/Rectangle)
+    compileOnly "curse.maven:cloth-config-348521:5729127"
+    compileOnly "curse.maven:architectury-api-419699:${architectury_file_id}"
+    def recipeViewer = findProperty('runtime_recipe_viewer') ?: 'jei'
+    if (recipeViewer == 'jei') {
+        localRuntime "curse.maven:jei-238222:${jei_file_id}"
+    } else if (recipeViewer == 'emi') {
+        localRuntime "curse.maven:${emi_mod_maven}:${emi_file_id}"
+    } else if (recipeViewer == 'rei') {
+        localRuntime "curse.maven:${rei_mod_maven}:${rei_file_id}"
+        localRuntime "curse.maven:architectury-api-419699:${architectury_file_id}"
+    }
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

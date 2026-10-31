@@ -1,0 +1,71 @@
+{
+  "type": "rep_ae2_bridge:matter_foundry",
+  "entries": [
+    {
+      "energy": 2500,
+      "inputs": [
+        { "item": "minecraft:copper_ingot", "count": 4 },
+        { "item": "minecraft:gold_ingot", "count": 2 },
+        { "item": "replication:replica_ingot", "count": 4 },
+        { "tag": "c:gems/fluix", "count": 4 },
+        { "item": "ae2:sky_stone_block", "count": 4 }
+      ],
+      "matter": [
+        { "matter": "replication:metallic", "amount": 50 },
+        { "matter": "replication:precious", "amount": 20 },
+        { "matter": "replication:ender", "amount": 20 },
+        { "matter": "replication:quantum", "amount": 10 }
+      ],
+      "output": {
+        "id": "rep_ae2_bridge:fluixing_replica_alloy",
+        "count": 10
+      }
+    },
+    {
+      "energy": 5000,
+      "inputs": [
+        { "item": "minecraft:echo_shard", "count": 1 }
+      ],
+      "matter": [
+        { "matter": "replication:precious", "amount": 100 },
+        { "matter": "replication:earth", "amount": 100 },
+        { "matter": "replication:living", "amount": 10 },
+        { "matter": "replication:quantum", "amount": 10 }
+      ],
+      "output": {
+        "id": "rep_ae2_bridge:matter_infused_crystal",
+        "count": 1
+      }
+    },
+    {
+      "energy": 8000,
+      "inputs": [
+        { "item": "ae2:matter_ball", "count": 16 }
+      ],
+      "matter": [
+        { "matter": "replication:quantum", "amount": 100 }
+      ],
+      "output": {
+        "id": "ae2:singularity",
+        "count": 1
+      }
+    },
+    {
+      "energy": 1500,
+      "inputs": [
+        { "item": "ae2:logic_processor", "count": 1 },
+        { "item": "ae2:calculation_processor", "count": 1 },
+        { "item": "ae2:engineering_processor", "count": 1 },
+        { "item": "ae2:singularity", "count": 1 }
+      ],
+      "matter": [
+        { "matter": "replication:ender", "amount": 10 },
+        { "matter": "replication:nether", "amount": 10 }
+      ],
+      "output": {
+        "id": "rep_ae2_bridge:replica_processor",
+        "count": 3
+      }
+    }
+  ]
+}

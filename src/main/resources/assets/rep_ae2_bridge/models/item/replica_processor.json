@@ -1,0 +1,10 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "rep_ae2_bridge:item/replica_processor_0"
+  },
+  "overrides": [
+    { "predicate": { "rep_ae2_bridge:irregular_pulse": 0.5 }, "model": "rep_ae2_bridge:item/replica_processor_1" },
+    { "predicate": { "rep_ae2_bridge:irregular_pulse": 1.0 }, "model": "rep_ae2_bridge:item/replica_processor_2" }
+  ]
+}

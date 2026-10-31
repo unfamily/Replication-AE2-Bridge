@@ -1,0 +1,7 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "rep_ae2_bridge:item/fluixing_replica_alloy",
+    "layer1": "rep_ae2_bridge:item/fluixing_replica_alloy_normal"
+  }
+}

@@ -17,6 +17,22 @@ public class ModBlockEntities {
             BLOCK_ENTITIES.register("bridge_be", () -> BlockEntityType.Builder.of(
                     RepAE2BridgeBlockEntity::new, ModBlocks.REPAE2BRIDGE.get()).build(null));
 
+    public static final Supplier<BlockEntityType<MatterAssemblerBlockEntity>> MATTER_ASSEMBLER_BE =
+            BLOCK_ENTITIES.register("matter_assembler", () -> BlockEntityType.Builder.of(
+                    MatterAssemblerBlockEntity::new, ModBlocks.MATTER_ASSEMBLER.get()).build(null));
+
+    public static final Supplier<BlockEntityType<MatterFoundryBlockEntity>> MATTER_FOUNDRY_BE =
+            BLOCK_ENTITIES.register("matter_foundry", () -> BlockEntityType.Builder.of(
+                    MatterFoundryBlockEntity::new, ModBlocks.MATTER_FOUNDRY.get()).build(null));
+
+    public static final Supplier<BlockEntityType<ReplicationUnitBlockEntity>> REPLICATION_UNIT_BE =
+            BLOCK_ENTITIES.register("replication_unit", () -> BlockEntityType.Builder.of(
+                    ReplicationUnitBlockEntity::new, ModBlocks.REPLICATION_UNIT.get()).build(null));
+
+    public static final Supplier<BlockEntityType<ChamberFrameBlockEntity>> CHAMBER_FRAME_BE =
+            BLOCK_ENTITIES.register("chamber_frame", () -> BlockEntityType.Builder.of(
+                    ChamberFrameBlockEntity::new, ModBlocks.CHAMBER_FRAME.get()).build(null));
+
     public static void register(IEventBus eventBus) {
         BLOCK_ENTITIES.register(eventBus);
     }

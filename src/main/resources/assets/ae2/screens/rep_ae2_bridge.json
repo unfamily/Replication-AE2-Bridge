@@ -1,0 +1,32 @@
+{
+  "$schema": "schema.json",
+  "includes": ["common/common.json"],
+  "background": {
+    "texture": "guis/spatialanchor.png",
+    "srcRect": [0, 0, 195, 100]
+  },
+  "text": {
+    "dialog_title": {
+      "text": {
+        "translate": "gui.rep_ae2_bridge.bridge"
+      },
+      "position": {
+        "left": 8,
+        "top": 6
+      }
+    }
+  },
+  "widgets": {
+    "feedEnergy": {
+      "left": 13,
+      "top": 21,
+      "width": 160
+    },
+    "openPriority": {
+      "left": 171,
+      "top": -5,
+      "width": 20,
+      "height": 20
+    }
+  }
+}

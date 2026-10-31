@@ -8,11 +8,20 @@
       "DataComponentsMixin",
       "NetworkManagerMixin",
       "NetworkBlockEntityMixin",
-      "MatterNetworkImaginatorCompatMixin"
+      "MatterNetworkImaginatorCompatMixin",
+      "AbstractMonitorPartMixin",
+      "GenericStackMixin",
+      "ConfigInventoryMixin",
+      "PatternEncodingLogicMixin",
+      "PatternEncodingTermMenuMixin",
+      "CraftingCpuLogicMixin"
     ],
     "client": [
       "SpriteLoaderMixin",
-      "RepoMixin"
+      "RepoMixin",
+      "PatternEncodingTermScreenMixin",
+      "ProcessingEncodingPanelMixin",
+      "EncodePatternTransferHandlerMixin"
     ],
     "injectors": {
       "defaultRequire": 1

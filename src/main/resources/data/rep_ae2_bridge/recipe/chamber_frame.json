@@ -1,0 +1,18 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "ABA",
+    "BCB",
+    "ABA"
+  ],
+  "key": {
+    "A": {"tag": "c:ingots/iron"},
+    "B": {"item": "replication:replica_ingot"},
+    "C": {"item": "rep_ae2_bridge:fluixing_replica_alloy"}
+  },
+  "result": {
+    "id": "rep_ae2_bridge:chamber_frame",
+    "count": 4
+  }
+}

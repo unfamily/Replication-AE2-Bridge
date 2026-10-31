@@ -1,0 +1,19 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "ADA",
+    "BCB",
+    "BEB"
+  ],
+  "key": {
+    "A": {"item": "replication:replica_ingot"},
+    "B": {"tag": "c:ingots/iron"},
+    "C": {"item": "replication:replicator"},
+    "D": {"tag": "c:gems/emerald"},
+    "E": {"item": "ae2:dense_energy_cell"}
+  },
+  "result": {
+    "id": "rep_ae2_bridge:matter_foundry"
+  }
+}

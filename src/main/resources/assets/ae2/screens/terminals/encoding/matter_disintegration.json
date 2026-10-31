@@ -1,0 +1,16 @@
+{
+  "__comment": "Matter disintegration encoding panel (Replication AE2 Bridge)",
+  "$schema": "../../schema.json",
+  "widgets": {
+    "matterDisintegrationScrollbar": {
+      "left": 117,
+      "bottom": 154,
+      "height": 44
+    },
+    "matterCycleOutput": {
+      "__comment": "Just above STONECUTTING_INPUT (15,140), nudged left/up",
+      "left": 25,
+      "bottom": 151
+    }
+  }
+}

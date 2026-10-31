@@ -1,0 +1,10 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "rep_ae2_bridge:item/matter_infused_crystal_a"
+  },
+  "overrides": [
+    { "predicate": { "rep_ae2_bridge:matter_crystal_pulse": 0.5 }, "model": "rep_ae2_bridge:item/matter_infused_crystal_b" },
+    { "predicate": { "rep_ae2_bridge:matter_crystal_pulse": 1.0 }, "model": "rep_ae2_bridge:item/matter_infused_crystal_anomaly" }
+  ]
+}

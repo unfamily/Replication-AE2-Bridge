@@ -22,7 +22,6 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.Containers;
 import org.slf4j.Logger;
 import net.unfamily.repae2bridge.item.MatterItem;
-import net.unfamily.repae2bridge.item.UniversalMatterItem;
 
 
 public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> implements INetworkDirectionalConnection {
@@ -205,7 +204,7 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
             if (stack.isEmpty()) {
                 continue;
             }
-            if (stack.getItem() instanceof MatterItem || stack.getItem() instanceof UniversalMatterItem) {
+            if (stack.getItem() instanceof MatterItem) {
                 stack.setCount(0);
                 continue;
             }

@@ -7,6 +7,7 @@ import appeng.api.networking.IGridNode;
 import appeng.api.networking.IInWorldGridNodeHost;
 import appeng.api.networking.IManagedGridNode;
 import appeng.api.networking.IGridNodeListener;
+import appeng.api.networking.crafting.ICraftingCPU;
 import appeng.api.networking.crafting.ICraftingProvider;
 import appeng.api.networking.crafting.ICraftingPlan;
 import appeng.api.networking.crafting.ICraftingSimulationRequester;
@@ -29,6 +30,10 @@ import com.buuz135.replication.block.tile.ReplicationMachine;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.MatterNetwork;
 import com.buuz135.replication.api.IMatterType;
+import com.buuz135.replication.api.matter_fluid.IMatterTank;
+import com.buuz135.replication.api.network.IMatterTanksConsumer;
+import com.buuz135.replication.api.network.IMatterTanksSupplier;
+import com.buuz135.replication.api.MatterType;
 import com.buuz135.replication.calculation.MatterValue;
 import com.hrznstudio.titanium.block.BasicTileBlock;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
@@ -57,6 +62,7 @@ import com.buuz135.replication.api.task.ReplicationTask;
 import org.slf4j.Logger;
 import com.mojang.logging.LogUtils;
 import appeng.core.definitions.AEItems;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.item.Item;
 import net.unfamily.repae2bridge.item.ModItems;
 import com.buuz135.replication.ReplicationRegistry;
@@ -65,6 +71,10 @@ import appeng.api.networking.storage.IStorageService;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import appeng.me.helpers.MachineSource;
 import net.unfamily.repae2bridge.Config;
+import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
+import net.unfamily.repae2bridge.ae2.CraftMatterTank;
+import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
+import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.events.ServerLifecycleEventHandler;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import appeng.helpers.IPriorityHost;
@@ -86,7 +96,8 @@ import java.util.Objects;
  * BlockEntity for the RepAE2Bridge that connects the AE2 network with the Replication matter network
  */
 public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBlockEntity>
-        implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost, IPriorityHost {
+        implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost,
+        IPriorityHost, IMatterTanksSupplier, IMatterTanksConsumer {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -105,6 +116,31 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Priority for AE2 crafting operations
     @Save
     private int priority = 0;
+
+    /** Matter absorbed from AE2 craft pushPattern — drained before AE2 cell mirrors. */
+    @Nullable
+    private List<CraftMatterTank> craftMatterTanks;
+
+    /** Virtual tanks exposing AE2 matter cells to the Replication network. */
+    @Nullable
+    private List<Ae2MatterTank> ae2MatterTanks;
+
+    private boolean ae2CraftParkPending;
+    private int ae2InternalPruneCooldown;
+    private static final int REQUEST_ACCUMULATION_TICKS_MIN = 5;
+    private static final int REQUEST_ACCUMULATION_COUNT_FLUSH = 32;
+
+    /** AE2-internal craft queue (never becomes a ReplicationTask). */
+    private final Map<ItemWithSourceId, Integer> ae2InternalPending = new HashMap<>();
+    private boolean ae2StorageUpdateDirty;
+    private List<ReplicationUnitBlockEntity> cachedChamberLeaders = List.of();
+    private List<MatterAssemblerBlockEntity> cachedOnlineAssemblers = List.of();
+    private long ae2WorkerCacheTick = Long.MIN_VALUE;
+    private static final int AE2_WORKER_CACHE_TTL = 40;
+    private int ae2FeedCursor;
+    private final Set<IMatterType> dirtyReplicationMatterTypes = new HashSet<>();
+    private int replicationTankSyncTicks;
+    private static final int REPLICATION_TANK_SYNC_INTERVAL = 20;
 
     // Queue of pending patterns - NO LONGER USED, capacity is managed by the Replication network
     // private final Queue<IPatternDetails> pendingPatterns = new LinkedList<>();
@@ -184,6 +220,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     
     // Flag to schedule block update on next tick instead of immediately
     private boolean pendingBlockUpdate = false;
+
+    // Whether the bridge feeds energy from AE2 to the Replication network
+    private boolean feedReplicationEnergy = true;
 
     // Terminal components
     @Save
@@ -1131,13 +1170,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         
         // Also save the node creation flag
         tag.putBoolean("nodeCreated", nodeCreated);
+        tag.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
         // Save the reconnection flag
         tag.putBoolean("shouldReconnect", shouldReconnect);
         // Save the block's unique identifier
         if (blockId != null) {
             tag.putUUID("blockId", blockId);
         }
-        
+        saveCraftMatterBuffer(tag);
+
         if (Config.enableDebugLogging) {
             LOGGER.error("Bridge{}: saveAdditional() completed", getLocationInfo());
         }
@@ -1156,6 +1197,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (tag.contains("shouldReconnect")) {
             shouldReconnect = tag.getBoolean("shouldReconnect");
         }
+        if (tag.contains("feedReplicationEnergy")) {
+            feedReplicationEnergy = tag.getBoolean("feedReplicationEnergy");
+        }
         // Load the block's unique identifier
         if (tag.contains("blockId")) {
             blockId = tag.getUUID("blockId");
@@ -1163,6 +1207,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             // If no ID exists, generate a new one
             blockId = UUID.randomUUID();
         }
+        loadCraftMatterBuffer(tag);
     }
 
     // =================== Implement IInWorldGridNodeHost ===================
@@ -1263,6 +1308,24 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Track matter creation from disintegrators only if networks are available
         if (initialized == 1 && getNetwork() != null && isActive()) {
             trackMatterCreation();
+            feedEnergyToMatterNetwork();
+            // Replication-terminal task assign: not every tick when idle (TPS).
+            if (level.getGameTime() % 5 == 0) {
+                assignReplicationTasksToAssemblers();
+            }
+            // Cancel detection — throttle CPU scans.
+            if (--ae2InternalPruneCooldown <= 0) {
+                ae2InternalPruneCooldown = 20;
+                pruneOrphanedAe2InternalWork();
+            }
+            if (ae2CraftParkPending) {
+                ae2CraftParkPending = false;
+                parkCraftBufferPreferAe2KeepRest();
+            }
+            feedAe2InternalJobs();
+            boolean craftQuiet = ae2InternalPending.isEmpty() && requestCounters.isEmpty();
+            flushReplicationTankSync(craftQuiet);
+            flushAe2StorageUpdate(craftQuiet);
         }
 
         // POST-SUPER CHECK: Verify if the world has started unloading during super.serverTick()
@@ -1574,13 +1637,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                         var matterAmount = (long)Math.ceil(matterValue.getAmount()) * count;
                                                         Item matterItem = getItemForMatterType(matterType);
                                                         if (matterItem != null) {
-                                                            AEItemKey matterKey;
-                                                            if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
-                                                                ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
-                                                                matterKey = AEItemKey.of(matterStack);
-                                                            } else {
-                                                                matterKey = AEItemKey.of(matterItem);
-                                                            }
+                                                            AEItemKey matterKey = AEItemKey.of(matterItem);
                                                             extract(matterKey, matterAmount, Actionable.MODULATE);
                                                         }
                                                     }
@@ -2050,7 +2107,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public List<IPatternDetails> getAvailablePatterns() {
         // Don't show patterns if not initialized
-        //§ fix?
         if (initialized != 1) {
             return List.of();
         }
@@ -2058,69 +2114,30 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         List<IPatternDetails> patterns = new ArrayList<>();
         MatterNetwork network = getNetwork();
         if (network != null) {
-            // For each chip storage in the network
             for (NetworkElement chipSupplier : network.getChipSuppliers()) {
                 var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                 if (tile instanceof ChipStorageBlockEntity chipStorage) {
-                    // For each pattern in the chip storage
                     for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
                         if (!pattern.getStack().isEmpty() && pattern.getCompletion() == 1) {
-                            try {
-                                // Create an AE2 processing pattern
-                                ItemStack patternStack = new ItemStack(AEItems.BLANK_PATTERN.asItem());
-                                AEItemKey output = AEItemKey.of(pattern.getStack().getItem());
-
-                                // Get the matter compound for this pattern
-                                var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
-                                if (matterCompound != null) {
-                                    // Create the processing pattern with the actual matter requirements
-                                    List<GenericStack> inputs = new ArrayList<>();
-
-                                    // Add each type of matter required as input (as items; Matter tab via mixin)
-                                    for (MatterValue matterValue : matterCompound.getValues().values()) {
-                                        var matterType = matterValue.getMatter();
-                                        var matterAmount = (long)Math.ceil(matterValue.getAmount());
-                                        Item matterItem = getItemForMatterType(matterType);
-                                        if (matterItem != null) {
-                                            AEItemKey matterKey;
-                                            if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
-                                                ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
-                                                matterKey = AEItemKey.of(matterStack);
-                                            } else {
-                                                matterKey = AEItemKey.of(matterItem);
-                                            }
-                                            inputs.add(new GenericStack(matterKey, matterAmount));
-                                        }
-                                    }
-
-                                    List<GenericStack> outputs = new ArrayList<>();
-                                    outputs.add(new GenericStack(output, 1)); // Output is the replicated item
-
-                                    // Encode the pattern
-                                    AEProcessingPattern.encode(patternStack, inputs, outputs);
-
-                                    // Create the AE2 pattern
-                                    AEProcessingPattern aePattern = new AEProcessingPattern(AEItemKey.of(patternStack));
-
-                                    patterns.add(aePattern);
-                                    //LOGGER.info("Bridge: Pattern added for {}", pattern.getStack().getItem().getDescriptionId());
-                                }
-                            } catch (Exception e) {
-                                //LOGGER.error("Bridge: Error in pattern conversion: {}", e.getMessage());
+                            var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
+                            if (matterCompound == null) {
+                                continue;
+                            }
+                            var details = ReplicationBridgePatternDetails.of(pattern.getStack());
+                            if (details != null) {
+                                patterns.add(details);
                             }
                         }
                     }
                 }
             }
         }
-        //LOGGER.info("Bridge: Total available patterns: {}", patterns.size());
         return patterns;
     }
 
     @Override
     public boolean pushPattern(IPatternDetails patternDetails, KeyCounter[] inputHolder) {
         // Don't accept patterns if not initialized
-        //§ fix?
         if (initialized != 1) {
             return false;
         }
@@ -2128,114 +2145,41 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         MatterNetwork network = getNetwork();
 
         if (network != null && isActive() && patternDetails != null) {
-            // Check if the pattern produces an item that can be replicated
             if (patternDetails.getOutputs().size() == 1) {
                 var output = patternDetails.getOutputs().iterator().next();
                 if (output.what() instanceof AEItemKey itemKey) {
-                    //LOGGER.info("Bridge: Request to pushPattern for {}", itemKey.getItem().getDescriptionId());
-
-                    // We no longer put patterns in queue - the Replication network manages capacity
-                    // Se ci sono replicatori liberi, prenderanno il task
-                    // Se sono tutti occupati, il task resta in coda nella rete Replication
-
-                    // Search for the pattern in all chip storage in the network
                     for (NetworkElement chipSupplier : network.getChipSuppliers()) {
                         var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                         if (tile instanceof ChipStorageBlockEntity chipStorage) {
                             for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
                                 if (pattern.getStack().getItem().equals(itemKey.getItem())) {
-                                    // Check if we have enough virtual matter in the inputs
-                                    if (inputHolder != null && inputHolder.length > 0) {
-                                        boolean hasAllMatter = true;
-
-                                        // Get the matter compound for this pattern
-                                        var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
-                                        if (matterCompound != null) {
-                                            // Check directly on the network if there is enough matter available
-                                            // instead of checking the AE2 virtual inputs
-                                            for (MatterValue matterValue : matterCompound.getValues().values()) {
-                                                var matterType = matterValue.getMatter();
-                                                var matterAmount = (long)Math.ceil(matterValue.getAmount());
-
-                                                // Verify how much matter is available in the network
-                                                long available = network.calculateMatterAmount(matterType);
-
-                                                //LOGGER.info("Bridge: Verify availability for {}: {} {} (required: {}, available: {})",
-                                                //    itemKey.getItem().getDescriptionId(),
-                                                //    matterType.getName(),
-                                                //    matterAmount,
-                                                //    matterAmount,
-                                                //    available);
-
-                                                if (available < matterAmount) {
-                                                    hasAllMatter = false;
-
-                                                    // Create a unique key for this warning
-                                                    String warningKey = itemKey.getItem().getDescriptionId() + ":" + matterType.getName();
-                                                    long currentTime = level.getGameTime();
-
-                                                    // Check if we have already shown this warning recently
-                                                    if (!lastMatterWarnings.containsKey(warningKey) ||
-                                                            currentTime - lastMatterWarnings.get(warningKey) > WARNING_COOLDOWN) {
-                                                        // Show the warning and update the timestamp
-                                                        //LOGGER.warn("Bridge: Matter {} insufficient for {}. Has: {}, Required: {}",
-                                                        //    matterType.getName(),
-                                                        //    itemKey.getItem().getDescriptionId(),
-                                                        //    available,
-                                                        //    matterAmount);
-                                                        lastMatterWarnings.put(warningKey, currentTime);
-                                                    }
-                                                    break;
-                                                }
-                                            }
-
-                                            // Extract each type of matter from the network if we have all
-                                            if (hasAllMatter) {
-                                                for (MatterValue matterValue : matterCompound.getValues().values()) {
-                                                    var matterType = matterValue.getMatter();
-                                                    var matterAmount = (long)Math.ceil(matterValue.getAmount());
-                                                    Item matterItem = getItemForMatterType(matterType);
-                                                    if (matterItem != null) {
-                                                        AEItemKey matterKey;
-                                                        if (matterItem == ModItems.UNIVERSAL_MATTER.get()) {
-                                                            ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
-                                                            matterKey = AEItemKey.of(matterStack);
-                                                        } else {
-                                                            matterKey = AEItemKey.of(matterItem);
-                                                        }
-                                                        extract(matterKey, matterAmount, Actionable.MODULATE);
-                                                    }
-                                                }
-                                            } else {
-                                                //LOGGER.warn("Bridge: Matter insufficient in the network to craft {}",
-                                                //    itemKey.getItem().getDescriptionId());
-                                                return false;
-                                            }
-                                        }
-                                    }
-
-                                    // Increment the counter for this item with source information
                                     ItemStack itemStack = pattern.getStack();
+                                    if (!absorbCraftMatter(inputHolder, itemStack)) {
+                                        if (Config.enableDebugLogging) {
+                                            LOGGER.warn(
+                                                    "Bridge{}: pushPattern refused — inputHolder missing required matter for {}",
+                                                    getLocationInfo(), itemKey.getItem().getDescriptionId());
+                                        }
+                                        return false;
+                                    }
+                                    if (hasAe2GridWorker()) {
+                                        ae2CraftParkPending = true;
+                                        ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
+                                        ae2InternalPending.merge(key, 1, Integer::sum);
+                                        lightFeedAe2InternalOnPush(itemStack);
+                                        return true;
+                                    }
+                                    flushCraftBufferToStorage(false);
                                     ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
-
-                                    // Get or create the map for this source
-                                    Map<ItemWithSourceId, Integer> sourceCounters = requestCounters.getOrDefault(this.blockId, new HashMap<>());
-                                    int currentCount = sourceCounters.getOrDefault(key, 0);
-                                    sourceCounters.put(key, currentCount + 1);
+                                    Map<ItemWithSourceId, Integer> sourceCounters =
+                                            requestCounters.getOrDefault(this.blockId, new HashMap<>());
+                                    sourceCounters.put(key, sourceCounters.getOrDefault(key, 0) + 1);
                                     requestCounters.put(this.blockId, sourceCounters);
-
-                                    //LOGGER.info("Bridge: Pattern found for {}, total requests in the last 10 ticks: {}",
-                                    //    itemKey.getItem().getDescriptionId(), currentCount + 1);
-
-                                    // We don't create the task immediately, we wait for the next reset
                                     return true;
                                 }
                             }
                         }
                     }
-                    //LOGGER.warn("Bridge: Pattern not found in the Replication network");
-                } else {
-                    //LOGGER.warn("Bridge: No Replication network found");
                 }
             }
         }
@@ -2478,7 +2422,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
         }
 
-        return ModItems.UNIVERSAL_MATTER.get();
+        return null;
     }
 
     // Utility to recognize virtual matter items (supports both built-in and custom matter types)
@@ -2519,12 +2463,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     Item item = getItemForMatterType(matterType);
                     if (item != null) {
                         // For universal matter, create a key with the correct matter component
-                        if (item == ModItems.UNIVERSAL_MATTER.get()) {
-                            ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
-                            items.add(AEItemKey.of(matterStack), amount);
-                        } else {
-                            items.add(AEItemKey.of(item), amount);
-                        }
+                        items.add(AEItemKey.of(item), amount);
                         //LOGGER.info("Bridge: Adding virtual item " + item + " quantity " + amount);
                     } else {
                         //LOGGER.info("Bridge: No item associated with " + matterType.getName());
@@ -2553,75 +2492,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public class MatterItemsStorage implements MEStorage {
         @Override
         public long insert(AEKey what, long amount, Actionable mode, IActionSource source) {
-            // Don't allow insertions if not initialized
-            if (initialized != 1) {
-                return 0;
-            }
-
-            // We don't allow insertions in this storage
+            // Craft-cancel refunds must return to AE2 cells, not be voided here.
             return 0;
         }
 
         @Override
         public long extract(AEKey what, long amount, Actionable mode, IActionSource source) {
-            // Don't allow extractions if not initialized
-            if (initialized != 1) {
+            if (initialized != 1 || amount <= 0 || !(what instanceof ReplicationMatterKey matterKey)) {
                 return 0;
             }
-
-            // We allow extraction for virtual matter items (AEItemKey)
-            if (what instanceof AEItemKey itemKey && isVirtualMatterItem(itemKey.getItem())) {
-                IMatterType matterType = getMatterTypeForItem(itemKey.getItem());
-                if (matterType == null) {
-                    return 0;
-                }
-                // Get the network
-                MatterNetwork network = getNetwork();
-                if (network != null) {
-                    // Check how much matter is available in the network
-                    long available = network.calculateMatterAmount(matterType);
-
-                    // Log for debugging availability
-                    if (available < amount) {
-                        //LOGGER.info("Bridge: Insufficient availability of {} - Requested: {}, Available: {}",
-                        //    matterType.getName(), amount, available);
-                    }
-
-                    // Decide how much to extract (the minimum between the request and the available)
-                    long toExtract = Math.min(amount, available);
-
-                    // If it's a simulation, return only the quantity we could extract
-                    if (mode == Actionable.SIMULATE) {
-                        //LOGGER.debug("Bridge: Simulation extraction of {} {}", toExtract, matterType.getName());
-                        return toExtract;
-                    }
-
-                    // Allow all other operations
-                    if (toExtract > 0) {
-                        return toExtract;
-                    }
-                }
+            IMatterType type = matterKey.resolveMatterType();
+            if (type == null || type.equals(MatterType.EMPTY)) {
+                return 0;
             }
-            return 0;
-        }
-
-        /**
-         * Check if the source is an automation part (export bus, automatic interface, etc.)
-         * @param source The source of the request
-         * @return true if it is an automation part that we want to block
-         */
-        public boolean isAutomationPart(IActionSource source) {
-            // If there is a machine, check if it is an automation part
-            if (source.machine().isPresent()) {
-                var machine = source.machine().get();
-                String machineClass = machine.getClass().getName();
-
-                // Block specifically automation parts
-                return machineClass.contains("appeng.parts.autom");
-            }
-
-            // It's not an export bus
-            return false;
+            return drainExternalMatter(type, amount, mode == Actionable.SIMULATE);
         }
 
         @Override
@@ -2629,94 +2513,23 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return net.minecraft.network.chat.Component.literal("Replication Matter Storage");
         }
 
-    @Override
-    public void getAvailableStacks(KeyCounter out) {
-        // Don't show stacks if not initialized or networks not available
-        if (initialized != 1 || !isActive() || getNetwork() == null) {
-            return;
-        }
-
-        MatterNetwork network = getNetwork();
-        if (network != null) {
-                // Get all registered matter types
-                List<IMatterType> matterTypes = List.of(
-                        ReplicationRegistry.Matter.EMPTY.get(),
-                        ReplicationRegistry.Matter.METALLIC.get(),
-                        ReplicationRegistry.Matter.EARTH.get(),
-                        ReplicationRegistry.Matter.NETHER.get(),
-                        ReplicationRegistry.Matter.ORGANIC.get(),
-                        ReplicationRegistry.Matter.ENDER.get(),
-                        ReplicationRegistry.Matter.PRECIOUS.get(),
-                        ReplicationRegistry.Matter.QUANTUM.get(),
-                        ReplicationRegistry.Matter.LIVING.get()
-                );
-
-                // First, process any pending matter changes to insert into output inventory
-                // Only if the bridge is fully initialized and networks are available
-                if (!pendingMatterChanges.isEmpty() && RepAE2BridgeBlockEntity.this.initialized == 1 &&
-                    RepAE2BridgeBlockEntity.this.isActive() && RepAE2BridgeBlockEntity.this.getNetwork() != null) {
-                    long totalPendingMatter = pendingMatterChanges.values().stream().mapToLong(Long::longValue).sum();
-
-                    if (totalPendingMatter <= MAX_MATTER_BUFFER) {
-                        // Insert pending matter into output inventory as items
-                        for (Map.Entry<IMatterType, Long> entry : pendingMatterChanges.entrySet()) {
-                            IMatterType matterType = entry.getKey();
-                            long amount = entry.getValue();
-
-                            if (amount > 0) {
-                                Item matterItem = getItemForMatterType(matterType);
-                                if (matterItem != null) {
-                                    // Usa il nuovo stacksize massimo invece di 64
-                                    // Coerente con i mixin che permettono stacksize enormi
-                                    int maxStackSize = Integer.MAX_VALUE / 2;
-                                    ItemStack matterStack = new ItemStack(matterItem, (int) Math.min(amount, maxStackSize));
-
-                                    // Try to insert into output inventory
-                                    ItemStack remaining = ItemHandlerHelper.insertItemStacked(RepAE2BridgeBlockEntity.this.output, matterStack, false);
-
-                                    // If we inserted something, reduce the pending amount
-                                    int inserted = matterStack.getCount() - remaining.getCount();
-                                    if (inserted > 0) {
-                                        entry.setValue(amount - inserted);
-
-                                        if (globalShouldLogDebug) {
-                                            LOGGER.debug("Bridge at {}: Inserted {} {} matter into output inventory",
-                                                RepAE2BridgeBlockEntity.this.worldPosition, inserted, matterType.getName());
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Remove processed entries (those with 0 amount)
-                        pendingMatterChanges.entrySet().removeIf(entry -> entry.getValue() <= 0);
-                    } else {
-                        if (globalShouldLogDebug) {
-                            LOGGER.debug("Bridge at {}: Skipping matter buffer insertion - total pending {} exceeds max buffer {}",
-                                RepAE2BridgeBlockEntity.this.worldPosition, totalPendingMatter, MAX_MATTER_BUFFER);
-                        }
-                    }
+        @Override
+        public void getAvailableStacks(KeyCounter out) {
+            if (initialized != 1 || !isActive()) {
+                return;
+            }
+            for (IMatterType matterType : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+                if (matterType == null || matterType.equals(MatterType.EMPTY)) {
+                    continue;
                 }
-
-                // Show current matter amounts in AE2 terminal as items (Matter tab via mixin on Repo)
-                List<IMatterType> allMatterTypes = ReplicationRegistry.MATTER_TYPES_REGISTRY.stream().toList();
-
-                for (IMatterType matterType : allMatterTypes) {
-                    long amount = network.calculateMatterAmount(matterType);
-                    if (amount > 0) {
-                        Item item = getItemForMatterType(matterType);
-                        if (item != null) {
-                            if (item == ModItems.UNIVERSAL_MATTER.get()) {
-                                ItemStack matterStack = net.unfamily.repae2bridge.item.UniversalMatterItem.createMatterStack(matterType, 1);
-                                out.add(AEItemKey.of(matterStack), amount);
-                            } else {
-                                out.add(AEItemKey.of(item), amount);
-                            }
-                        }
-                    }
+                long amount = calculateExternalMatterAmount(matterType);
+                if (amount <= 0) {
+                    continue;
                 }
-            } else {
-                //LOGGER.warn("Bridge: No Replication network found");
+                ReplicationMatterKey key = ReplicationMatterKey.of(matterType);
+                if (key != null) {
+                    out.add(key, amount);
+                }
             }
         }
     }
@@ -3129,5 +2942,1771 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // - Updating matter creation statistics
         // - Triggering AE2 autocrafting based on matter creation
         // - Integration with other mods
+    }
+
+    // ── Feed-Replication-Energy toggle ────────────────────────────────
+
+    public boolean isFeedReplicationEnergy() {
+        return feedReplicationEnergy;
+    }
+
+    public void setFeedReplicationEnergy(boolean feedReplicationEnergy) {
+        this.feedReplicationEnergy = feedReplicationEnergy;
+        setChanged();
+    }
+
+    public void toggleFeedReplicationEnergy() {
+        setFeedReplicationEnergy(!feedReplicationEnergy);
+    }
+
+    // ── Matter Assembler delivery ─────────────────────────────────────
+
+    /**
+     * Delivers a crafted item produced by a Matter Assembler back into the
+     * Replication network (source block's item handler).
+     *
+     * @return true if the item was fully inserted and the task unit was finalized
+     */
+    public boolean deliverMatterAssemblerReplicationUnit(ItemStack stack, UUID taskId, BlockPos assemblerPos) {
+        if (stack.isEmpty() || taskId == null || level == null || level.isClientSide()) {
+            return false;
+        }
+
+        MatterNetwork network = getNetwork();
+        if (network == null) {
+            return false;
+        }
+
+        com.buuz135.replication.api.task.IReplicationTask task =
+                network.getTaskManager().getPendingTasks().get(taskId.toString());
+        if (task == null) {
+            return false;
+        }
+
+        BlockPos source = task.getSource();
+        var capability = level.getCapability(
+                net.neoforged.neoforge.capabilities.Capabilities.ItemHandler.BLOCK,
+                source, net.minecraft.core.Direction.UP);
+        if (capability == null) {
+            return false;
+        }
+
+        ItemStack singleCopy = stack.copyWithCount(1);
+        ItemStack leftover = ItemHandlerHelper.insertItem(capability, singleCopy, false);
+        if (!leftover.isEmpty()) {
+            return false;
+        }
+
+        onMatterAssemblerCompletedUnit(taskId, assemblerPos);
+        return true;
+    }
+
+    public void onMatterAssemblerCompletedUnit(UUID taskId, BlockPos assemblerPos) {
+        if (level == null || level.isClientSide() || taskId == null) {
+            return;
+        }
+        MatterNetwork network = getNetwork();
+        if (network == null) {
+            return;
+        }
+        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
+        if (task == null) {
+            return;
+        }
+        task.finalizeReplication(level, assemblerPos, network);
+        if (level instanceof ServerLevel serverLevel) {
+            network.onTaskValueChanged(task, serverLevel);
+        }
+    }
+
+    /** True while the Replication UI task is still in the pending map. */
+    public boolean hasPendingReplicationTask(UUID taskId) {
+        if (taskId == null) {
+            return false;
+        }
+        MatterNetwork network = getNetwork();
+        return network != null
+                && network.getTaskManager().getPendingTasks().containsKey(taskId.toString());
+    }
+
+    /**
+     * Ensures matter for one craft unit is reserved on the task for {@code workerPos}.
+     */
+    public boolean ensureMatterReservedForWorker(UUID taskId, BlockPos workerPos) {
+        if (taskId == null || workerPos == null || level == null || level.isClientSide()) {
+            return false;
+        }
+        MatterNetwork network = getNetwork();
+        if (network == null) {
+            return false;
+        }
+        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
+        if (task == null) {
+            return false;
+        }
+        if (task.getStoredMatterStack().containsKey(workerPos.asLong())) {
+            return true;
+        }
+        task.storeMatterStacksFor(level, workerPos, network);
+        return task.getStoredMatterStack().containsKey(workerPos.asLong());
+    }
+
+    public long getAe2MatterAmount(IMatterType type) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || !mainNode.isReady()) {
+            return 0;
+        }
+        IGrid grid = mainNode.getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        var stacks = storage.getInventory().getAvailableStacks();
+        long amount = stacks.get(key);
+        if (amount > 0) {
+            return amount;
+        }
+        long sum = 0;
+        for (var entry : stacks) {
+            if (key.equals(entry.getKey())) {
+                sum += entry.getLongValue();
+            }
+        }
+        return Math.max(0, sum);
+    }
+
+    public long getAe2MatterFreeSpace(IMatterType type) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || !mainNode.isReady()) {
+            return 0;
+        }
+        IGrid grid = mainNode.getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        long probe = 1_000_000_000L;
+        return Math.max(0, storage.getInventory().insert(key, probe, Actionable.SIMULATE, new MachineSource(this)));
+    }
+
+    public long insertAe2Matter(IMatterType type, long amount, boolean simulate) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || amount <= 0 || !mainNode.isReady()) {
+            return 0;
+        }
+        IGrid grid = mainNode.getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        return storage.getInventory().insert(key, amount, simulate ? Actionable.SIMULATE : Actionable.MODULATE,
+                new MachineSource(this));
+    }
+
+    public long extractAe2Matter(IMatterType type, long amount, boolean simulate) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || amount <= 0 || !mainNode.isReady()) {
+            return 0;
+        }
+        IGrid grid = mainNode.getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        return storage.getInventory().extract(key, amount, simulate ? Actionable.SIMULATE : Actionable.MODULATE,
+                new MachineSource(this));
+    }
+
+    public void notifyAe2MatterChanged(IMatterType type) {
+        scheduleReplicationTankSync(type);
+        if (mainNode != null && mainNode.isReady()) {
+            IStorageProvider.requestUpdate(mainNode);
+        }
+    }
+
+    private void scheduleReplicationTankSync(@Nullable IMatterType type) {
+        if (type == null || type.equals(MatterType.EMPTY)) {
+            return;
+        }
+        dirtyReplicationMatterTypes.add(type);
+    }
+
+    @Nullable
+    private CraftMatterTank findCraftMatterTank(IMatterType type) {
+        for (CraftMatterTank tank : getOrCreateCraftMatterTanks()) {
+            if (tank.getMatterType().equals(type)) {
+                return tank;
+            }
+        }
+        return null;
+    }
+
+    private List<CraftMatterTank> getOrCreateCraftMatterTanks() {
+        int expected = countNonEmptyMatterTypes();
+        if (craftMatterTanks == null || craftMatterTanks.size() != expected) {
+            Map<IMatterType, Double> previous = new HashMap<>();
+            if (craftMatterTanks != null) {
+                for (CraftMatterTank tank : craftMatterTanks) {
+                    if (tank.getMatterAmount() > 0) {
+                        previous.put(tank.getMatterType(), tank.getMatterAmount());
+                    }
+                }
+            }
+            List<CraftMatterTank> tanks = new ArrayList<>();
+            for (IMatterType type : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+                if (type == null || type.equals(MatterType.EMPTY)) {
+                    continue;
+                }
+                CraftMatterTank tank = new CraftMatterTank(type);
+                Double prior = previous.get(type);
+                if (prior != null) {
+                    tank.setAmount(prior);
+                }
+                tanks.add(tank);
+            }
+            craftMatterTanks = tanks;
+        }
+        return craftMatterTanks;
+    }
+
+    private static int countNonEmptyMatterTypes() {
+        int expected = 0;
+        for (IMatterType type : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+            if (type != null && !type.equals(MatterType.EMPTY)) {
+                expected++;
+            }
+        }
+        return expected;
+    }
+
+    public boolean drainMatterForAe2Internal(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack == null || patternStack.isEmpty()) {
+            return false;
+        }
+        var matterCompound = ReplicationCalculation.getMatterCompound(patternStack);
+        if (matterCompound == null) {
+            return true;
+        }
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (needed <= 0) {
+                continue;
+            }
+            IMatterType type = matterValue.getMatter();
+            long have = extractAe2Matter(type, needed, true);
+            if (have < needed) {
+                CraftMatterTank craft = findCraftMatterTank(type);
+                if (craft != null) {
+                    have += (long) Math.floor(craft.getMatterAmount());
+                }
+            }
+            if (have < needed) {
+                return false;
+            }
+        }
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (needed <= 0) {
+                continue;
+            }
+            IMatterType type = matterValue.getMatter();
+            long got = extractAe2Matter(type, needed, false);
+            long left = needed - got;
+            if (left > 0) {
+                CraftMatterTank craft = findCraftMatterTank(type);
+                if (craft != null) {
+                    var drained = craft.drain(
+                            (double) left,
+                            net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                    left -= (long) Math.floor(drained.getAmount());
+                }
+            }
+            if (left > 0) {
+                return false;
+            }
+            scheduleReplicationTankSync(type);
+        }
+        markAe2StorageDirty();
+        return true;
+    }
+
+    public int insertCraftedToAe2(ItemStack stack, int count) {
+        if (stack.isEmpty() || count <= 0 || !mainNode.isActive() || mainNode.getNode() == null) {
+            return 0;
+        }
+        IGrid grid = mainNode.getNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storageService = grid.getStorageService();
+        if (storageService == null) {
+            return 0;
+        }
+        AEItemKey key = AEItemKey.of(stack);
+        long inserted = storageService.getInventory().insert(
+                key, count, Actionable.MODULATE, new MachineSource(this));
+        if (inserted > 0) {
+            markAe2StorageDirty();
+        }
+        return (int) Math.min(Integer.MAX_VALUE, inserted);
+    }
+
+    private void markAe2StorageDirty() {
+        ae2StorageUpdateDirty = true;
+    }
+
+    private void invalidateAe2WorkerCache() {
+        ae2WorkerCacheTick = Long.MIN_VALUE;
+    }
+
+    private void recoverCraftBufferIntoAe2() {
+        for (CraftMatterTank tank : getOrCreateCraftMatterTanks()) {
+            double amount = tank.getMatterAmount();
+            if (amount <= 0) {
+                continue;
+            }
+            long moved = insertAe2Matter(tank.getMatterType(), (long) Math.floor(amount), false);
+            if (moved > 0) {
+                tank.drain(
+                        (double) moved,
+                        net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+            }
+        }
+        setChanged();
+        if (mainNode != null && mainNode.isReady()) {
+            IStorageProvider.requestUpdate(mainNode);
+        }
+    }
+
+    /**
+     * Cancels Replication tasks / assembler jobs sourced by this bridge and returns craft-buffer matter to AE2.
+     */
+
+
+    // --- Matter v3 routing (missing defs) ---
+
+    /**
+     * Fills the craft buffer from AE2 pattern inputs. Returns false if required matter is missing.
+     */
+    private boolean absorbCraftMatter(KeyCounter[] inputHolder, ItemStack patternStack) {
+        var matterCompound = ReplicationCalculation.getMatterCompound(patternStack);
+        if (matterCompound == null) {
+            return true;
+        }
+
+        // Sum matter delivered in inputHolder
+        java.util.Map<IMatterType, Long> delivered = new java.util.HashMap<>();
+        if (inputHolder != null) {
+            for (KeyCounter counter : inputHolder) {
+                if (counter == null) {
+                    continue;
+                }
+                for (var entry : counter) {
+                    if (!(entry.getKey() instanceof ReplicationMatterKey matterKey)) {
+                        continue;
+                    }
+                    IMatterType type = matterKey.resolveMatterType();
+                    if (type == null || type.equals(MatterType.EMPTY)) {
+                        continue;
+                    }
+                    delivered.merge(type, entry.getLongValue(), Long::sum);
+                }
+            }
+        }
+
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            IMatterType type = matterValue.getMatter();
+            long needed = (long) Math.ceil(matterValue.getAmount());
+            if (needed <= 0) {
+                continue;
+            }
+            long have = delivered.getOrDefault(type, 0L);
+            if (have < needed) {
+                return false;
+            }
+        }
+
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            IMatterType type = matterValue.getMatter();
+            long needed = (long) Math.ceil(matterValue.getAmount());
+            if (needed <= 0) {
+                continue;
+            }
+            CraftMatterTank tank = findCraftMatterTank(type);
+            if (tank == null) {
+                return false;
+            }
+            double filled = tank.fill(
+                    new com.buuz135.replication.api.matter_fluid.MatterStack(type, needed),
+                    net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+            if (filled + 0.01 < needed) {
+                return false;
+            }
+            delivered.merge(type, -needed, Long::sum);
+        }
+
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            scheduleReplicationTankSync(matterValue.getMatter());
+        }
+        setChanged();
+        return true;
+    }
+
+
+    /** Online chamber leader or Matter Assembler on this AE2 grid (idle or busy). */
+    private boolean hasAe2GridWorker() {
+        refreshAe2WorkerCache();
+        return !cachedChamberLeaders.isEmpty() || !cachedOnlineAssemblers.isEmpty();
+    }
+
+
+    /**
+     * O(workers) feed on pushPattern using the worker cache — keeps remainingCount topped up
+     * at AE2 push rate without scanning the grid every call.
+     */
+    private void lightFeedAe2InternalOnPush(ItemStack patternStack) {
+        if (patternStack.isEmpty() || worldUnloading) {
+            return;
+        }
+        ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
+        Integer boxed = ae2InternalPending.get(key);
+        if (boxed == null || boxed <= 0) {
+            return;
+        }
+        int pending = feedAe2InternalToEligibleWorkers(patternStack, boxed);
+        if (pending <= 0) {
+            ae2InternalPending.remove(key);
+        } else {
+            ae2InternalPending.put(key, pending);
+        }
+    }
+
+
+    /**
+     * Best-effort: push craft-buffer matter into AE2 cells. Leftovers stay in the craft buffer
+     * so {@link #drainMatterForCraft} can still see them — never spill to physical tanks here
+     * (that path was used by the Replication fallback).
+     */
+    private void parkCraftBufferPreferAe2KeepRest() {
+        MatterNetwork network = getNetworkSafe();
+        for (CraftMatterTank craftTank : getOrCreateCraftMatterTanks()) {
+            if (craftTank.getMatterAmount() < 1.0) {
+                continue;
+            }
+            flushCraftTankIntoAe2(craftTank, craftTank.getMatterType(), network);
+        }
+        setChanged();
+        markAe2StorageDirty();
+    }
+
+
+    /**
+     * After AE2 cancel (vanilla or AdvancedAE), no CPU remains busy for an item — abort chamber/MA
+     * jobs and clear pending/prefill so work does not keep running.
+     */
+    private void pruneOrphanedAe2InternalWork() {
+        if (worldUnloading || mainNode.getGrid() == null) {
+            return;
+        }
+        IGrid grid = mainNode.getGrid();
+        boolean aborted = false;
+
+        for (ItemWithSourceId key : new ArrayList<>(ae2InternalPending.keySet())) {
+            if (peekAe2CraftOutputAmount(key.getItemStack().getItem()) <= 0) {
+                ae2InternalPending.remove(key);
+                aborted = true;
+            }
+        }
+
+        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+            if (unit == null || unit.isIdle() || !worldPosition.equals(unit.getBridgePos())) {
+                continue;
+            }
+            // Only AE2-internal jobs (no Replication task id).
+            if (unit.getReplicationTaskId() != null) {
+                continue;
+            }
+            Item item = unit.getCraftingStack().getItem();
+            if (peekAe2CraftOutputAmount(item) <= 0) {
+                unit.abortJob();
+                aborted = true;
+            }
+        }
+        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+            if (assembler == null || assembler.isIdle() || !worldPosition.equals(assembler.getBridgePos())) {
+                continue;
+            }
+            if (assembler.getReplicationTaskId() != null) {
+                continue;
+            }
+            Item item = assembler.getCraftingStack().getItem();
+            if (peekAe2CraftOutputAmount(item) <= 0) {
+                assembler.abortJob();
+                aborted = true;
+            }
+        }
+
+        // Same as cancelAe2Linked: park leftover absorb-buffer matter back into AE2 cells.
+        if (aborted) {
+            invalidateAe2WorkerCache();
+            recoverCraftBufferIntoAe2();
+        }
+    }
+
+
+    /**
+     * Feeds {@link #ae2InternalPending} to chambers/MAs.
+     * Only real {@code pushPattern} units — each output must match an AE2 {@code waitingFor} slot.
+     * Matter is drained per crafted unit. Never creates {@link ReplicationTask} entries.
+     */
+    private void feedAe2InternalJobs() {
+        if (ae2InternalPending.isEmpty() || worldUnloading) {
+            return;
+        }
+        if (mainNode.getGrid() == null || getNetworkSafe() == null) {
+            return;
+        }
+
+        for (ItemWithSourceId key : new ArrayList<>(ae2InternalPending.keySet())) {
+            if (worldUnloading) {
+                break;
+            }
+            Integer boxed = ae2InternalPending.get(key);
+            if (boxed == null || boxed <= 0) {
+                ae2InternalPending.remove(key);
+                continue;
+            }
+            int pending = feedAe2InternalToEligibleWorkers(key.getItemStack(), boxed);
+            if (pending <= 0) {
+                ae2InternalPending.remove(key);
+            } else {
+                ae2InternalPending.put(key, pending);
+            }
+        }
+    }
+
+
+    private void flushAe2StorageUpdate(boolean force) {
+        if (!ae2StorageUpdateDirty) {
+            return;
+        }
+        if (!force && level != null && level.getGameTime() % 10 != 0) {
+            return;
+        }
+        ae2StorageUpdateDirty = false;
+        if (mainNode != null && mainNode.isReady()) {
+            IStorageProvider.requestUpdate(mainNode);
+        }
+    }
+
+
+    private void flushReplicationTankSync(boolean force) {
+        if (dirtyReplicationMatterTypes.isEmpty()) {
+            replicationTankSyncTicks = 0;
+            return;
+        }
+        if (!force) {
+            replicationTankSyncTicks++;
+            if (replicationTankSyncTicks < REPLICATION_TANK_SYNC_INTERVAL) {
+                return;
+            }
+        }
+        replicationTankSyncTicks = 0;
+        MatterNetwork network = getNetworkSafe();
+        if (network == null) {
+            dirtyReplicationMatterTypes.clear();
+            return;
+        }
+        for (IMatterType type : dirtyReplicationMatterTypes) {
+            network.onTankValueChanged(type);
+        }
+        dirtyReplicationMatterTypes.clear();
+    }
+
+
+    /**
+     * Matter visible to AE2 craft from external Replication tanks only.
+     * The craft absorb buffer is Replication-only ({@link #getTanks()}) — listing it in AE2
+     * made leftover buffer matter look like "still crafting" network stock.
+     */
+    private long calculateExternalMatterAmount(IMatterType matterType) {
+        MatterNetwork network = getNetworkSafe();
+        if (network == null) {
+            return 0;
+        }
+        long amount = 0;
+        for (NetworkElement element : network.getMatterStacksHolders()) {
+            if (!element.getLevel().isLoaded(element.getPos())) {
+                continue;
+            }
+            if (element.getPos().equals(worldPosition)) {
+                continue;
+            }
+            BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
+            if (tile instanceof IMatterTanksSupplier tanksSupplier) {
+                for (IMatterTank tank : tanksSupplier.getTanks()) {
+                    if (!tank.getMatter().isEmpty() && tank.getMatter().getMatterType().equals(matterType)) {
+                        amount += (long) tank.getMatterAmount();
+                    }
+                }
+            }
+        }
+        return amount;
+    }
+
+
+    /**
+     * Drains external Replication tanks for AE2 extract. Never drains the craft buffer or
+     * {@link Ae2MatterTank} (buffer is for Replication; cells are extracted by cell mounts).
+     */
+    private long drainExternalMatter(IMatterType matterType, long amount, boolean simulate) {
+        if (amount <= 0) {
+            return 0;
+        }
+        MatterNetwork network = getNetworkSafe();
+        if (network == null) {
+            return 0;
+        }
+        long remaining = amount;
+        long drainedTotal = 0;
+
+        for (NetworkElement element : network.getMatterStacksHolders()) {
+            if (remaining <= 0) {
+                break;
+            }
+            if (!element.getLevel().isLoaded(element.getPos()) || element.getPos().equals(worldPosition)) {
+                continue;
+            }
+            BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
+            if (!(tile instanceof IMatterTanksSupplier tanksSupplier)) {
+                continue;
+            }
+            for (IMatterTank tank : tanksSupplier.getTanks()) {
+                if (remaining <= 0) {
+                    break;
+                }
+                var content = tank.getMatter();
+                if (content.isEmpty() || !content.getMatterType().equals(matterType)) {
+                    continue;
+                }
+                var drained = tank.drain(
+                        new com.buuz135.replication.api.matter_fluid.MatterStack(matterType, remaining),
+                        simulate
+                                ? net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.SIMULATE
+                                : net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                long got = (long) Math.floor(drained.getAmount());
+                if (got > 0) {
+                    drainedTotal += got;
+                    remaining -= got;
+                }
+            }
+        }
+
+        if (!simulate && drainedTotal > 0) {
+            setChanged();
+            scheduleReplicationTankSync(matterType);
+        }
+        return drainedTotal;
+    }
+
+
+    /**
+     * Lets idle Matter Assemblers claim pending Replication terminal tasks (like Replicators).
+     * <p>
+     * Replication's {@code findTaskForReplicator} budgets parallel slots from
+     * {@code network.getReplicators()} only — Matter Assemblers are invisible there, so a
+     * network with assemblers but no replicators would only allow one worker per MULTIPLE task.
+     * We mirror that formula with assembler count included.
+     */
+    private void assignReplicationTasksToAssemblers() {
+        MatterNetwork network = getNetworkSafe();
+        IGrid grid = mainNode.getGrid();
+        if (network == null || grid == null || level == null || level.isClientSide()) {
+            return;
+        }
+
+        List<ReplicationUnitBlockEntity> idleChambers = new ArrayList<>();
+        int onlineChamberLeaders = 0;
+        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+            if (unit == null || !unit.isFormed() || !unit.isChamberLeader() || !unit.getMainNode().isOnline()) {
+                continue;
+            }
+            onlineChamberLeaders++;
+            if (unit.isIdle()) {
+                idleChambers.add(unit);
+            }
+        }
+
+        List<MatterAssemblerBlockEntity> onlineAssemblers = new ArrayList<>();
+        List<MatterAssemblerBlockEntity> idle = new ArrayList<>();
+        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+            if (assembler == null || !assembler.getMainNode().isOnline()) {
+                continue;
+            }
+            onlineAssemblers.add(assembler);
+            if (assembler.isIdle()) {
+                idle.add(assembler);
+            }
+        }
+        if (idle.isEmpty() && idleChambers.isEmpty()) {
+            return;
+        }
+        idle.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
+
+        int maxWorkersPerMultipleTask = computeAssemblerReplicatorBudget(
+                network, onlineAssemblers.size() + onlineChamberLeaders);
+
+        // Chambers first — assign large batches (not 1) so Replication UI crafts match chamber speed.
+        java.util.Map<String, Integer> chamberClaimed = new java.util.HashMap<>();
+        for (int ci = 0; ci < idleChambers.size(); ci++) {
+            ReplicationUnitBlockEntity chamber = idleChambers.get(ci);
+            IReplicationTask task = findReplicationTaskForAssembler(
+                    network, chamber.getBlockPos(), maxWorkersPerMultipleTask);
+            if (task == null) {
+                continue;
+            }
+            ItemStack pattern = task.getReplicatingStack();
+            if (pattern == null || pattern.isEmpty()) {
+                continue;
+            }
+            String taskKey = task.getUuid().toString();
+            int left = task.getTotalAmount() - task.getCurrentAmount() - chamberClaimed.getOrDefault(taskKey, 0);
+            if (left <= 0) {
+                continue;
+            }
+            int chambersLeft = idleChambers.size() - ci;
+            int batch = Math.max(1, (left + chambersLeft - 1) / chambersLeft);
+            if (!chamber.tryStartJob(pattern, batch, worldPosition, task.getUuid())) {
+                continue;
+            }
+            chamberClaimed.merge(taskKey, batch, Integer::sum);
+            task.acceptReplicator(chamber.getBlockPos());
+            task.storeMatterStacksFor(level, chamber.getBlockPos(), network);
+            if (!task.getStoredMatterStack().containsKey(chamber.getBlockPos().asLong())) {
+                task.getReplicatorsOnTask().remove(chamber.getBlockPos().asLong());
+                chamberClaimed.merge(taskKey, -batch, Integer::sum);
+                chamber.abortJob();
+            }
+        }
+
+        for (MatterAssemblerBlockEntity assembler : idle) {
+            IReplicationTask task = findReplicationTaskForAssembler(
+                    network, assembler.getBlockPos(), maxWorkersPerMultipleTask);
+            if (task == null) {
+                continue;
+            }
+            ItemStack pattern = task.getReplicatingStack();
+            if (pattern == null || pattern.isEmpty()) {
+                continue;
+            }
+
+            // Reserve assembler first, then drain matter into the task (Replication holder path).
+            if (!assembler.tryStartJob(pattern, 1, worldPosition, task.getUuid())) {
+                continue;
+            }
+            task.acceptReplicator(assembler.getBlockPos());
+            task.storeMatterStacksFor(level, assembler.getBlockPos(), network);
+            if (!task.getStoredMatterStack().containsKey(assembler.getBlockPos().asLong())) {
+                // Could not reserve matter — abort job and release claim.
+                task.getReplicatorsOnTask().remove(assembler.getBlockPos().asLong());
+                assembler.abortJob();
+            }
+        }
+    }
+
+
+    /**
+     * Dynamic AE → FE feed: demand = free space in the matter network energy buffer;
+     * supply = what the AE2 grid can spare. Uses {@link appeng.api.config.PowerUnit} FE ratio.
+     * Skips when the grid is energy-starved (cannot cover idle demand).
+     */
+    private void feedEnergyToMatterNetwork() {
+        if (!feedReplicationEnergy || !isActive()) {
+            return;
+        }
+        MatterNetwork network = getNetwork();
+        IGrid grid = mainNode.getGrid();
+        if (network == null || grid == null) {
+            return;
+        }
+
+        var energyStorage = network.getEnergyStorage();
+        int freeFe = energyStorage.getMaxEnergyStored() - energyStorage.getEnergyStored();
+        if (freeFe <= 0) {
+            return;
+        }
+
+        var energyService = grid.getEnergyService();
+        // If the grid cannot cover its own idle load, do not siphon power into Replication.
+        double stored = energyService.getStoredPower();
+        double idle = energyService.getIdlePowerUsage();
+        if (stored <= idle) {
+            return;
+        }
+
+        // AE needed to fill free FE, using AE2's configured FE conversion ratio.
+        double aeWanted = appeng.api.config.PowerUnit.FE.convertTo(appeng.api.config.PowerUnit.AE, freeFe);
+        if (aeWanted <= 0) {
+            return;
+        }
+        // Never drain below idle reserve.
+        double aeBudget = Math.min(aeWanted, stored - idle);
+        if (aeBudget <= 0) {
+            return;
+        }
+
+        double simulated = energyService.extractAEPower(
+                aeBudget, Actionable.SIMULATE, appeng.api.config.PowerMultiplier.CONFIG);
+        if (simulated <= 0) {
+            return;
+        }
+
+        double feSim = appeng.api.config.PowerUnit.AE.convertTo(appeng.api.config.PowerUnit.FE, simulated);
+        int accepted = energyStorage.receiveEnergy((int) Math.floor(feSim), true);
+        if (accepted <= 0) {
+            return;
+        }
+
+        double aeToExtract = appeng.api.config.PowerUnit.FE.convertTo(appeng.api.config.PowerUnit.AE, accepted);
+        double actuallyExtracted = energyService.extractAEPower(
+                aeToExtract, Actionable.MODULATE, appeng.api.config.PowerMultiplier.CONFIG);
+        int fed = (int) Math.floor(
+                appeng.api.config.PowerUnit.AE.convertTo(appeng.api.config.PowerUnit.FE, actuallyExtracted));
+        if (fed > 0) {
+            energyStorage.receiveEnergy(fed, false);
+        }
+    }
+
+
+    // --- Matter v3 routing (ported from 26 SoT) ---
+
+    public List<? extends IMatterTank> getTanks() {
+        // Prefer AE2 cell mirrors. Only expose non-empty craft-buffer leftovers
+        // (pushPattern flushes buffer into physical tanks / AE2 before starting tasks).
+        List<IMatterTank> tanks = new ArrayList<>();
+        for (CraftMatterTank tank : getOrCreateCraftMatterTanks()) {
+            if (tank.getMatterAmount() > 0) {
+                tanks.add(tank);
+            }
+        }
+        tanks.addAll(getOrCreateAe2MatterTanks());
+        return tanks;
+    }
+
+
+    private List<Ae2MatterTank> getOrCreateAe2MatterTanks() {
+        int expected = countNonEmptyMatterTypes();
+        if (ae2MatterTanks == null || ae2MatterTanks.size() != expected) {
+            List<Ae2MatterTank> tanks = new ArrayList<>();
+            for (IMatterType type : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+                if (type == null || type.equals(MatterType.EMPTY)) {
+                    continue;
+                }
+                tanks.add(new Ae2MatterTank(this, type));
+            }
+            ae2MatterTanks = tanks;
+        }
+        return ae2MatterTanks;
+    }
+
+
+    /** Moves craft-buffer matter into physical tanks first, then AE2 cells. */
+    private void flushCraftBufferToStorage() {
+        flushCraftBufferToStorage(false);
+    }
+
+
+    /**
+     * Moves craft-buffer matter into storage.
+     * @param preferAe2 when true (idle chamber/MA), insert into AE2 cells first so workers
+     *                  can drain via {@link Ae2MatterTank} without waiting on physical tanks.
+     */
+    private void flushCraftBufferToStorage(boolean preferAe2) {
+        MatterNetwork network = getNetworkSafe();
+        for (CraftMatterTank craftTank : getOrCreateCraftMatterTanks()) {
+            double amount = craftTank.getMatterAmount();
+            if (amount <= 0) {
+                continue;
+            }
+            IMatterType type = craftTank.getMatterType();
+
+            if (preferAe2) {
+                amount = flushCraftTankIntoAe2(craftTank, type, network);
+            }
+            if (amount > 0) {
+                amount = flushCraftTankIntoPhysicalTanks(craftTank, type, network);
+            }
+            if (!preferAe2 && amount > 0) {
+                flushCraftTankIntoAe2(craftTank, type, network);
+            }
+        }
+        setChanged();
+        if (mainNode != null && mainNode.isReady()) {
+            IStorageProvider.requestUpdate(mainNode);
+        }
+    }
+
+
+    private double flushCraftTankIntoAe2(CraftMatterTank craftTank, IMatterType type, @Nullable MatterNetwork network) {
+        double amount = craftTank.getMatterAmount();
+        if (amount <= 0) {
+            return 0;
+        }
+        long moved = insertAe2Matter(type, (long) Math.floor(amount), false);
+        if (moved > 0) {
+            craftTank.drain(
+                    (double) moved,
+                    net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+            scheduleReplicationTankSync(type);
+        }
+        return craftTank.getMatterAmount();
+    }
+
+
+    private double flushCraftTankIntoPhysicalTanks(
+            CraftMatterTank craftTank, IMatterType type, @Nullable MatterNetwork network) {
+        if (network == null) {
+            return craftTank.getMatterAmount();
+        }
+        List<IMatterTanksConsumer> consumers = new ArrayList<>();
+        for (NetworkElement element : network.getMatterStacksHolders()) {
+            if (!element.getLevel().isLoaded(element.getPos()) || element.getPos().equals(worldPosition)) {
+                continue;
+            }
+            BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
+            if (tile instanceof IMatterTanksConsumer consumer) {
+                consumers.add(consumer);
+            }
+        }
+        consumers.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
+
+        for (IMatterTanksConsumer consumer : consumers) {
+            double amount = craftTank.getMatterAmount();
+            if (amount <= 0) {
+                break;
+            }
+            for (IMatterTank tank : consumer.getTanks()) {
+                amount = craftTank.getMatterAmount();
+                if (amount <= 0) {
+                    break;
+                }
+                if (!tank.getMatter().isEmpty() && !tank.getMatter().getMatterType().equals(type)) {
+                    continue;
+                }
+                var offer = new com.buuz135.replication.api.matter_fluid.MatterStack(type, amount);
+                if (!tank.isMatterValid(offer) && !tank.getMatter().isEmpty()) {
+                    continue;
+                }
+                double space = tank.getCapacity() - tank.getMatterAmount();
+                if (space <= 0) {
+                    continue;
+                }
+                double toMove = Math.min(amount, space);
+                double filled = tank.fill(
+                        new com.buuz135.replication.api.matter_fluid.MatterStack(type, toMove),
+                        net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                if (filled > 0) {
+                    craftTank.drain(filled, net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                    scheduleReplicationTankSync(type);
+                }
+            }
+        }
+        return craftTank.getMatterAmount();
+    }
+
+
+    /**
+     * Shorter accumulation when the grid has many co-processors (fast pushPattern).
+     * {@code ticks = max(5, 100 / (1 + maxCoProcessors))}.
+     */
+    private int getAdaptiveRequestAccumulationTicks() {
+        int maxCo = 0;
+        IGrid grid = mainNode.getGrid();
+        if (grid != null) {
+            for (ICraftingCPU cpu : grid.getCraftingService().getCpus()) {
+                if (cpu != null) {
+                    maxCo = Math.max(maxCo, cpu.getCoProcessors());
+                }
+            }
+        }
+        return Math.max(REQUEST_ACCUMULATION_TICKS_MIN, REQUEST_ACCUMULATION_TICKS / (1 + maxCo));
+    }
+
+
+    private int getPendingRequestMaxCount() {
+        int max = 0;
+        for (Map<ItemWithSourceId, Integer> sourceCounters : requestCounters.values()) {
+            if (sourceCounters == null) {
+                continue;
+            }
+            for (int count : sourceCounters.values()) {
+                if (count > max) {
+                    max = count;
+                }
+            }
+        }
+        return max;
+    }
+
+
+    /**
+     * Flushes accumulated {@link #requestCounters} into chambers / MAs / ReplicationTasks.
+     */
+    private void flushPendingRequestCounters() {
+        if (requestCounters.isEmpty()) {
+            requestCounterTicks = 0;
+            return;
+        }
+        if (worldUnloading) {
+            return;
+        }
+        for (UUID sourceId : new ArrayList<>(requestCounters.keySet())) {
+            if (worldUnloading) {
+                return;
+            }
+            Map<ItemWithSourceId, Integer> sourceCounters = requestCounters.get(sourceId);
+            if (sourceCounters == null) {
+                continue;
+            }
+            for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
+                if (worldUnloading) {
+                    return;
+                }
+                int count = entry.getValue();
+                if (count > 0) {
+                    enqueueReplicationUnits(entry.getKey().getItemStack(), count);
+                }
+            }
+        }
+        requestCounters.clear();
+        requestCounterTicks = 0;
+    }
+
+
+    private void refreshAe2WorkerCache() {
+        if (level == null || !mainNode.isReady()) {
+            cachedChamberLeaders = List.of();
+            cachedOnlineAssemblers = List.of();
+            return;
+        }
+        long now = level.getGameTime();
+        if (ae2WorkerCacheTick != Long.MIN_VALUE && now - ae2WorkerCacheTick < AE2_WORKER_CACHE_TTL) {
+            return;
+        }
+        ae2WorkerCacheTick = now;
+        IGrid grid = mainNode.getGrid();
+        if (grid == null) {
+            cachedChamberLeaders = List.of();
+            cachedOnlineAssemblers = List.of();
+            return;
+        }
+        java.util.ArrayList<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
+        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+            if (unit != null && unit.isFormed() && unit.isChamberLeader() && unit.getMainNode().isOnline()) {
+                chambers.add(unit);
+            }
+        }
+        java.util.ArrayList<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
+        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+            if (assembler != null && assembler.getMainNode().isOnline()) {
+                assemblers.add(assembler);
+            }
+        }
+        cachedChamberLeaders = chambers;
+        cachedOnlineAssemblers = assemblers;
+    }
+
+
+    /**
+     * Split {@code count} across idle + same-item running chambers/MAs (cached workers only).
+     * When {@code count < N}, round-robin one unit at a time so multi-chamber setups share +1 pushes.
+     * @return units still pending
+     */
+    private int feedAe2InternalToEligibleWorkers(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack.isEmpty()) {
+            return count;
+        }
+        refreshAe2WorkerCache();
+        Item item = patternStack.getItem();
+
+        java.util.ArrayList<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
+        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
+            if (unit == null) {
+                continue;
+            }
+            if (unit.isChamberWorkerReady()) {
+                chambers.add(unit);
+            } else if (!unit.isIdle()
+                    && unit.getReplicationTaskId() == null
+                    && worldPosition.equals(unit.getBridgePos())
+                    && unit.getCraftingStack().getItem().equals(item)) {
+                chambers.add(unit);
+            }
+        }
+        java.util.ArrayList<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
+        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
+            if (assembler == null) {
+                continue;
+            }
+            if (assembler.isIdle()) {
+                assemblers.add(assembler);
+            } else if (assembler.getReplicationTaskId() == null
+                    && worldPosition.equals(assembler.getBridgePos())
+                    && assembler.getCraftingStack().getItem().equals(item)) {
+                assemblers.add(assembler);
+            }
+        }
+
+        int n = chambers.size() + assemblers.size();
+        if (n == 0) {
+            return count;
+        }
+
+        int remaining = count;
+        if (remaining < n) {
+            // Round-robin single units — prevents the first idle chamber from monopolizing +1 pushes.
+            while (remaining > 0) {
+                int idx = Math.floorMod(ae2FeedCursor++, n);
+                boolean ok;
+                if (idx < chambers.size()) {
+                    ok = assignAe2InternalToChamber(chambers.get(idx), patternStack, 1);
+                } else {
+                    ok = assignAe2InternalToAssembler(assemblers.get(idx - chambers.size()), patternStack, 1);
+                }
+                if (ok) {
+                    remaining--;
+                } else {
+                    // Skip a dead slot once; stop if nobody accepts (avoid infinite loop).
+                    boolean any = false;
+                    for (ReplicationUnitBlockEntity unit : chambers) {
+                        if (assignAe2InternalToChamber(unit, patternStack, 1)) {
+                            remaining--;
+                            any = true;
+                            break;
+                        }
+                    }
+                    if (!any) {
+                        for (MatterAssemblerBlockEntity assembler : assemblers) {
+                            if (assignAe2InternalToAssembler(assembler, patternStack, 1)) {
+                                remaining--;
+                                any = true;
+                                break;
+                            }
+                        }
+                    }
+                    if (!any) {
+                        break;
+                    }
+                }
+            }
+            return remaining;
+        }
+
+        // Ceil-split across every eligible worker (idle start or running extend).
+        int i = 0;
+        for (ReplicationUnitBlockEntity unit : chambers) {
+            int workersLeft = n - i;
+            int batch = (remaining + workersLeft - 1) / workersLeft;
+            if (batch > 0 && assignAe2InternalToChamber(unit, patternStack, batch)) {
+                remaining -= batch;
+            }
+            i++;
+            if (remaining <= 0) {
+                return 0;
+            }
+        }
+        for (MatterAssemblerBlockEntity assembler : assemblers) {
+            int workersLeft = n - i;
+            int batch = (remaining + workersLeft - 1) / workersLeft;
+            if (batch > 0 && assignAe2InternalToAssembler(assembler, patternStack, batch)) {
+                remaining -= batch;
+            }
+            i++;
+            if (remaining <= 0) {
+                return 0;
+            }
+        }
+        return remaining;
+    }
+
+
+    private boolean assignAe2InternalToChamber(ReplicationUnitBlockEntity unit, ItemStack patternStack, int batch) {
+        if (unit.isChamberWorkerReady()) {
+            return unit.tryStartJob(patternStack, batch, worldPosition, null);
+        }
+        int before = unit.getRemainingCount();
+        if (!unit.extendAe2InternalJob(patternStack, batch, worldPosition)) {
+            return false;
+        }
+        // extend may clamp at Integer.MAX_VALUE — treat any growth as success for this batch.
+        return unit.getRemainingCount() >= before;
+    }
+
+
+    private boolean assignAe2InternalToAssembler(MatterAssemblerBlockEntity assembler, ItemStack patternStack, int batch) {
+        if (assembler.isIdle()) {
+            return assembler.tryStartJob(patternStack, batch, worldPosition, null);
+        }
+        int before = assembler.getRemainingCount();
+        if (!assembler.extendAe2InternalJob(patternStack, batch, worldPosition)) {
+            return false;
+        }
+        return assembler.getRemainingCount() >= before;
+    }
+
+
+    /**
+     * Largest AE2 crafting-CPU requested output amount for {@code item} (0 if none busy with it).
+     */
+    private long peekAe2CraftOutputAmount(Item item) {
+        IGrid grid = mainNode.getGrid();
+        if (grid == null || item == null) {
+            return 0;
+        }
+        long best = 0;
+        for (ICraftingCPU cpu : grid.getCraftingService().getCpus()) {
+            if (cpu == null || !cpu.isBusy()) {
+                continue;
+            }
+            var status = cpu.getJobStatus();
+            if (status == null || status.crafting() == null) {
+                continue;
+            }
+            if (status.crafting().what() instanceof AEItemKey key && key.getItem().equals(item)) {
+                best = Math.max(best, status.crafting().amount());
+            }
+        }
+        return best;
+    }
+
+
+    /** @see #drainMatterForAe2Internal(ItemStack, int) */
+    public boolean drainOneMatterForAe2Internal(ItemStack patternStack) {
+        return drainMatterForAe2Internal(patternStack, 1);
+    }
+
+
+    private MatterNetwork getNetworkSafe() {
+        try {
+            return getNetwork();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
+
+    /**
+     * Same budget math as ReplicationTaskManager.findTaskForReplicator, but counting
+     * online Matter Assemblers together with real Replicators.
+     */
+    private static int computeAssemblerReplicatorBudget(MatterNetwork network, int onlineAssemblerCount) {
+        int workers = network.getReplicators().size() + Math.max(0, onlineAssemblerCount);
+        long multipleTasks = 0;
+        for (IReplicationTask pending : network.getTaskManager().getPendingTasks().values()) {
+            if (pending.getMode() == IReplicationTask.Mode.MULTIPLE) {
+                multipleTasks++;
+            }
+        }
+        long reservedForSingle = network.getTaskManager().getPendingTasks().size() - multipleTasks;
+        workers -= (int) reservedForSingle;
+        if (multipleTasks == 0) {
+            multipleTasks = 1;
+        }
+        return Math.max(1, (int) Math.ceil(workers / (double) multipleTasks));
+    }
+
+
+    private static IReplicationTask findReplicationTaskForAssembler(
+            MatterNetwork network, BlockPos assemblerPos, int maxWorkersPerMultipleTask) {
+        for (IReplicationTask task : network.getTaskManager().getPendingTasks().values()) {
+            if (task.canAcceptReplicator(assemblerPos, maxWorkersPerMultipleTask)) {
+                return task;
+            }
+        }
+        return null;
+    }
+
+
+    /**
+     * Prefer online Matter Assemblers on this AE2 grid. Returns leftover count for ReplicationTask fallback.
+     * Matter for assembler jobs is drained from the MatterNetwork tanks immediately.
+     */
+    private int dispatchToMatterAssemblers(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack.isEmpty()) {
+            return count;
+        }
+        IGrid grid = mainNode.getGrid();
+        MatterNetwork network = getNetwork();
+        if (grid == null || network == null) {
+            return count;
+        }
+
+        int remaining = count;
+
+        // Prefer formed chamber leaders (extremely fast).
+        java.util.List<ReplicationUnitBlockEntity> idleChambers = new java.util.ArrayList<>();
+        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+            if (unit != null && unit.isChamberWorkerReady()) {
+                idleChambers.add(unit);
+            }
+        }
+        for (int i = 0; i < idleChambers.size() && remaining > 0; i++) {
+            ReplicationUnitBlockEntity chamber = idleChambers.get(i);
+            int left = idleChambers.size() - i;
+            int batch = (remaining + left - 1) / left;
+            batch = maxCraftableFromMatter(network, patternStack, batch);
+            if (batch <= 0) {
+                break;
+            }
+            if (!drainMatterForCraft(network, patternStack, batch)) {
+                break;
+            }
+            if (chamber.tryStartJob(patternStack, batch, worldPosition, null)) {
+                remaining -= batch;
+            } else {
+                break;
+            }
+        }
+        if (remaining <= 0) {
+            return 0;
+        }
+
+        java.util.List<MatterAssemblerBlockEntity> idle = new java.util.ArrayList<>();
+        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+            if (assembler != null && assembler.isIdle() && assembler.getMainNode().isOnline()) {
+                idle.add(assembler);
+            }
+        }
+        if (idle.isEmpty()) {
+            return remaining;
+        }
+
+        // Higher priority assemblers receive jobs first; split the batch so they run in parallel.
+        idle.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
+
+        for (int i = 0; i < idle.size() && remaining > 0; i++) {
+            MatterAssemblerBlockEntity assembler = idle.get(i);
+            int assemblersLeft = idle.size() - i;
+            // Ceil-split remaining work across the remaining idle assemblers.
+            int batch = (remaining + assemblersLeft - 1) / assemblersLeft;
+            batch = maxCraftableFromMatter(network, patternStack, batch);
+            if (batch <= 0) {
+                break;
+            }
+            if (!drainMatterForCraft(network, patternStack, batch)) {
+                break;
+            }
+            if (assembler.tryStartJob(patternStack, batch, worldPosition)) {
+                remaining -= batch;
+            } else {
+                // Refund is not trivial; leave matter drained (same as failed replicator edge-case)
+                break;
+            }
+        }
+        return remaining;
+    }
+
+
+    /** Largest craft count {@code desired} that current matter stocks can cover. */
+    private int maxCraftableFromMatter(MatterNetwork network, ItemStack patternStack, int desired) {
+        if (desired <= 0 || patternStack.isEmpty()) {
+            return 0;
+        }
+        var matterCompound = ReplicationCalculation.getMatterCompound(patternStack);
+        if (matterCompound == null) {
+            return desired;
+        }
+        int max = desired;
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long per = (long) Math.ceil(matterValue.getAmount());
+            if (per <= 0) {
+                continue;
+            }
+            long avail = availableMatterForCraft(network, matterValue.getMatter());
+            long can = avail / per;
+            if (can <= 0) {
+                return 0;
+            }
+            if (can < max) {
+                max = can > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) can;
+            }
+        }
+        return Math.max(0, max);
+    }
+
+
+    private boolean drainMatterForCraft(MatterNetwork network, ItemStack patternStack, int count) {
+        var matterCompound = ReplicationCalculation.getMatterCompound(patternStack);
+        if (matterCompound == null) {
+            return true;
+        }
+
+        // Prefer live AE2 extract-simulate over calculateMatterAmount (available-stacks cache
+        // often lags right after pushPattern insert, which forced the ReplicationTask path).
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (availableMatterForCraft(network, matterValue.getMatter()) < needed) {
+                return false;
+            }
+        }
+
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            double needed = Math.ceil(matterValue.getAmount()) * count;
+            double left = needed;
+            left = drainMatterTypeFromHolders(network, matterValue.getMatter(), left, true);
+            if (left > 0.01) {
+                return false;
+            }
+        }
+
+        if (mainNode != null && mainNode.isReady()) {
+            IStorageProvider.requestUpdate(mainNode);
+        }
+        return true;
+    }
+
+
+    /**
+     * Matter available for chamber/MA jobs: craft buffer + physical tanks + live AE2 extract.
+     */
+    private long availableMatterForCraft(MatterNetwork network, IMatterType type) {
+        long total = 0;
+        boolean countedAe2 = false;
+        for (NetworkElement holderEl : network.getMatterStacksHolders()) {
+            if (!holderEl.getLevel().isLoaded(holderEl.getPos())) {
+                continue;
+            }
+            var tile = holderEl.getLevel().getBlockEntity(holderEl.getPos());
+            if (!(tile instanceof IMatterTanksSupplier supplier)) {
+                continue;
+            }
+            for (var tank : supplier.getTanks()) {
+                if (tank instanceof Ae2MatterTank ae2) {
+                    if (!countedAe2 && Objects.equals(ae2.getMatterType(), type)) {
+                        total += extractAe2Matter(type, Long.MAX_VALUE / 4, true);
+                        countedAe2 = true;
+                    }
+                    continue;
+                }
+                var content = tank.getMatter();
+                if (!content.isEmpty() && Objects.equals(content.getMatterType(), type)) {
+                    total += (long) Math.floor(content.getAmount());
+                }
+            }
+        }
+        if (!countedAe2) {
+            total += extractAe2Matter(type, Long.MAX_VALUE / 4, true);
+        }
+        return total;
+    }
+
+
+    private double drainMatterTypeFromHolders(
+            MatterNetwork network, IMatterType type, double amount, boolean execute) {
+        double left = amount;
+        var action = execute
+                ? net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE
+                : net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.SIMULATE;
+        boolean drainedAe2 = false;
+        for (NetworkElement holderEl : network.getMatterStacksHolders()) {
+            if (left <= 0) {
+                break;
+            }
+            if (!holderEl.getLevel().isLoaded(holderEl.getPos())) {
+                continue;
+            }
+            var tile = holderEl.getLevel().getBlockEntity(holderEl.getPos());
+            if (!(tile instanceof IMatterTanksSupplier supplier)) {
+                continue;
+            }
+            for (var tank : supplier.getTanks()) {
+                if (left <= 0) {
+                    break;
+                }
+                if (tank instanceof Ae2MatterTank ae2) {
+                    if (drainedAe2 || !Objects.equals(ae2.getMatterType(), type)) {
+                        continue;
+                    }
+                    // Live extract — avoids stale getAvailableStacks() after pushPattern insert.
+                    long want = (long) Math.floor(left);
+                    long got = extractAe2Matter(type, want, !execute);
+                    if (got > 0) {
+                        left -= got;
+                        if (execute) {
+                            scheduleReplicationTankSync(type);
+                        }
+                    }
+                    drainedAe2 = true;
+                    continue;
+                }
+                var content = tank.getMatter();
+                if (content.isEmpty() || !Objects.equals(content.getMatterType(), type)) {
+                    continue;
+                }
+                var drained = tank.drain(
+                        new com.buuz135.replication.api.matter_fluid.MatterStack(type, left),
+                        action);
+                left -= drained.getAmount();
+            }
+        }
+        if (left > 0.01 && !drainedAe2 && execute) {
+            long want = (long) Math.floor(left);
+            long got = extractAe2Matter(type, want, false);
+            if (got > 0) {
+                left -= got;
+                scheduleReplicationTankSync(type);
+            }
+        }
+        return left;
+    }
+
+
+    /**
+     * Starts Replication/Assembler work for {@code count} units. Creates a single pending
+     * ReplicationTask for the remainder (merging idle same-item tasks from this bridge).
+     */
+    private void enqueueReplicationUnits(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack.isEmpty()) {
+            return;
+        }
+        MatterNetwork network = getNetworkSafe();
+        if (network == null) {
+            return;
+        }
+
+        // Fold leftover of idle same-item tasks into one larger job per resource.
+        Map<String, IReplicationTask> pending = network.getTaskManager().getPendingTasks();
+        int mergeLeft = 0;
+        List<String> mergeIds = new ArrayList<>();
+        for (Map.Entry<String, IReplicationTask> entry : pending.entrySet()) {
+            IReplicationTask existing = entry.getValue();
+            if (existing == null
+                    || !this.worldPosition.equals(existing.getSource())
+                    || existing.getMode() != IReplicationTask.Mode.MULTIPLE
+                    || !existing.getReplicatingStack().getItem().equals(patternStack.getItem())
+                    || !existing.getReplicatorsOnTask().isEmpty()) {
+                continue;
+            }
+            int left = existing.getTotalAmount() - existing.getCurrentAmount();
+            if (left <= 0) {
+                continue;
+            }
+            mergeLeft += left;
+            mergeIds.add(entry.getKey());
+        }
+        UUID sourceId = this.blockId;
+        for (String id : mergeIds) {
+            pending.remove(id);
+            Map<String, TaskSourceInfo> sourceTasks = activeTasks.get(sourceId);
+            if (sourceTasks != null) {
+                sourceTasks.remove(id);
+            }
+        }
+        count += mergeLeft;
+
+        int remaining = dispatchToMatterAssemblers(patternStack, count);
+        if (remaining <= 0) {
+            return;
+        }
+
+        // Prefer AE2-internal queue over terminal tasks whenever a chamber/MA exists.
+        if (hasAe2GridWorker()) {
+            ae2InternalPending.merge(new ItemWithSourceId(patternStack, this.blockId), remaining, Integer::sum);
+            return;
+        }
+
+        ReplicationTask task = new ReplicationTask(
+                patternStack,
+                remaining,
+                IReplicationTask.Mode.MULTIPLE,
+                this.worldPosition,
+                false
+        );
+        String taskId = task.getUuid().toString();
+        pending.put(taskId, task);
+
+        TaskSourceInfo info = new TaskSourceInfo(patternStack, sourceId);
+        Map<String, TaskSourceInfo> sourceTasks = activeTasks.getOrDefault(sourceId, new HashMap<>());
+        sourceTasks.put(taskId, info);
+        activeTasks.put(sourceId, sourceTasks);
+
+        Map<ItemStack, Integer> sourceRequests = patternRequestsBySource.getOrDefault(sourceId, new HashMap<>());
+        sourceRequests.put(patternStack, sourceRequests.getOrDefault(patternStack, 0) + remaining);
+        patternRequestsBySource.put(sourceId, sourceRequests);
+
+        Map<ItemStack, Integer> globalRequests = patternRequests.getOrDefault(sourceId, new HashMap<>());
+        globalRequests.put(patternStack, globalRequests.getOrDefault(patternStack, 0) + remaining);
+        patternRequests.put(sourceId, globalRequests);
+
+        if (level instanceof ServerLevel serverLevel) {
+            network.onTaskValueChanged(task, serverLevel);
+        }
+    }
+
+
+    private void saveCraftMatterBuffer(CompoundTag tag) {
+        var list = new net.minecraft.nbt.ListTag();
+        for (CraftMatterTank tank : getOrCreateCraftMatterTanks()) {
+            if (tank.getMatterAmount() <= 0) {
+                continue;
+            }
+            var registry = ReplicationRegistry.MATTER_TYPES_REGISTRY;
+            if (registry == null) {
+                continue;
+            }
+            var key = registry.getResourceKey(tank.getMatterType()).orElse(null);
+            if (key == null) {
+                continue;
+            }
+            CompoundTag child = new CompoundTag();
+            child.putString("type", key.location().toString());
+            child.putDouble("amount", tank.getMatterAmount());
+            list.add(child);
+        }
+        if (!list.isEmpty()) {
+            tag.put("craftMatterBuffer", list);
+        }
+    }
+
+    private void loadCraftMatterBuffer(CompoundTag tag) {
+        getOrCreateCraftMatterTanks();
+        if (!tag.contains("craftMatterBuffer", CompoundTag.TAG_LIST)) {
+            return;
+        }
+        var list = tag.getList("craftMatterBuffer", CompoundTag.TAG_COMPOUND);
+        var registry = ReplicationRegistry.MATTER_TYPES_REGISTRY;
+        if (registry == null) {
+            return;
+        }
+        for (int i = 0; i < list.size(); i++) {
+            CompoundTag child = list.getCompound(i);
+            String idStr = child.getString("type");
+            if (idStr == null || idStr.isEmpty()) {
+                continue;
+            }
+            double amount = child.getDouble("amount");
+            if (amount <= 0) {
+                continue;
+            }
+            net.minecraft.resources.ResourceLocation id = net.minecraft.resources.ResourceLocation.tryParse(idStr);
+            if (id == null) {
+                continue;
+            }
+            IMatterType type = registry.get(id);
+            if (type == null || type.equals(MatterType.EMPTY)) {
+                continue;
+            }
+            for (CraftMatterTank tank : craftMatterTanks) {
+                if (tank.getMatterType().equals(type)) {
+                    tank.setAmount(amount);
+                    break;
+                }
+            }
+        }
+    }
+
+
+    private void tryInitAe2NodeIfNeeded(boolean allowForceNeighborUpdates) {
+        boolean hasAE2Connection = hasAE2NetworkConnection();
+        if (!hasAE2Connection || nodeCreated) {
+            return;
+        }
+        boolean nodeAlreadyExists = mainNode.getNode() != null;
+        if (!nodeAlreadyExists) {
+            try {
+                mainNode.create(level, worldPosition);
+                nodeCreated = true;
+                if (allowForceNeighborUpdates) {
+                    forceNeighborUpdates();
+                }
+                updateConnectedState();
+                ICraftingProvider.requestUpdate(mainNode);
+            } catch (Exception e) {
+                LOGGER.error("Failed to initialize AE2 node: {}", e.getMessage());
+                shouldReconnect = true;
+            }
+        } else {
+            nodeCreated = true;
+            if (allowForceNeighborUpdates) {
+                forceNeighborUpdates();
+            }
+            updateConnectedState();
+            ICraftingProvider.requestUpdate(mainNode);
+            LOGGER.debug("Bridge: AE2 node already exists in handleNeighborChanged, skipping creation");
+        }
+    }
+
+
+    /**
+     * Neighbor update without a known source (MC 26 Orientation often null).
+     * Refreshes local AE2 init / visuals but never re-fans neighbor updates — that is what
+     * caused TPS storms with two adjacent bridges in the broken 26.1 port.
+     */
+    public void handleNeighborChangedUnknownSource() {
+        handleNeighborChanged(worldPosition);
+    }
+
+
+    public void cancelAe2LinkedReplicationWork() {
+        MatterNetwork network = getNetwork();
+        if (network != null) {
+            Map<String, IReplicationTask> pending = network.getTaskManager().getPendingTasks();
+            List<String> toRemove = new ArrayList<>();
+            for (Map.Entry<String, IReplicationTask> entry : pending.entrySet()) {
+                IReplicationTask task = entry.getValue();
+                if (task != null && this.worldPosition.equals(task.getSource())) {
+                    toRemove.add(entry.getKey());
+                    for (long replicatorPos : new HashSet<>(task.getReplicatorsOnTask())) {
+                        BlockPos pos = BlockPos.of(replicatorPos);
+                        if (level != null) {
+                            BlockEntity be = level.getBlockEntity(pos);
+                            if (be instanceof MatterAssemblerBlockEntity assembler) {
+                                assembler.abortJob();
+                            } else if (be instanceof ReplicationUnitBlockEntity chamber) {
+                                chamber.abortJob();
+                            }
+                        }
+                    }
+                }
+            }
+            for (String id : toRemove) {
+                pending.remove(id);
+            }
+        }
+
+        IGrid grid = mainNode.getGrid();
+        if (grid != null) {
+            for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+                if (assembler != null && worldPosition.equals(assembler.getBridgePos())) {
+                    assembler.abortJob();
+                }
+            }
+            for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+                if (unit != null && worldPosition.equals(unit.getBridgePos())) {
+                    unit.abortJob();
+                }
+            }
+        }
+
+        recoverCraftBufferIntoAe2();
+
+        activeTasks.remove(this.blockId);
+        patternRequests.remove(this.blockId);
+        patternRequestsBySource.remove(this.blockId);
+        requestCounters.remove(this.blockId);
+        ae2InternalPending.clear();
+        invalidateAe2WorkerCache();
     }
 }

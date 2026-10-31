@@ -1,6 +1,10 @@
 {
   "replace": false,
   "values": [
-    "rep_ae2_bridge:rep_ae2_bridge"
+    "rep_ae2_bridge:rep_ae2_bridge",
+    "rep_ae2_bridge:matter_assembler",
+    "rep_ae2_bridge:matter_foundry",
+    "rep_ae2_bridge:chamber_frame",
+    "rep_ae2_bridge:replication_unit"
   ]
 }

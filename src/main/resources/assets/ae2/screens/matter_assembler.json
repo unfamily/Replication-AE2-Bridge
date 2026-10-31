@@ -1,0 +1,57 @@
+{
+  "$schema": "schema.json",
+  "includes": [
+    "common/common.json",
+    "common/toolbox.json"
+  ],
+  "background": {
+    "texture": "rep_ae2_bridge:textures/gui/background/matter_assembler.png",
+    "textureWidth": 176,
+    "textureHeight": 102,
+    "srcRect": [0, 0, 176, 102]
+  },
+  "slots": {
+    "PLAYER_INVENTORY": {
+      "left": 8,
+      "top": 18,
+      "grid": "BREAK_AFTER_9COLS"
+    },
+    "PLAYER_HOTBAR": {
+      "left": 8,
+      "top": 76,
+      "grid": "HORIZONTAL"
+    },
+    "TOOLBOX": {
+      "$comment": "Same inset as AE2 toolbox.json, mirrored to the left panel",
+      "left": -60,
+      "bottom": 60,
+      "grid": "BREAK_AFTER_3COLS"
+    }
+  },
+  "text": {
+    "dialog_title": {
+      "text": {
+        "translate": "gui.rep_ae2_bridge.matter_assembler"
+      },
+      "position": {
+        "left": 8,
+        "top": 6
+      }
+    }
+  },
+  "widgets": {
+    "openPriority": {
+      "left": 152,
+      "top": -5,
+      "width": 20,
+      "height": 20
+    },
+    "toolbox": {
+      "$comment": "Network-tool panel: left of GUI, bottom edges aligned",
+      "left": -61,
+      "bottom": 66,
+      "width": 59,
+      "height": 66
+    }
+  }
+}
