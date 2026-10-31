@@ -1,6 +1,7 @@
 {
   "variants": {
     "column=none": { "model": "rep_ae2_bridge:block/chamber_frame" },
+    "column=int": { "model": "rep_ae2_bridge:block/chamber_frame_int" },
     "column=y": { "model": "rep_ae2_bridge:block/chamber_frame_column" },
     "column=x": { "model": "rep_ae2_bridge:block/chamber_frame_column", "x": 90, "y": 90 },
     "column=z": { "model": "rep_ae2_bridge:block/chamber_frame_column", "x": 90 }

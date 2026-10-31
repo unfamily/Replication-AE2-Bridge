@@ -20,7 +20,7 @@ import net.unfamily.repae2bridge.block.entity.ReplicationUnitBlockEntity;
 
 /**
  * Validates a Matter Assembling Chamber cuboid around a replication unit.
- * Borders: frames on edges/corners; faces may be AE2 quartz glass or vibrant glass.
+ * Borders: frames on edges/corners; faces may be chamber frames and/or AE2 quartz / vibrant glass.
  * AE2 cables connect to formed chamber frames (not to glass faces).
  */
 public final class ChamberStructure {
@@ -182,9 +182,10 @@ public final class ChamberStructure {
         return isFaceShell(state);
     }
 
-    /** Face (or ray-hit shell): frame or AE2 quartz glass. */
+    /** Face (or ray-hit shell): chamber frame and/or AE2 quartz glass. */
     private static boolean isFaceShell(BlockState state) {
         Block block = state.getBlock();
+        // Full frame faces are valid (same role as glass panels).
         if (block instanceof ChamberFrameBlock) {
             return true;
         }

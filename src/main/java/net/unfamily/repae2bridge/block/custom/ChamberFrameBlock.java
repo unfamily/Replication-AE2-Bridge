@@ -23,8 +23,9 @@ import net.unfamily.repae2bridge.block.chamber.ChamberStructure;
 import net.unfamily.repae2bridge.block.entity.ChamberFrameBlockEntity;
 
 /**
- * Chamber frame: base texture on corners, junctions and column ends;
- * column texture only on through-segments (both neighbors on one axis).
+ * Chamber frame: base texture on corners and stubs;
+ * column texture on through-segments (both neighbors on one axis — includes rectangle borders);
+ * interior texture when surrounded on both axes of a flat plane (e.g. 5×5 → border columns + inner 3×3 INT).
  * When the chamber is formed, the frame BE exposes an AE2 grid node for cable connection.
  */
 public class ChamberFrameBlock extends Block implements EntityBlock {
@@ -90,24 +91,21 @@ public class ChamberFrameBlock extends Block implements EntityBlock {
         boolean zPos = isFrame(level, pos.south());
         boolean zNeg = isFrame(level, pos.north());
 
-        boolean xAny = xPos || xNeg;
-        boolean yAny = yPos || yNeg;
-        boolean zAny = zPos || zNeg;
-        int axes = (xAny ? 1 : 0) + (yAny ? 1 : 0) + (zAny ? 1 : 0);
-
         boolean xBoth = xPos && xNeg;
         boolean yBoth = yPos && yNeg;
         boolean zBoth = zPos && zNeg;
 
         ChamberColumn column = ChamberColumn.NONE;
-        if (axes == 1) {
-            if (yBoth) {
-                column = ChamberColumn.Y;
-            } else if (xBoth) {
-                column = ChamberColumn.X;
-            } else if (zBoth) {
-                column = ChamberColumn.Z;
-            }
+        // Plane interior first (both axes through) → INT; else one through-axis → column
+        // even if a side neighbor exists (rectangle border cells of a filled 5×5 face).
+        if ((xBoth && zBoth) || (xBoth && yBoth) || (yBoth && zBoth)) {
+            column = ChamberColumn.INT;
+        } else if (yBoth) {
+            column = ChamberColumn.Y;
+        } else if (xBoth) {
+            column = ChamberColumn.X;
+        } else if (zBoth) {
+            column = ChamberColumn.Z;
         }
         return state.setValue(COLUMN, column);
     }

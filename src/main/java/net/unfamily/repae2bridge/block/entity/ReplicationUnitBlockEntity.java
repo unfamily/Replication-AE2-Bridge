@@ -149,7 +149,9 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
             return;
         }
 
-        if (anomalyTicks > 0) {
+        if (!Config.chamberAnomalyVisual) {
+            anomalyTicks = 0;
+        } else if (anomalyTicks > 0) {
             anomalyTicks--;
         }
 
@@ -185,8 +187,11 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
             mode = VisualMode.IDLE;
         } else if (isChamberLeader()) {
             // ~1/30 chance per structure recheck (~1/s) → about every 30s; lasts ~1.2s so the flash is visible.
-            if (anomalyTicks <= 0 && level.getRandom().nextInt(30) == 0) {
+            if (Config.chamberAnomalyVisual && anomalyTicks <= 0 && level.getRandom().nextInt(30) == 0) {
                 anomalyTicks = 24;
+            }
+            if (!Config.chamberAnomalyVisual) {
+                anomalyTicks = 0;
             }
             refreshModeFromJob();
             syncModeToChamber();
@@ -445,7 +450,8 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
                 ? Math.max(1, ChamberAe2Display.countUnits(level, lastBox))
                 : 1;
         double mult = 1.0 + Config.chamberSpeedPerUnit * (units - 1);
-        return Math.max(1, (int) Math.round(speed * mult));
+        long ppt = Math.round(speed * mult);
+        return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, ppt));
     }
 
     /** Approximate ticks per item at current unit count (min 1). */
@@ -486,7 +492,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
             runningHoldTicks = 0;
             return;
         }
-        if (anomalyTicks > 0) {
+        if (Config.chamberAnomalyVisual && anomalyTicks > 0) {
             mode = VisualMode.ANOMALY;
             return;
         }

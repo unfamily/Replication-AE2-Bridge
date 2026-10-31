@@ -3,10 +3,13 @@ package net.unfamily.repae2bridge.block.custom;
 import net.minecraft.util.StringRepresentable;
 
 /**
- * Visual column axis for chamber frame. {@link #NONE} keeps the base frame texture (corners / junctions).
+ * Visual style for chamber frame.
+ * {@link #NONE} base texture (corners / junctions);
+ * {@link #INT} interior of a flat frame plane (e.g. 5×5 → borders are X/Y/Z columns, inner 3×3 is INT).
  */
 public enum ChamberColumn implements StringRepresentable {
     NONE("none"),
+    INT("int"),
     X("x"),
     Y("y"),
     Z("z");

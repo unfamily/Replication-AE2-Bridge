@@ -26,7 +26,7 @@
     "jei.rep_ae2_bridge.matter_foundry": "Fonderia di Materia",
     "jei.rep_ae2_bridge.matter_foundry.energy": "%s FE",
     "jei.rep_ae2_bridge.matter_foundry.time": "%s tick (base)",
-    "block.rep_ae2_bridge.chamber_frame": "Telaio Camera",
+    "block.rep_ae2_bridge.chamber_frame": "Telaio Camera di Replicazione",
     "block.rep_ae2_bridge.replication_unit": "Unità di Replicazione",
     "block.rep_ae2_bridge.matter_assembling_chamber": "Camera di Assemblaggio Materia",
     "gui.rep_ae2_bridge.replication_chamber": "Camera di Replicazione",

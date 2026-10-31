@@ -265,6 +265,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     /** Coalesce AE2 {@link IStorageProvider#requestUpdate} — per-unit updates spike TPS. */
     private boolean ae2StorageUpdateDirty;
     private int ae2InternalPruneCooldown;
+    /** Cached AE2 workers — avoid getMachines() on every pushPattern. */
+    private List<ReplicationUnitBlockEntity> cachedChamberLeaders = List.of();
+    private List<MatterAssemblerBlockEntity> cachedOnlineAssemblers = List.of();
+    private long ae2WorkerCacheTick = Long.MIN_VALUE;
+    private static final int AE2_WORKER_CACHE_TTL = 40;
 
     /** When true, each tick feeds AE power into the Replication matter network as FE. Default ON. */
     @Save
@@ -2144,11 +2149,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                     if (hasAe2GridWorker()) {
                                         parkCraftBufferPreferAe2KeepRest();
                                         // Only count real pushPattern units — never prefill from CPU job size.
-                                        // Prefill crafted before waitingFor was registered, so AE2 showed
-                                        // "missing" outputs that were already sitting in the network.
                                         ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
                                         ae2InternalPending.merge(key, 1, Integer::sum);
-                                        // Feed once per bridge tick — not on every pushPattern (TPS).
+                                        // Cheap cached top-up so chambers do not sit idle until the next bridge tick.
+                                        lightFeedAe2InternalOnPush(itemStack);
                                         return true;
                                     }
                                     // 3) No AE2 workers: Replication accumulation → possible ReplicationTask.
@@ -3091,41 +3095,93 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         requestCounterTicks = 0;
     }
 
-    /** Online chamber leader or Matter Assembler on this AE2 grid (idle or busy). */
-    private boolean hasAe2GridWorker() {
+    private void invalidateAe2WorkerCache() {
+        ae2WorkerCacheTick = Long.MIN_VALUE;
+    }
+
+    private void refreshAe2WorkerCache() {
+        if (level == null || !mainNode.isReady()) {
+            cachedChamberLeaders = List.of();
+            cachedOnlineAssemblers = List.of();
+            return;
+        }
+        long now = level.getGameTime();
+        if (ae2WorkerCacheTick != Long.MIN_VALUE && now - ae2WorkerCacheTick < AE2_WORKER_CACHE_TTL) {
+            return;
+        }
+        ae2WorkerCacheTick = now;
         IGrid grid = mainNode.getGrid();
         if (grid == null) {
-            return false;
+            cachedChamberLeaders = List.of();
+            cachedOnlineAssemblers = List.of();
+            return;
         }
+        java.util.ArrayList<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
         for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
             if (unit != null && unit.isFormed() && unit.isChamberLeader() && unit.getMainNode().isOnline()) {
+                chambers.add(unit);
+            }
+        }
+        java.util.ArrayList<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
+        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+            if (assembler != null && assembler.getMainNode().isOnline()) {
+                assemblers.add(assembler);
+            }
+        }
+        cachedChamberLeaders = chambers;
+        cachedOnlineAssemblers = assemblers;
+    }
+
+    /** Online chamber leader or Matter Assembler on this AE2 grid (idle or busy). */
+    private boolean hasAe2GridWorker() {
+        refreshAe2WorkerCache();
+        return !cachedChamberLeaders.isEmpty() || !cachedOnlineAssemblers.isEmpty();
+    }
+
+    private boolean hasIdleReplicationWorker() {
+        refreshAe2WorkerCache();
+        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
+            if (unit != null && unit.isChamberWorkerReady()) {
                 return true;
             }
         }
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler != null && assembler.getMainNode().isOnline()) {
+        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
+            if (assembler != null && assembler.isIdle()) {
                 return true;
             }
         }
         return false;
     }
 
-    private boolean hasIdleReplicationWorker() {
-        IGrid grid = mainNode.getGrid();
-        if (grid == null) {
-            return false;
+    /**
+     * O(workers) feed on pushPattern using the worker cache — keeps remainingCount topped up
+     * at AE2 push rate without scanning the grid every call.
+     */
+    private void lightFeedAe2InternalOnPush(ItemStack patternStack) {
+        if (patternStack.isEmpty() || worldUnloading) {
+            return;
         }
-        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit != null && unit.isChamberWorkerReady()) {
-                return true;
-            }
+        refreshAe2WorkerCache();
+        ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
+        Integer boxed = ae2InternalPending.get(key);
+        if (boxed == null || boxed <= 0) {
+            return;
         }
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler != null && assembler.isIdle() && assembler.getMainNode().isOnline()) {
-                return true;
-            }
+
+        // Dump the full pending pile into workers (not +1): chambers finish hundreds/tick and
+        // +1 top-up left them starving between bridge ticks under AdvancedAE push rates.
+        int pending = boxed;
+        if (hasIdleReplicationWorker()) {
+            pending = dispatchAe2InternalDeferred(patternStack, pending);
         }
-        return false;
+        if (pending > 0) {
+            pending -= topUpRunningAe2InternalWorkers(patternStack, pending);
+        }
+        if (pending <= 0) {
+            ae2InternalPending.remove(key);
+        } else {
+            ae2InternalPending.put(key, pending);
+        }
     }
 
     /**
@@ -3193,6 +3249,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // Same as cancelAe2Linked: park leftover absorb-buffer matter back into AE2 cells.
         if (aborted) {
+            invalidateAe2WorkerCache();
             recoverCraftBufferIntoAe2();
         }
     }
@@ -3269,13 +3326,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (count <= 0) {
             return 0;
         }
-        IGrid grid = mainNode.getGrid();
-        if (grid == null) {
-            return 0;
-        }
+        refreshAe2WorkerCache();
         java.util.List<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
-        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit != null && !unit.isIdle() && unit.isChamberLeader()
+        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
+            if (unit != null && !unit.isIdle()
                     && worldPosition.equals(unit.getBridgePos())
                     && unit.getCraftingStack().getItem().equals(patternStack.getItem())
                     && unit.getReplicationTaskId() == null) {
@@ -3283,7 +3337,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         java.util.List<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
             if (assembler != null && !assembler.isIdle()
                     && worldPosition.equals(assembler.getBridgePos())
                     && assembler.getCraftingStack().getItem().equals(patternStack.getItem())
@@ -3345,14 +3399,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (count <= 0 || patternStack.isEmpty()) {
             return count;
         }
-        IGrid grid = mainNode.getGrid();
-        if (grid == null) {
-            return count;
-        }
+        refreshAe2WorkerCache();
         int remaining = count;
 
         java.util.List<ReplicationUnitBlockEntity> idleChambers = new java.util.ArrayList<>();
-        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
             if (unit != null && unit.isChamberWorkerReady()) {
                 idleChambers.add(unit);
             }
@@ -3375,8 +3426,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         java.util.List<MatterAssemblerBlockEntity> idle = new java.util.ArrayList<>();
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler != null && assembler.isIdle() && assembler.getMainNode().isOnline()) {
+        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
+            if (assembler != null && assembler.isIdle()) {
                 idle.add(assembler);
             }
         }
@@ -3635,6 +3686,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         patternRequestsBySource.remove(this.blockId);
         requestCounters.remove(this.blockId);
         ae2InternalPending.clear();
+        invalidateAe2WorkerCache();
     }
 
     @Nullable

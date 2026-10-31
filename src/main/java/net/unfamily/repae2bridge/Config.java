@@ -70,29 +70,34 @@ public class Config {
 
     private static final ModConfigSpec.IntValue CHAMBER_MIN_SIZE = BUILDER
             .comment("Minimum multiblock side length (including frame).")
-            .defineInRange("000_chamberMinSize", 3, 3, 7);
+            .defineInRange("000_chamberMinSize", 3, 3, Integer.MAX_VALUE);
 
     private static final ModConfigSpec.IntValue CHAMBER_MAX_SIZE = BUILDER
-            .comment("Maximum multiblock side length (including frame).")
-            .defineInRange("001_chamberMaxSize", 7, 3, 7);
+            .comment("Maximum multiblock side length (including frame).",
+                    "Very large values increase shell-scan cost; keep practical in survival.")
+            .defineInRange("001_chamberMaxSize", 7, 3, Integer.MAX_VALUE);
 
     private static final ModConfigSpec.IntValue CHAMBER_SPEED = BUILDER
             .comment("Chamber craft speed. Higher is faster: 100 = 1 item/tick base, 30 ≈ 3.3 ticks/item at 1 unit,",
                     "(replaces old 002_chamberMaxProgress where higher meant slower).")
-            .defineInRange("002_chamberSpeed", 30, 1, 100);
+            .defineInRange("002_chamberSpeed", 30, 1, Integer.MAX_VALUE);
 
     private static final ModConfigSpec.DoubleValue CHAMBER_SPEED_PER_UNIT = BUILDER
             .comment("Extra speed multiplier per additional replication unit:",
-                    "points/tick *= (1 + factor * (units-1)). At high values the chamber finishes multiple items per tick.")
-            .defineInRange("003_chamberSpeedPerUnit", 5.0, 0.0, 10.0);
+                    "points/tick *= (1 + factor * (units-1)). Default 55 ≈ 7×7×7 with headroom over a maxed AdvancedAE Quantum Computer.")
+            .defineInRange("003_chamberSpeedPerUnit", 55.0, 0.0, Double.MAX_VALUE);
 
     private static final ModConfigSpec.DoubleValue CHAMBER_IDLE_POWER_AE = BUILDER
             .comment("AE/t passive drain of a formed chamber (leader node) while online.")
-            .defineInRange("004_chamberIdlePowerAe", 16.0, 0.0, 100_000.0);
+            .defineInRange("004_chamberIdlePowerAe", 16.0, 0.0, Double.MAX_VALUE);
 
     private static final ModConfigSpec.DoubleValue CHAMBER_ACTIVE_POWER_AE = BUILDER
             .comment("AE/t drained while the chamber is processing a replication job.")
-            .defineInRange("005_chamberActivePowerAe", 160.0, 0.0, 100_000.0);
+            .defineInRange("005_chamberActivePowerAe", 160.0, 0.0, Double.MAX_VALUE);
+
+    private static final ModConfigSpec.BooleanValue CHAMBER_ANOMALY_VISUAL = BUILDER
+            .comment("Enable occasional orange anomaly flash on formed chambers (cosmetic only).")
+            .define("006_chamberAnomalyVisual", false);
 
     static {
         BUILDER.pop();
@@ -134,6 +139,7 @@ public class Config {
     public static double chamberSpeedPerUnit;
     public static double chamberIdlePowerAe;
     public static double chamberActivePowerAe;
+    public static boolean chamberAnomalyVisual;
     public static boolean enableDebugLogging;
     public static volatile boolean enableNetworkBlockEntityFix = true;
 
@@ -153,6 +159,7 @@ public class Config {
         chamberSpeedPerUnit = CHAMBER_SPEED_PER_UNIT.get();
         chamberIdlePowerAe = CHAMBER_IDLE_POWER_AE.get();
         chamberActivePowerAe = CHAMBER_ACTIVE_POWER_AE.get();
+        chamberAnomalyVisual = CHAMBER_ANOMALY_VISUAL.get();
         enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
         enableNetworkBlockEntityFix = ENABLE_NETWORK_BLOCK_ENTITY_FIX.get();
     }
