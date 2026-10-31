@@ -1,6 +1,6 @@
 {
     "parent": "item/generated",
     "textures": {
-        "layer0": "replication:gui/mattertypes/organic"
+        "layer0": "rep_ae2_bridge:item/organic"
     }
 }

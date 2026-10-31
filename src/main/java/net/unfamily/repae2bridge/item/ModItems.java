@@ -34,7 +34,7 @@ public class ModItems {
 
     public static final DeferredItem<Item> LIVING_MATTER = ITEMS.registerItem("living", MatterItem::new);
 
-    public static final DeferredItem<Item> QUANTUM_MATTER = ITEMS.registerItem("quantum", QuantumMatterItem::new);
+    public static final DeferredItem<Item> QUANTUM_MATTER = ITEMS.registerItem("quantum", MatterItem::new);
 
     public static final DeferredItem<Item> MATTER_CELL_HOUSING = ITEMS.registerItem("matter_cell_housing", Item::new);
 

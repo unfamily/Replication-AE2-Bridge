@@ -1,12 +1,6 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "rep_ae2_bridge:item/quantum",
-    "tints": [
-      {
-        "type": "minecraft:constant",
-        "value": -4946974
-      }
-    ]
+    "model": "rep_ae2_bridge:item/quantum"
   }
 }

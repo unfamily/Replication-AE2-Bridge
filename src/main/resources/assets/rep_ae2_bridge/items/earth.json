@@ -1,12 +1,6 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "rep_ae2_bridge:item/earth",
-    "tints": [
-      {
-        "type": "minecraft:constant",
-        "value": -10497971
-      }
-    ]
+    "model": "rep_ae2_bridge:item/earth"
   }
 }
