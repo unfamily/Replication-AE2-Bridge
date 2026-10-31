@@ -35,16 +35,23 @@ import net.minecraft.world.level.storage.TagValueOutput;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
+import net.neoforged.neoforge.transfer.CombinedResourceHandler;
+import net.neoforged.neoforge.transfer.DelegatingResourceHandler;
 import net.neoforged.neoforge.transfer.ResourceHandler;
 import net.neoforged.neoforge.transfer.energy.EnergyHandler;
 import net.neoforged.neoforge.transfer.energy.SimpleEnergyHandler;
 import net.neoforged.neoforge.transfer.item.ItemResource;
 import net.neoforged.neoforge.transfer.item.ItemStacksResourceHandler;
+import net.neoforged.neoforge.transfer.transaction.TransactionContext;
 
 import org.slf4j.Logger;
 
 import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
+import appeng.api.config.Setting;
+import appeng.api.config.Settings;
+import appeng.api.config.YesNo;
+import appeng.api.inventories.InternalInventory;
 import appeng.api.networking.GridFlags;
 import appeng.api.networking.GridHelper;
 import appeng.api.networking.IGridNode;
@@ -56,6 +63,8 @@ import appeng.api.upgrades.IUpgradeInventory;
 import appeng.api.upgrades.IUpgradeableObject;
 import appeng.api.upgrades.UpgradeInventories;
 import appeng.api.util.AECableType;
+import appeng.api.util.IConfigManager;
+import appeng.api.util.IConfigurableObject;
 import appeng.core.definitions.AEItems;
 import appeng.helpers.IPriorityHost;
 import appeng.menu.ISubMenu;
@@ -79,7 +88,7 @@ import net.unfamily.repae2bridge.recipe.MatterFoundryRecipeInput;
  * </ul>
  */
 public class MatterFoundryBlockEntity extends BlockEntity
-        implements IInWorldGridNodeHost, IUpgradeableObject, IPriorityHost,
+        implements IInWorldGridNodeHost, IUpgradeableObject, IPriorityHost, IConfigurableObject,
         IMatterTanksSupplier, IMatterTanksConsumer {
 
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -104,6 +113,10 @@ public class MatterFoundryBlockEntity extends BlockEntity
     private final IUpgradeInventory upgrades = UpgradeInventories.forMachine(
             ModBlocks.MATTER_FOUNDRY, UPGRADE_SLOTS, this::saveChanges);
 
+    private final IConfigManager configManager = IConfigManager.builder(this::onConfigChanged)
+            .registerSetting(Settings.AUTO_EXPORT, YesNo.NO)
+            .build();
+
     /**
      * Item handler for input slots; extends ItemStacksResourceHandler (NeoForge 26 transfer API)
      * and provides convenience methods for direct stack manipulation.
@@ -111,9 +124,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
     private final FoundryItemHandler inputSlots = new FoundryItemHandler(INPUT_SLOTS) {
         @Override
         protected void onContentsChanged(int index, ItemStack previousContents) {
-            MatterFoundryBlockEntity.this.cachedRecipe = null;
-            MatterFoundryBlockEntity.this.recipeChecked = false;
-            MatterFoundryBlockEntity.this.setChanged();
+            MatterFoundryBlockEntity.this.onInputContentsChanged();
         }
     };
 
@@ -127,11 +138,42 @@ public class MatterFoundryBlockEntity extends BlockEntity
         }
     };
 
+    /** Automation: insert into inputs from any side except bottom; extract products from bottom. */
+    private final ResourceHandler<ItemResource> automationInputs = new DelegatingResourceHandler<>(inputSlots) {
+        @Override
+        public int extract(int index, ItemResource resource, int amount, TransactionContext transaction) {
+            return 0;
+        }
+
+        @Override
+        public int extract(ItemResource resource, int amount, TransactionContext transaction) {
+            return 0;
+        }
+    };
+
+    private final ResourceHandler<ItemResource> automationOutput = new DelegatingResourceHandler<>(outputSlot) {
+        @Override
+        public int insert(int index, ItemResource resource, int amount, TransactionContext transaction) {
+            return 0;
+        }
+
+        @Override
+        public int insert(ItemResource resource, int amount, TransactionContext transaction) {
+            return 0;
+        }
+    };
+
+    private final ResourceHandler<ItemResource> automationCombined =
+            new CombinedResourceHandler<>(automationInputs, automationOutput);
+
     private final FoundrySlotInventory inputInventory = new FoundrySlotInventory(inputSlots);
     private final FoundrySlotInventory outputInventory = new FoundrySlotInventory(outputSlot);
 
     private final SimpleEnergyHandler feBuffer;
     private final FoundryMatterBuffer matterBuffer = new FoundryMatterBuffer();
+    /** Stable capability instance so AE2 caches always hit live buffer/recipe state. */
+    private final net.unfamily.repae2bridge.ae2.matter.FoundryMatterHandler matterCapability =
+            new net.unfamily.repae2bridge.ae2.matter.FoundryMatterHandler(this);
 
     private int progress;
     private int maxProgress;
@@ -175,6 +217,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
             joinReplicationNetwork();
             syncToClient(); // refresh matter X/Y for open GUIs
         }
+
+        // Inscriber-style auto-export: push finished items into adjacent inventories.
+        pushOutResult();
 
         boolean working = isWorking();
         if (active != working) {
@@ -425,9 +470,15 @@ public class MatterFoundryBlockEntity extends BlockEntity
         return cachedRecipe;
     }
 
-    /** Matter handler for AE2 Export Bus / Storage Bus (cap at recipe Y). */
+    /** Matter handler for AE2 Export Bus / Pattern Provider. Never null; live buffer. */
     public com.buuz135.replication.api.matter_fluid.IMatterHandler getMatterHandler() {
-        return net.unfamily.repae2bridge.ae2.matter.CompositeMatterHandler.of(getTanks());
+        return matterCapability;
+    }
+
+    /** Called after an external matter fill (AE2 / capability). */
+    public void onExternalMatterInserted() {
+        setChanged();
+        syncToClient();
     }
 
     @Override
@@ -527,6 +578,32 @@ public class MatterFoundryBlockEntity extends BlockEntity
      */
     public ResourceHandler<ItemResource> getOutputSlot() {
         return outputSlot;
+    }
+
+    /**
+     * Sided automation view for hoppers / pipes / AE2 buses.
+     * <ul>
+     *   <li>{@code DOWN}: extract-only output</li>
+     *   <li>other sides / {@code null}: insert-only inputs (null also exposes output extract)</li>
+     * </ul>
+     */
+    public ResourceHandler<ItemResource> getAutomationItemHandler(@Nullable Direction side) {
+        if (side == Direction.DOWN) {
+            return automationOutput;
+        }
+        if (side == null) {
+            return automationCombined;
+        }
+        return automationInputs;
+    }
+
+    private void onInputContentsChanged() {
+        cachedRecipe = null;
+        recipeChecked = false;
+        setChanged();
+        if (level != null) {
+            level.invalidateCapabilities(worldPosition);
+        }
     }
 
     /**
@@ -734,11 +811,55 @@ public class MatterFoundryBlockEntity extends BlockEntity
         setChanged();
     }
 
+    private void onConfigChanged(IConfigManager manager, Setting<?> setting) {
+        saveChanges();
+    }
+
+    private boolean hasAutoExportWork() {
+        return !outputInventory.getStackInSlot(0).isEmpty()
+                && configManager.getSetting(Settings.AUTO_EXPORT) == YesNo.YES;
+    }
+
+    /**
+     * Push output into adjacent inventories (same approach as AE2 Inscriber).
+     *
+     * @return true if any items moved
+     */
+    private boolean pushOutResult() {
+        if (!hasAutoExportWork() || level == null) {
+            return false;
+        }
+
+        for (Direction dir : Direction.values()) {
+            var target = InternalInventory.wrapExternal(level, worldPosition.relative(dir), dir.getOpposite());
+            if (target == null) {
+                continue;
+            }
+            int startItems = outputInventory.getStackInSlot(0).getCount();
+            if (startItems <= 0) {
+                return false;
+            }
+            outputInventory.insertItem(0,
+                    target.addItems(outputInventory.extractItem(0, 64, false)),
+                    false);
+            if (outputInventory.getStackInSlot(0).getCount() != startItems) {
+                setChanged();
+                return true;
+            }
+        }
+        return false;
+    }
+
     // ── AE2 interfaces ────────────────────────────────────────────────────
 
     @Override
     public IUpgradeInventory getUpgrades() {
         return upgrades;
+    }
+
+    @Override
+    public IConfigManager getConfigManager() {
+        return configManager;
     }
 
     @Override
@@ -794,6 +915,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         super.saveAdditional(output);
         mainNode.serialize(output);
         upgrades.writeToNBT(output, "upgrades");
+        configManager.writeToNBT(output);
         output.putInt("progress", progress);
         output.putInt("maxProgress", maxProgress);
         output.putInt("totalEnergyCost", totalEnergyCost);
@@ -812,6 +934,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         super.loadAdditional(input);
         mainNode.deserialize(input);
         upgrades.readFromNBT(input, "upgrades");
+        configManager.readFromNBT(input);
         progress = input.getIntOr("progress", 0);
         maxProgress = input.getIntOr("maxProgress", 0);
         totalEnergyCost = input.getIntOr("totalEnergyCost", 0);

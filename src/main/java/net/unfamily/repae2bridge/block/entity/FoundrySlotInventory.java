@@ -1,6 +1,8 @@
 package net.unfamily.repae2bridge.block.entity;
 
 import net.minecraft.world.item.ItemStack;
+import net.neoforged.neoforge.transfer.ResourceHandler;
+import net.neoforged.neoforge.transfer.item.ItemResource;
 
 import appeng.api.inventories.BaseInternalInventory;
 
@@ -28,5 +30,10 @@ public class FoundrySlotInventory extends BaseInternalInventory {
     @Override
     public void setItemDirect(int slotIndex, ItemStack stack) {
         handler.setStack(slotIndex, stack == null || stack.isEmpty() ? ItemStack.EMPTY : stack);
+    }
+
+    @Override
+    protected ResourceHandler<ItemResource> createResourceHandler() {
+        return handler;
     }
 }

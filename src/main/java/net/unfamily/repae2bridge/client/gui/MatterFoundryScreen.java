@@ -10,9 +10,13 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.item.ItemStack;
 
+import appeng.api.config.Settings;
+import appeng.api.config.YesNo;
 import appeng.client.gui.implementations.UpgradeableScreen;
 import appeng.client.gui.style.ScreenStyle;
 import appeng.client.gui.widgets.ProgressBar;
+import appeng.client.gui.widgets.ServerSettingToggleButton;
+import appeng.client.gui.widgets.SettingToggleButton;
 
 import guideme.PageAnchor;
 
@@ -40,13 +44,16 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
     private static final char[] COMPACT_SUFFIXES = { 'k', 'M', 'B', 'T' };
 
     private final ProgressBar craftProgress;
+    private final SettingToggleButton<YesNo> autoExportBtn;
 
     public MatterFoundryScreen(MatterFoundryMenu menu, Inventory playerInventory, Component title,
             ScreenStyle style) {
         super(menu, playerInventory, title, style);
         widgets.addOpenPriorityButton();
 
-        // Below the AE2 help (?) button on the left toolbar.
+        // Left toolbar order: help (?), auto-export, dump (dump always last).
+        this.autoExportBtn = new ServerSettingToggleButton<>(Settings.AUTO_EXPORT, YesNo.NO);
+        addToLeftToolbar(this.autoExportBtn);
         addToLeftToolbar(new FoundryDumpMatterButton(menu::dumpMatterBuffer));
 
         this.craftProgress = new ProgressBar(this.menu, style.getImage("progressBar"), ProgressBar.Direction.VERTICAL);
@@ -60,6 +67,7 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
         int cur = menu.getCurrentProgress();
         int pct = Math.min(100, cur * 100 / max);
         this.craftProgress.setFullMsg(Component.literal(pct + "%"));
+        this.autoExportBtn.set(menu.getAutoExport());
     }
 
     @Override

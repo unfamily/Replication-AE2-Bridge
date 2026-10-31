@@ -11,7 +11,7 @@ import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 
 import net.unfamily.repae2bridge.ae2.matter.CompositeMatterHandler;
 import net.unfamily.repae2bridge.block.ModBlocks;
-import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
+import net.unfamily.repae2bridge.block.entity.ModBlockEntities;
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
 
 /**
@@ -30,9 +30,13 @@ public class RepAE2BridgeCapabilities {
         }, ModBlocks.REPAE2BRIDGE.get());
 
         // Replication never registers MATTER_HANDLER; AE2 import/export/storage buses need it.
+        // Resolve BE from the level when callers pass null (hoppers / some pipes).
         event.registerBlock(
                 ReplicationRegistry.Capabilities.MATTER_HANDLER,
                 (level, pos, state, be, side) -> {
+                    if (be == null && level != null) {
+                        be = level.getBlockEntity(pos);
+                    }
                     if (be instanceof BaseMatterTankBlockEntity<?> tank) {
                         return CompositeMatterHandler.of(tank.getTanks());
                     }
@@ -48,40 +52,20 @@ public class RepAE2BridgeCapabilities {
                 ReplicationRegistry.Blocks.CREATIVE_MATTER_TANK.getBlock(),
                 ReplicationRegistry.Blocks.DISINTEGRATOR.getBlock());
 
-        // Matter Foundry energy capability
-        event.registerBlock(
+        // Matter Foundry: registerBlockEntity so hoppers (BE=null) still resolve the handler.
+        event.registerBlockEntity(
                 Capabilities.Energy.BLOCK,
-                (level, pos, state, be, side) -> {
-                    if (be instanceof MatterFoundryBlockEntity foundry) {
-                        return foundry.getFeBuffer();
-                    }
-                    return null;
-                },
-                ModBlocks.MATTER_FOUNDRY.get());
+                ModBlockEntities.MATTER_FOUNDRY_BE.get(),
+                (foundry, side) -> foundry.getFeBuffer());
 
-        // Matter Foundry item handler capability (input from sides, output from bottom)
-        event.registerBlock(
+        event.registerBlockEntity(
                 Capabilities.Item.BLOCK,
-                (level, pos, state, be, side) -> {
-                    if (be instanceof MatterFoundryBlockEntity foundry) {
-                        if (side == Direction.DOWN) {
-                            return foundry.getOutputSlot();
-                        }
-                        return foundry.getInputSlots();
-                    }
-                    return null;
-                },
-                ModBlocks.MATTER_FOUNDRY.get());
+                ModBlockEntities.MATTER_FOUNDRY_BE.get(),
+                (foundry, side) -> foundry.getAutomationItemHandler(side));
 
-        // Matter Foundry local buffer for AE2 Export Bus / Pattern Provider (cap at recipe Y).
-        event.registerBlock(
+        event.registerBlockEntity(
                 ReplicationRegistry.Capabilities.MATTER_HANDLER,
-                (level, pos, state, be, side) -> {
-                    if (be instanceof MatterFoundryBlockEntity foundry) {
-                        return foundry.getMatterHandler();
-                    }
-                    return null;
-                },
-                ModBlocks.MATTER_FOUNDRY.get());
+                ModBlockEntities.MATTER_FOUNDRY_BE.get(),
+                (foundry, side) -> foundry.getMatterHandler());
     }
 }

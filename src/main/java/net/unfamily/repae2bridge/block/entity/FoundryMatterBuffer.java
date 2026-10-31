@@ -29,7 +29,13 @@ public final class FoundryMatterBuffer {
 
     public static final int MAX_TYPES = 18;
 
-    /** Buffered amounts keyed by matter registry id. */
+    /**
+     * Soft per-type cap while no recipe is matched, so AE2 can push matter before items arrive.
+     * Once a recipe is known, inserts are capped at recipe Y instead.
+     */
+    public static final double OPEN_INSERT_CAP = 1_000_000.0;
+
+    /** Buffered amounts keyed by matter registry id (one entry per type — amounts stack). */
     private final LinkedHashMap<Identifier, Double> amounts = new LinkedHashMap<>();
 
     public record DisplaySlot(@Nullable IMatterType type, double buffered, double required) {
@@ -71,8 +77,32 @@ public final class FoundryMatterBuffer {
         return 0;
     }
 
-    /** How much more can be accepted for this type given the current recipe (0 if not required). */
+    public double openInsertCap() {
+        return OPEN_INSERT_CAP;
+    }
+
+    /**
+     * How much more can be accepted for this type.
+     * <ul>
+     *   <li>No recipe: soft-capped open insert (AE2 may deliver matter before items).</li>
+     *   <li>Recipe matched: only required types, capped at Y.</li>
+     * </ul>
+     * Amounts for the same type always share one buffer entry (4+4 → 8, not two slots).
+     */
     public double roomFor(@Nullable MatterFoundryRecipe recipe, IMatterType type) {
+        if (type == null || type.equals(MatterType.EMPTY)) {
+            return 0;
+        }
+        Identifier id = idOf(type);
+        if (id == null) {
+            return 0;
+        }
+        if (!amounts.containsKey(id) && amounts.size() >= MAX_TYPES) {
+            return 0;
+        }
+        if (recipe == null) {
+            return Math.max(0, OPEN_INSERT_CAP - getAmount(type));
+        }
         double y = getRequired(recipe, type);
         if (y <= 0) {
             return 0;
@@ -133,9 +163,6 @@ public final class FoundryMatterBuffer {
         }
         double room = roomFor(recipe, type);
         if (room <= 0) {
-            return 0;
-        }
-        if (!amounts.containsKey(id) && amounts.size() >= MAX_TYPES) {
             return 0;
         }
         double toAdd = Math.min(amount, room);

@@ -22,10 +22,13 @@ public final class CompositeMatterHandler implements IMatterHandler {
         this.tanks = new ArrayList<>(tanks);
     }
 
-    @Nullable
+    /**
+     * Always returns a non-null handler so block capabilities stay visible to AE2 buses
+     * even before a Foundry recipe matches (0 tanks → inserts rejected until recipe tanks appear).
+     */
     public static IMatterHandler of(@Nullable List<? extends IMatterTank> tanks) {
         if (tanks == null || tanks.isEmpty()) {
-            return null;
+            return new CompositeMatterHandler(List.of());
         }
         if (tanks.size() == 1 && tanks.get(0) instanceof IMatterHandler handler) {
             return handler;

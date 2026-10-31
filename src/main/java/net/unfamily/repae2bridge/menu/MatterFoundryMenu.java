@@ -8,6 +8,9 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.inventory.Slot;
 
+import appeng.api.config.Settings;
+import appeng.api.config.YesNo;
+import appeng.api.util.IConfigManager;
 import appeng.menu.SlotSemantic;
 import appeng.menu.SlotSemantics;
 import appeng.menu.guisync.ClientActionKey;
@@ -51,6 +54,9 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
     @GuiSync(13)
     public int energyCapacity;
 
+    @GuiSync(14)
+    public YesNo autoExport = YesNo.NO;
+
     public MatterFoundryMenu(int id, Inventory playerInventory, MatterFoundryBlockEntity host) {
         super(TYPE, id, playerInventory, host);
 
@@ -78,6 +84,16 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
         if (getHost() != null) {
             getHost().dumpMatterBuffer();
         }
+    }
+
+    @Override
+    protected void loadSettingsFromHost(IConfigManager cm) {
+        // Only AUTO_EXPORT is registered on the Foundry (do not call super — it expects fuzzy/redstone).
+        this.autoExport = cm.getSetting(Settings.AUTO_EXPORT);
+    }
+
+    public YesNo getAutoExport() {
+        return autoExport;
     }
 
     @Override
