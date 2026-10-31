@@ -2,6 +2,7 @@
   "parent": "minecraft:item/generated",
   "textures": {
     "layer0": "rep_ae2_bridge:item/matter_storage_cell",
-    "layer1": "rep_ae2_bridge:item/matter_cell_housing"
+    "layer1": "rep_ae2_bridge:item/matter_cell_housing",
+    "layer2": "rep_ae2_bridge:item/matter_cell_housing_overlay"
   }
 }
