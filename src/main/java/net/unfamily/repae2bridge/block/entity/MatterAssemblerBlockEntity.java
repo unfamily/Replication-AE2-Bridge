@@ -247,6 +247,11 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         return craftingStack;
     }
 
+    @Nullable
+    public UUID getReplicationTaskId() {
+        return replicationTaskId;
+    }
+
     public int getProgress() {
         return progress;
     }

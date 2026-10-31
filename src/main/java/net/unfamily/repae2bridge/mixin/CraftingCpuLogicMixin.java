@@ -25,7 +25,8 @@ public abstract class CraftingCpuLogicMixin {
 
     @Inject(method = "cancel", at = @At("HEAD"))
     private void repAe2Bridge$cancelLinkedReplication(CallbackInfo ci) {
-        if (cluster == null || !cluster.isActive()) {
+        // Do not require cluster.isActive() — cancel often runs while the cluster is already tearing down.
+        if (cluster == null) {
             return;
         }
         var grid = cluster.getGrid();

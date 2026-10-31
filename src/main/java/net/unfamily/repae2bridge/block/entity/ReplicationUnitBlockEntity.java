@@ -70,6 +70,9 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     private VisualMode mode = VisualMode.IDLE;
     private int checkCooldown;
     private int anomalyTicks;
+    /** Keep green briefly after a batch ends so brief idle gaps do not flash purple. */
+    private static final int RUNNING_HOLD_TICKS = 12;
+    private int runningHoldTicks;
     @Nullable
     private ChamberStructure.FormedBox lastBox;
     private boolean linkedToFrame;
@@ -152,18 +155,16 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
 
         if (formed && isChamberLeader()) {
             tickJob();
+            VisualMode before = mode;
+            refreshModeFromJob();
+            if (before != mode) {
+                syncModeToChamber();
+            }
             refreshPowerUsage();
             syncOnlineToClientIfNeeded();
         }
 
         if (--checkCooldown > 0) {
-            if (formed && isChamberLeader()) {
-                VisualMode before = mode;
-                refreshModeFromJob();
-                if (before != mode) {
-                    syncModeToChamber();
-                }
-            }
             return;
         }
         checkCooldown = 20;
@@ -177,6 +178,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
 
         if (!nowFormed) {
             anomalyTicks = 0;
+            runningHoldTicks = 0;
             if (!craftingStack.isEmpty()) {
                 clearJob();
             }
@@ -341,6 +343,11 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         return craftingStack;
     }
 
+    @Nullable
+    public UUID getReplicationTaskId() {
+        return replicationTaskId;
+    }
+
     public boolean isWorking() {
         if (level != null && level.isClientSide()) {
             return formed && mode == VisualMode.RUNNING;
@@ -350,6 +357,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
 
     public void abortJob() {
         clearJob();
+        runningHoldTicks = 0;
         refreshModeFromJob();
         if (formed) {
             syncModeToChamber();
@@ -428,11 +436,18 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     private void refreshModeFromJob() {
         if (!formed) {
             mode = VisualMode.IDLE;
+            runningHoldTicks = 0;
             return;
         }
         if (anomalyTicks > 0) {
             mode = VisualMode.ANOMALY;
-        } else if (!isIdle() && mainNode.isOnline()) {
+            return;
+        }
+        if (!isIdle() && mainNode.isOnline()) {
+            mode = VisualMode.RUNNING;
+            runningHoldTicks = RUNNING_HOLD_TICKS;
+        } else if (runningHoldTicks > 0) {
+            runningHoldTicks--;
             mode = VisualMode.RUNNING;
         } else {
             mode = VisualMode.IDLE;
@@ -636,7 +651,8 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
             clientModeTo = target;
             clientModeBlend = 0f;
         }
-        clientModeBlend = Math.min(1f, clientModeBlend + partialTicks / 8f);
+        // Slightly slower than RUNNING_HOLD so the hold + fade read as one continuous green.
+        clientModeBlend = Math.min(1f, clientModeBlend + partialTicks / 12f);
     }
 
     public int getClientModeFrom() {
