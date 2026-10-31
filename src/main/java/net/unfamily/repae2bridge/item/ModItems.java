@@ -45,7 +45,7 @@ public class ModItems {
     public static final DeferredItem<Item> MATTER_INFUSED_CRYSTAL =
             ITEMS.registerItem("matter_infused_crystal", Item::new);
 
-    /** MEGACells-style upgraded housing (`mega_*_cell_housing`). */
+    /** MEGACells-style housing — registered but hard-locked via {@link net.unfamily.repae2bridge.compat.MegaCellsCompat}. */
     public static final DeferredItem<Item> MEGA_MATTER_CELL_HOUSING =
             ITEMS.registerItem("mega_matter_cell_housing", Item::new);
 

@@ -221,16 +221,15 @@ public class MatterFoundryBlockEntity extends BlockEntity
         // Inscriber-style auto-export: push finished items into adjacent inventories.
         pushOutResult();
 
-        boolean working = isWorking();
-        if (active != working) {
-            active = working;
-            BlockState current = getBlockState();
-            if (current.hasProperty(MatterFoundryBlock.ACTIVE)
-                    && current.getValue(MatterFoundryBlock.ACTIVE) != active) {
-                level.setBlock(worldPosition, current.setValue(MatterFoundryBlock.ACTIVE, active), 3);
-            }
+        try {
+            tickCraft();
+        } finally {
+            // After craft / early exits so linger and continuous runs update ACTIVE once.
+            updateActiveState();
         }
+    }
 
+    private void tickCraft() {
         // Dual power: work with FE buffer and/or AE grid — AE online is not mandatory.
         // Re-resolve after datapack/recipe changes: a cached instance may no longer exist
         // in the RecipeManager or may no longer match the current inputs.
@@ -276,8 +275,16 @@ public class MatterFoundryBlockEntity extends BlockEntity
             return;
         }
 
+        advanceCraft(cachedRecipe);
+    }
+
+    /**
+     * One progress step (or finish) for the current recipe. Used by the main tick and by
+     * same-tick restart after {@link #finishCraft} so continuous runs do not flicker off.
+     */
+    private void advanceCraft(MatterFoundryRecipe recipe) {
         if (maxProgress <= 0) {
-            totalEnergyCost = cachedRecipe.getEnergy();
+            totalEnergyCost = recipe.getEnergy();
             energySpent = 0;
             progress = 0;
         }
@@ -285,18 +292,23 @@ public class MatterFoundryBlockEntity extends BlockEntity
         // (same approach as Matter Assembler).
         maxProgress = calculateMaxProgress(Math.max(1, totalEnergyCost));
 
-        ItemStack result = cachedRecipe.getResultItem();
+        ItemStack result = recipe.getResultItem();
         ItemStack existing = outputSlot.getStack(0);
         if (!existing.isEmpty()) {
             if (!ItemStack.isSameItemSameComponents(existing, result)
                     || existing.getCount() + result.getCount() > existing.getMaxStackSize()) {
+                // Paused on full output — do not keep a half-finished progress as "working".
+                if (progress > 0) {
+                    resetProgress();
+                    syncToClient();
+                }
                 return;
             }
         }
 
         // Already past the new max after a mid-craft speed-up — finish without waiting another tick.
         if (progress >= maxProgress) {
-            finishCraft(cachedRecipe, result, existing);
+            finishCraft(recipe, result, existing);
             return;
         }
 
@@ -309,7 +321,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
         progress++;
         if (progress >= maxProgress) {
-            finishCraft(cachedRecipe, result, existing);
+            finishCraft(recipe, result, existing);
         } else {
             setChanged();
         }
@@ -317,7 +329,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     private void finishCraft(MatterFoundryRecipe recipe, ItemStack result, ItemStack existingOutput) {
         if (!matterBuffer.consumeRequired(recipe)) {
-            progress = 0;
+            resetProgress();
             return;
         }
 
@@ -338,6 +350,80 @@ public class MatterFoundryBlockEntity extends BlockEntity
         recipeChecked = false;
         setChanged();
         syncToClient();
+
+        // Same-tick restart: begin the next craft (one progress step only) so ACTIVE does not flicker off.
+        tryStartNextCraftSameTick();
+    }
+
+    /**
+     * After a completed craft, optionally start the next job in the same tick (progress = 1).
+     * Does not finish another craft this tick (avoids multi-craft loops with full input stacks).
+     */
+    private void tryStartNextCraftSameTick() {
+        cachedRecipe = findMatchingRecipe();
+        recipeChecked = true;
+        if (level != null) {
+            level.invalidateCapabilities(worldPosition);
+        }
+        if (cachedRecipe == null) {
+            syncToClient();
+            return;
+        }
+        if (getReplicationNetwork() != null) {
+            pullMatterFromReplicationNetwork(cachedRecipe);
+        }
+        if (!matterBuffer.hasAllRequired(cachedRecipe)) {
+            syncToClient();
+            return;
+        }
+
+        ItemStack result = cachedRecipe.getResultItem();
+        ItemStack existing = outputSlot.getStack(0);
+        if (!existing.isEmpty()
+                && (!ItemStack.isSameItemSameComponents(existing, result)
+                        || existing.getCount() + result.getCount() > existing.getMaxStackSize())) {
+            syncToClient();
+            return;
+        }
+
+        totalEnergyCost = cachedRecipe.getEnergy();
+        energySpent = 0;
+        maxProgress = calculateMaxProgress(Math.max(1, totalEnergyCost));
+
+        int feNeeded = Math.max(1, (int) (Config.matterFoundryEnergyPerTick * getSpeedEnergyMultiplier()));
+        int feConsumed = consumeEnergy(feNeeded);
+        if (feConsumed < feNeeded * 0.9) {
+            resetProgress();
+            syncToClient();
+            return;
+        }
+        energySpent += feConsumed;
+        progress = 1;
+        setChanged();
+        syncToClient();
+    }
+
+    /** Sync block {@code active} after craft logic (end of tick). */
+    private void updateActiveState() {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        boolean lit = isWorking();
+        if (active == lit) {
+            // Still force blockstate if BE flag and world state drifted apart.
+            BlockState current = getBlockState();
+            if (current.hasProperty(MatterFoundryBlock.ACTIVE)
+                    && current.getValue(MatterFoundryBlock.ACTIVE) != lit) {
+                level.setBlock(worldPosition, current.setValue(MatterFoundryBlock.ACTIVE, lit), 3);
+            }
+            return;
+        }
+        active = lit;
+        BlockState current = getBlockState();
+        if (current.hasProperty(MatterFoundryBlock.ACTIVE)
+                && current.getValue(MatterFoundryBlock.ACTIVE) != active) {
+            level.setBlock(worldPosition, current.setValue(MatterFoundryBlock.ACTIVE, active), 3);
+        }
     }
 
     // ── Recipe matching ────────────────────────────────────────────────────

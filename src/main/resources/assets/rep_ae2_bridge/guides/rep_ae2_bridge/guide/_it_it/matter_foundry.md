@@ -21,16 +21,10 @@ La Fonderia di Materia produce leghe e processori speciali usando **item in inpu
 ## Energia
 
 - Preleva **AE** dalla griglia ME e/o **FE** dai cavi in un buffer interno
-- Il campo `energy` della ricetta è il costo totale; le Acceleration Card alzano il consumo al tick e accorciano il ciclo
+- Il costo energetico totale è per craft; le Acceleration Card alzano il consumo al tick e accorciano il ciclo
 
-## Lavorazione
+## Funzionamento
 
 - Fino a cinque input e un output
 - I requisiti di materia compaiono in GUI come disponibile/richiesto
 - Collega un Matter Pipe (o la rete Replication) per drenare i tank
-
-## Ricette notevoli
-
-- Fluixing Replica Alloy
-- Singolarità AE2 (matter ball + materia quantum)
-- Processore Replica (processori AE2 + materia ender/nether)

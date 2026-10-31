@@ -21,16 +21,10 @@ The Matter Foundry smelts special alloys and processors using **item inputs** pl
 ## Power
 
 - Draws **AE** from the ME grid and/or **FE** from cables into an internal buffer
-- Recipe `energy` sets total cost; Acceleration Cards raise FE/AE per tick so the craft finishes sooner
+- Total energy cost is set per craft; Acceleration Cards raise FE/AE per tick so the craft finishes sooner
 
-## Crafting
+## Operation
 
 - Up to five item inputs and one output
 - Matter requirements are shown in the GUI as available/required
 - Connect a Matter Pipe (or place it on the Replication network) so it can drain matter tanks
-
-## Notable recipes
-
-- Fluixing Replica Alloy
-- AE2 Singularity (from matter balls + quantum matter)
-- Replica Processor (from AE2 processors + ender/nether matter)
