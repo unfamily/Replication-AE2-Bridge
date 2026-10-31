@@ -87,8 +87,9 @@
       "height": 22
     },
     "modeTabButton4": {
+      "__comment": "Aligned with player hotbar (bottom 26) so Network Tool toolbox does not cover it",
       "left": 173,
-      "bottom": 90,
+      "bottom": 26,
       "width": 22,
       "height": 22
     },

@@ -1,13 +1,16 @@
 package net.unfamily.repae2bridge.block.entity;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
+import java.util.Map;
 
 import org.jetbrains.annotations.Nullable;
 
 import com.buuz135.replication.api.IMatterType;
 import com.buuz135.replication.api.matter_fluid.IMatterTank;
 import com.buuz135.replication.api.matter_fluid.MatterStack;
+import com.buuz135.replication.api.network.IMatterTanksConsumer;
 import com.buuz135.replication.api.network.IMatterTanksSupplier;
 import com.buuz135.replication.network.DefaultMatterNetworkElement;
 import com.buuz135.replication.network.MatterNetwork;
@@ -22,6 +25,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.Containers;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -68,15 +72,15 @@ import net.unfamily.repae2bridge.recipe.MatterFoundryRecipeInput;
 /**
  * Matter Foundry block entity.
  * <ul>
- *   <li>5 input slots + 1 output slot</li>
- *   <li>Joins Replication network for matter draining</li>
+ *   <li>5 shapeless input slots + 1 output slot</li>
+ *   <li>Dual matter path: Replication auto-pull into local X/Y buffer, or AE2 Export Bus/PP fill</li>
  *   <li>AE2 grid node for energy (AE → FE fallback)</li>
  *   <li>5 SPEED upgrade cards (same multiplier table as MatterAssembler)</li>
- *   <li>Matches MatterFoundryRecipe, consumes energy + matter, produces output</li>
  * </ul>
  */
 public class MatterFoundryBlockEntity extends BlockEntity
-        implements IInWorldGridNodeHost, IUpgradeableObject, IPriorityHost {
+        implements IInWorldGridNodeHost, IUpgradeableObject, IPriorityHost,
+        IMatterTanksSupplier, IMatterTanksConsumer {
 
     private static final Logger LOGGER = LogUtils.getLogger();
     private static final int UPGRADE_SLOTS = 5;
@@ -127,6 +131,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
     private final FoundrySlotInventory outputInventory = new FoundrySlotInventory(outputSlot);
 
     private final SimpleEnergyHandler feBuffer;
+    private final FoundryMatterBuffer matterBuffer = new FoundryMatterBuffer();
 
     private int progress;
     private int maxProgress;
@@ -138,6 +143,13 @@ public class MatterFoundryBlockEntity extends BlockEntity
     @Nullable
     private MatterFoundryRecipe cachedRecipe;
     private boolean recipeChecked;
+
+    /** Avoid thrashing remove/add while MatterNetwork classifies the new element. */
+    private long lastNetworkJoinGameTime = -1000L;
+
+    /** Client-synced recipe requirements for X/Y GUI (ids → Y). */
+    private final java.util.LinkedHashMap<net.minecraft.resources.Identifier, Integer> clientRequiredMatter =
+            new java.util.LinkedHashMap<>();
 
     public MatterFoundryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.MATTER_FOUNDRY_BE.get(), pos, state);
@@ -159,8 +171,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
         }
 
         // Keep / repair Replication network membership (pipes may appear after first tick).
-        if ((level.getGameTime() % 40) == 0) {
+        if ((level.getGameTime() % 20) == 0) {
             joinReplicationNetwork();
+            syncToClient(); // refresh matter X/Y for open GUIs
         }
 
         boolean working = isWorking();
@@ -174,13 +187,31 @@ public class MatterFoundryBlockEntity extends BlockEntity
         }
 
         // Dual power: work with FE buffer and/or AE grid — AE online is not mandatory.
-        // Try to match recipe if none cached
         if (cachedRecipe == null && !recipeChecked) {
             cachedRecipe = findMatchingRecipe();
             recipeChecked = true;
+            if (level != null) {
+                level.invalidateCapabilities(worldPosition);
+            }
+            syncToClient();
         }
 
         if (cachedRecipe == null) {
+            if (progress > 0) {
+                // Cancel in-progress craft but KEEP matter buffer for future crafts.
+                resetProgress();
+                syncToClient();
+            }
+            return;
+        }
+
+        // Flow A: when on Replication network, pull required matter into local buffer (cap Y).
+        if (getReplicationNetwork() != null) {
+            pullMatterFromReplicationNetwork(cachedRecipe);
+        }
+
+        // Do not burn FE until the X/Y buffer can satisfy the recipe.
+        if (!matterBuffer.hasAllRequired(cachedRecipe)) {
             if (progress > 0) {
                 resetProgress();
                 syncToClient();
@@ -188,15 +219,15 @@ public class MatterFoundryBlockEntity extends BlockEntity
             return;
         }
 
-        // Initialize crafting if we just found a recipe
         if (maxProgress <= 0) {
             totalEnergyCost = cachedRecipe.getEnergy();
-            maxProgress = calculateMaxProgress(totalEnergyCost);
             energySpent = 0;
             progress = 0;
         }
+        // Recalculate every tick so adding/removing speed cards applies mid-craft
+        // (same approach as Matter Assembler).
+        maxProgress = calculateMaxProgress(Math.max(1, totalEnergyCost));
 
-        // Check output has space
         ItemStack result = cachedRecipe.getResultItem();
         ItemStack existing = outputSlot.getStack(0);
         if (!existing.isEmpty()) {
@@ -206,7 +237,12 @@ public class MatterFoundryBlockEntity extends BlockEntity
             }
         }
 
-        // Consume energy per tick
+        // Already past the new max after a mid-craft speed-up — finish without waiting another tick.
+        if (progress >= maxProgress) {
+            finishCraft(cachedRecipe, result, existing);
+            return;
+        }
+
         int feNeeded = Math.max(1, (int) (Config.matterFoundryEnergyPerTick * getSpeedEnergyMultiplier()));
         int feConsumed = consumeEnergy(feNeeded);
         if (feConsumed < feNeeded * 0.9) {
@@ -216,35 +252,35 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
         progress++;
         if (progress >= maxProgress) {
-            // Drain matter from network
-            if (!drainMatterFromNetwork(cachedRecipe)) {
-                // Cannot drain matter yet; wait
-                progress = maxProgress - 1;
-                return;
-            }
-
-            // Consume input items
-            consumeInputs(cachedRecipe);
-
-            // Insert output
-            if (existing.isEmpty()) {
-                outputSlot.setStack(0, result.copy());
-            } else {
-                existing.grow(result.getCount());
-            }
-
-            if (Config.matterFoundryLogging) {
-                LOGGER.info("Matter Foundry at {} crafted {}", worldPosition, result.getDisplayName().getString());
-            }
-
-            resetProgress();
-            cachedRecipe = null;
-            recipeChecked = false;
-            setChanged();
-            syncToClient();
+            finishCraft(cachedRecipe, result, existing);
         } else {
             setChanged();
         }
+    }
+
+    private void finishCraft(MatterFoundryRecipe recipe, ItemStack result, ItemStack existingOutput) {
+        if (!matterBuffer.consumeRequired(recipe)) {
+            progress = 0;
+            return;
+        }
+
+        consumeInputs(recipe);
+
+        if (existingOutput.isEmpty()) {
+            outputSlot.setStack(0, result.copy());
+        } else {
+            existingOutput.grow(result.getCount());
+        }
+
+        if (Config.matterFoundryLogging) {
+            LOGGER.info("Matter Foundry at {} crafted {}", worldPosition, result.getDisplayName().getString());
+        }
+
+        resetProgress();
+        cachedRecipe = null;
+        recipeChecked = false;
+        setChanged();
+        syncToClient();
     }
 
     // ── Recipe matching ────────────────────────────────────────────────────
@@ -298,70 +334,112 @@ public class MatterFoundryBlockEntity extends BlockEntity
         return Math.min(fromBuffer, feAmount);
     }
 
-    // ── Matter draining ────────────────────────────────────────────────────
+    // ── Matter buffer (Replication pull + AE2 Export Bus/PP insert) ────────
 
-    private boolean drainMatterFromNetwork(MatterFoundryRecipe recipe) {
-        if (recipe.getMatter().isEmpty()) {
-            return true;
-        }
-
+    /**
+     * Pulls from the Replication network into the local X/Y buffer (never beyond Y).
+     */
+    private void pullMatterFromReplicationNetwork(MatterFoundryRecipe recipe) {
         MatterNetwork network = getReplicationNetwork();
-        if (network == null) {
-            return false;
+        if (network == null || recipe.getMatter().isEmpty()) {
+            return;
         }
-
-        // First simulate all drains to verify availability
+        boolean changed = false;
         for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
             IMatterType type = cost.resolve();
             if (type == null) {
-                return false;
+                continue;
             }
-            double available = calculateAvailableMatter(network, type);
-            if (available < cost.amount()) {
-                return false;
+            double room = matterBuffer.roomFor(recipe, type);
+            if (room <= 0) {
+                continue;
             }
-        }
-
-        // Actually drain
-        for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
-            IMatterType type = cost.resolve();
-            if (type == null) return false;
-            double toDrain = cost.amount();
-            for (NetworkElement holder : network.getMatterStacksHolders()) {
-                if (toDrain <= 0) break;
-                if (!holder.getLevel().isLoaded(holder.getPos())) continue;
-                BlockEntity be = holder.getLevel().getBlockEntity(holder.getPos());
-                if (be instanceof IMatterTanksSupplier supplier) {
-                    for (IMatterTank tank : supplier.getTanks()) {
-                        if (toDrain <= 0) break;
-                        if (tank.getMatter().getMatterType().equals(type)) {
-                            MatterStack drained = tank.drain(
-                                    new MatterStack(type, toDrain), IFluidHandler.FluidAction.EXECUTE);
-                            if (!drained.isEmpty()) {
-                                toDrain -= drained.getAmount();
-                            }
-                        }
-                    }
-                }
+            double got = extractFromNetworkTanks(network, type, room);
+            if (got > 0) {
+                matterBuffer.insert(type, got, recipe, false);
+                changed = true;
             }
         }
-        return true;
+        if (changed) {
+            setChanged();
+            syncToClient();
+        }
     }
 
-    private double calculateAvailableMatter(MatterNetwork network, IMatterType type) {
-        double total = 0;
+    private double extractFromNetworkTanks(MatterNetwork network, IMatterType type, double max) {
+        double left = max;
         for (NetworkElement holder : network.getMatterStacksHolders()) {
-            if (!holder.getLevel().isLoaded(holder.getPos())) continue;
+            if (left <= 0) {
+                break;
+            }
+            if (!holder.getLevel().isLoaded(holder.getPos()) || holder.getPos().equals(worldPosition)) {
+                continue;
+            }
             BlockEntity be = holder.getLevel().getBlockEntity(holder.getPos());
-            if (be instanceof IMatterTanksSupplier supplier) {
-                for (IMatterTank tank : supplier.getTanks()) {
-                    if (tank.getMatter().getMatterType().equals(type)) {
-                        total += tank.getMatterAmount();
-                    }
-                }
+            if (!(be instanceof IMatterTanksSupplier supplier)) {
+                continue;
+            }
+            left -= drainTanksForType(supplier.getTanks(), type, left);
+        }
+        return max - left;
+    }
+
+    private static double drainTanksForType(List<? extends IMatterTank> tanks, IMatterType type, double max) {
+        double left = max;
+        for (IMatterTank tank : tanks) {
+            if (left <= 0) {
+                break;
+            }
+            MatterStack in = tank.getMatter();
+            // Replication uses reference equality for matter types.
+            if (in == null || in.isEmpty() || in.getMatterType() != type) {
+                continue;
+            }
+            MatterStack drained = tank.drain(new MatterStack(type, left), IFluidHandler.FluidAction.EXECUTE);
+            if (drained != null && !drained.isEmpty()) {
+                left -= drained.getAmount();
             }
         }
-        return total;
+        return max - left;
+    }
+
+    public FoundryMatterBuffer getMatterBuffer() {
+        return matterBuffer;
+    }
+
+    /** Void all buffered matter (GUI dump button). Does not return it to the network. */
+    public void dumpMatterBuffer() {
+        if (matterBuffer.isEmpty()) {
+            return;
+        }
+        matterBuffer.clearAll();
+        if (level != null) {
+            level.invalidateCapabilities(worldPosition);
+        }
+        setChanged();
+        syncToClient();
+    }
+
+    @Nullable
+    public MatterFoundryRecipe getCachedRecipe() {
+        return cachedRecipe;
+    }
+
+    /** Matter handler for AE2 Export Bus / Storage Bus (cap at recipe Y). */
+    public com.buuz135.replication.api.matter_fluid.IMatterHandler getMatterHandler() {
+        return net.unfamily.repae2bridge.ae2.matter.CompositeMatterHandler.of(getTanks());
+    }
+
+    @Override
+    public List<? extends IMatterTank> getTanks() {
+        return matterBuffer.buildTanks(cachedRecipe);
+    }
+
+    public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots() {
+        if (level != null && level.isClientSide() && cachedRecipe == null && !clientRequiredMatter.isEmpty()) {
+            return matterBuffer.buildDisplayFromRequired(clientRequiredMatter);
+        }
+        return matterBuffer.buildDisplay(cachedRecipe);
     }
 
     @Nullable
@@ -521,7 +599,13 @@ public class MatterFoundryBlockEntity extends BlockEntity
         if (level == null || level.isClientSide()) return;
         try {
             NetworkManager mgr = NetworkManager.get(level);
-            if (mgr.getElement(worldPosition) == null) {
+            NetworkElement existing = mgr.getElement(worldPosition);
+            boolean canRemerge = (level.getGameTime() - lastNetworkJoinGameTime) >= 40;
+            if (existing != null && canRemerge && needsNetworkRemerge(mgr, existing)) {
+                mgr.removeElement(worldPosition);
+                existing = null;
+            }
+            if (existing == null) {
                 mgr.addElement(new DefaultMatterNetworkElement(level, worldPosition) {
                     @Override
                     public boolean canConnectFrom(Direction direction) {
@@ -531,6 +615,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
                         return super.canConnectFrom(direction);
                     }
                 });
+                lastNetworkJoinGameTime = level.getGameTime();
                 if (Config.matterFoundryLogging) {
                     LOGGER.info("Matter Foundry at {} joined Replication network", worldPosition);
                 }
@@ -540,6 +625,37 @@ public class MatterFoundryBlockEntity extends BlockEntity
                 LOGGER.warn("Matter Foundry at {} failed to join Replication network", worldPosition, e);
             }
         }
+    }
+
+    /**
+     * Re-add when orphaned, not classified as a matter holder (supplier+consumer),
+     * or an adjacent network element is on a different network (pipe connect after place).
+     */
+    private boolean needsNetworkRemerge(NetworkManager mgr, NetworkElement existing) {
+        if (existing.getNetwork() == null) {
+            return true;
+        }
+        if (!(existing.getNetwork() instanceof MatterNetwork mn)) {
+            return true;
+        }
+        // Must be listed as holder so auto-transfer + our pull share the same graph.
+        if (!mn.getMatterStacksHolders().contains(existing)) {
+            return true;
+        }
+        for (Direction direction : Direction.values()) {
+            BlockPos neighbor = worldPosition.relative(direction);
+            if (!level.isLoaded(neighbor)) {
+                continue;
+            }
+            NetworkElement other = mgr.getElement(neighbor);
+            if (other == null || other.getNetwork() == null) {
+                continue;
+            }
+            if (other.getNetwork() != existing.getNetwork()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -579,6 +695,22 @@ public class MatterFoundryBlockEntity extends BlockEntity
         if (player instanceof ServerPlayer serverPlayer) {
             MenuOpener.open(MatterFoundryMenu.TYPE, serverPlayer, MenuLocators.forBlockEntity(this));
         }
+    }
+
+    /**
+     * Called before the BE is removed from the level (vanilla 26+).
+     * {@code affectNeighborsAfterRemoval} is too late — the BE is already gone.
+     */
+    @Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+        if (level != null && !level.isClientSide()) {
+            List<ItemStack> drops = new ArrayList<>();
+            addDrops(drops);
+            for (ItemStack drop : drops) {
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), drop);
+            }
+        }
+        super.preRemoveSideEffects(pos, state);
     }
 
     public void addDrops(List<ItemStack> drops) {
@@ -672,6 +804,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         inputSlots.serialize(output.child("inputSlots"));
         outputSlot.serialize(output.child("outputSlot"));
         feBuffer.serialize(output.child("feBuffer"));
+        matterBuffer.save(output);
     }
 
     @Override
@@ -689,6 +822,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         inputSlots.deserialize(input.childOrEmpty("inputSlots"));
         outputSlot.deserialize(input.childOrEmpty("outputSlot"));
         feBuffer.deserialize(input.childOrEmpty("feBuffer"));
+        matterBuffer.load(input);
     }
 
     @Override
@@ -698,6 +832,16 @@ public class MatterFoundryBlockEntity extends BlockEntity
             output.putInt("progress", progress);
             output.putInt("maxProgress", maxProgress);
             output.putBoolean("active", active);
+            matterBuffer.save(output);
+            // Sync required Y for client GUI (recipe costs by id).
+            if (cachedRecipe != null) {
+                var req = output.childrenList("matterRequired");
+                for (MatterFoundryRecipe.MatterCost cost : cachedRecipe.getMatter()) {
+                    ValueOutput child = req.addChild();
+                    child.store("id", net.minecraft.resources.Identifier.CODEC, cost.matterId());
+                    child.putInt("amount", cost.amount());
+                }
+            }
             return output.buildResult();
         }
     }
@@ -707,6 +851,21 @@ public class MatterFoundryBlockEntity extends BlockEntity
         progress = input.getIntOr("progress", 0);
         maxProgress = input.getIntOr("maxProgress", 0);
         active = input.getBooleanOr("active", false);
+        matterBuffer.load(input);
+        clientRequiredMatter.clear();
+        input.childrenList("matterRequired").ifPresent(children -> {
+            for (ValueInput child : children) {
+                var id = child.read("id", net.minecraft.resources.Identifier.CODEC).orElse(null);
+                int amount = child.getIntOr("amount", 0);
+                if (id != null && amount > 0) {
+                    clientRequiredMatter.put(id, amount);
+                }
+            }
+        });
+    }
+
+    public java.util.Map<net.minecraft.resources.Identifier, Integer> getClientRequiredMatter() {
+        return clientRequiredMatter;
     }
 
     @Nullable

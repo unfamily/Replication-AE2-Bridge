@@ -1,9 +1,14 @@
 package net.unfamily.repae2bridge.client.gui;
 
+import java.util.List;
+import java.util.Locale;
+
 import org.jetbrains.annotations.Nullable;
 
+import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.item.ItemStack;
 
 import appeng.client.gui.implementations.UpgradeableScreen;
 import appeng.client.gui.style.ScreenStyle;
@@ -11,27 +16,41 @@ import appeng.client.gui.widgets.ProgressBar;
 
 import guideme.PageAnchor;
 
+import net.unfamily.repae2bridge.block.entity.FoundryMatterBuffer;
+import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
+import net.unfamily.repae2bridge.util.MatterTypeUtil;
 
 /**
- * Matter Foundry screen: upgrades, priority, craft progress, FE energy bar.
+ * Matter Foundry screen: upgrades, priority, craft progress, matter X/Y grid.
  */
 public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
 
+    /** Texture area (7,81)-(168,114): 9×2 matter display slots. */
+    private static final int MATTER_ORIGIN_X = 7;
+    private static final int MATTER_ORIGIN_Y = 81;
+    private static final int MATTER_COLS = 9;
+    private static final int MATTER_ROWS = 2;
+    private static final int MATTER_SLOT_W = 18;
+    private static final int MATTER_SLOT_H = 17;
+
+    private static final float LABEL_SCALE = 0.5f;
+    private static final int LABEL_COLOR = 0xFFFFFFFF;
+    /** American short-scale: thousand / million / billion / trillion. */
+    private static final char[] COMPACT_SUFFIXES = { 'k', 'M', 'B', 'T' };
+
     private final ProgressBar craftProgress;
-    private final ProgressBar energyBar;
 
     public MatterFoundryScreen(MatterFoundryMenu menu, Inventory playerInventory, Component title,
             ScreenStyle style) {
         super(menu, playerInventory, title, style);
         widgets.addOpenPriorityButton();
 
+        // Below the AE2 help (?) button on the left toolbar.
+        addToLeftToolbar(new FoundryDumpMatterButton(menu::dumpMatterBuffer));
+
         this.craftProgress = new ProgressBar(this.menu, style.getImage("progressBar"), ProgressBar.Direction.VERTICAL);
         widgets.add("progressBar", this.craftProgress);
-
-        this.energyBar = new ProgressBar(menu.getEnergyProgressProvider(), style.getImage("energyBar"),
-                ProgressBar.Direction.VERTICAL);
-        widgets.add("energyBar", this.energyBar);
     }
 
     @Override
@@ -41,10 +60,91 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
         int cur = menu.getCurrentProgress();
         int pct = Math.min(100, cur * 100 / max);
         this.craftProgress.setFullMsg(Component.literal(pct + "%"));
+    }
 
-        int eMax = Math.max(1, menu.getEnergyCapacity());
-        int eCur = menu.getEnergyStored();
-        this.energyBar.setFullMsg(Component.literal(eCur + " / " + eMax + " FE"));
+    @Override
+    public void drawFG(GuiGraphicsExtractor guiGraphics, int offsetX, int offsetY, int mouseX, int mouseY) {
+        super.drawFG(guiGraphics, offsetX, offsetY, mouseX, mouseY);
+        if (!(menu.getHost() instanceof MatterFoundryBlockEntity foundry)) {
+            return;
+        }
+        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots();
+        var font = this.font;
+        for (int i = 0; i < Math.min(FoundryMatterBuffer.MAX_TYPES, slots.size()); i++) {
+            FoundryMatterBuffer.DisplaySlot slot = slots.get(i);
+            if (slot.isEmpty()) {
+                continue;
+            }
+            int col = i % MATTER_COLS;
+            int row = i / MATTER_COLS;
+            if (row >= MATTER_ROWS) {
+                break;
+            }
+            int x = MATTER_ORIGIN_X + col * MATTER_SLOT_W;
+            int y = MATTER_ORIGIN_Y + row * MATTER_SLOT_H;
+
+            if (slot.type() != null) {
+                var displayItem = MatterTypeUtil.getDisplayItemForMatterType(slot.type());
+                if (displayItem != null) {
+                    ItemStack icon = new ItemStack(displayItem);
+                    guiGraphics.item(icon, x + 1, y);
+                }
+            }
+
+            long xAmt = (long) Math.floor(slot.buffered());
+            long yAmt = (long) Math.ceil(slot.required());
+            String label = yAmt > 0
+                    ? formatCompact(xAmt) + "/" + formatCompact(yAmt)
+                    : formatCompact(xAmt);
+            drawSmallWhiteLabel(guiGraphics, label, x + 1, y + MATTER_SLOT_H - 5);
+
+            int absX = offsetX + x;
+            int absY = offsetY + y;
+            if (mouseX >= absX && mouseX < absX + MATTER_SLOT_W
+                    && mouseY >= absY && mouseY < absY + MATTER_SLOT_H) {
+                String name = slot.type() != null ? slot.type().getName() : "?";
+                String full = yAmt > 0 ? (xAmt + "/" + yAmt) : String.valueOf(xAmt);
+                drawTooltip(guiGraphics, mouseX, mouseY, List.of(Component.literal(name + ": " + full)));
+            }
+        }
+    }
+
+    private void drawSmallWhiteLabel(GuiGraphicsExtractor guiGraphics, String label, int x, int y) {
+        var pose = guiGraphics.pose();
+        pose.pushMatrix();
+        pose.translate(x, y);
+        pose.scale(LABEL_SCALE);
+        guiGraphics.text(this.font, label, 0, 0, LABEL_COLOR, true);
+        pose.popMatrix();
+    }
+
+    /** Compact amount: 999, 1.2k, 15M, 3.4B, 1T (American short scale). */
+    static String formatCompact(long amount) {
+        long value = Math.max(0L, amount);
+        if (value < 1_000L) {
+            return Long.toString(value);
+        }
+        double scaled = value;
+        int suffix = -1;
+        while (scaled >= 1_000d && suffix < COMPACT_SUFFIXES.length - 1) {
+            scaled /= 1_000d;
+            suffix++;
+        }
+        String number;
+        if (scaled >= 100d) {
+            number = String.format(Locale.ROOT, "%.0f", scaled);
+        } else if (scaled >= 10d) {
+            number = String.format(Locale.ROOT, "%.1f", scaled);
+            if (number.endsWith(".0")) {
+                number = number.substring(0, number.length() - 2);
+            }
+        } else {
+            number = String.format(Locale.ROOT, "%.1f", scaled);
+            if (number.endsWith(".0")) {
+                number = number.substring(0, number.length() - 2);
+            }
+        }
+        return number + COMPACT_SUFFIXES[suffix];
     }
 
     @Override

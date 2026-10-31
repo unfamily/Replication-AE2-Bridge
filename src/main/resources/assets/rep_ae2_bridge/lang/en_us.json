@@ -23,6 +23,8 @@
     "item.rep_ae2_bridge.mega_matter_cell_housing": "MEGA Matter Cell Housing",
     "block.rep_ae2_bridge.matter_foundry": "Matter Foundry",
     "gui.rep_ae2_bridge.matter_foundry": "Matter Foundry",
+    "gui.rep_ae2_bridge.matter_foundry.dump": "Dump Matter Buffer",
+    "gui.rep_ae2_bridge.matter_foundry.dump.desc": "Permanently discards all matter stored in the Foundry buffer.\nIt is not returned to the Replication network or AE2.",
     "jei.rep_ae2_bridge.matter_foundry": "Matter Foundry",
     "jei.rep_ae2_bridge.matter_foundry.energy": "%s FE",
     "jei.rep_ae2_bridge.matter_foundry.time": "%s ticks (base)",

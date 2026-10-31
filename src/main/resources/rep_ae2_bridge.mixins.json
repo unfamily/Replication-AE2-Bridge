@@ -15,7 +15,8 @@
   ],
   "client": [
     "PatternEncodingTermScreenMixin",
-    "ProcessingEncodingPanelMixin"
+    "ProcessingEncodingPanelMixin",
+    "EncodePatternTransferHandlerMixin"
   ],
   "injectors": {
     "defaultRequire": 1

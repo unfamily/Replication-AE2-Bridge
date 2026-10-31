@@ -23,6 +23,8 @@
     "item.rep_ae2_bridge.mega_matter_cell_housing": "Involucro Cella di Materia MEGA",
     "block.rep_ae2_bridge.matter_foundry": "Fonderia di Materia",
     "gui.rep_ae2_bridge.matter_foundry": "Fonderia di Materia",
+    "gui.rep_ae2_bridge.matter_foundry.dump": "Svuota buffer materia",
+    "gui.rep_ae2_bridge.matter_foundry.dump.desc": "Elimina definitivamente tutta la materia nel buffer della Fonderia.\nNon viene restituita alla rete Replication né ad AE2.",
     "jei.rep_ae2_bridge.matter_foundry": "Fonderia di Materia",
     "jei.rep_ae2_bridge.matter_foundry.energy": "%s FE",
     "jei.rep_ae2_bridge.matter_foundry.time": "%s tick (base)",

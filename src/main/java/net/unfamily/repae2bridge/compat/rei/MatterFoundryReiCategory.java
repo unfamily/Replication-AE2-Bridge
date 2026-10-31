@@ -62,11 +62,12 @@ public class MatterFoundryReiCategory implements DisplayCategory<MatterFoundryRe
 
         int m = 0;
         for (var matter : display.getMatterInputs()) {
-            int mx = FoundryRecipeLayout.matterX(m);
-            if (mx + FoundryRecipeLayout.SLOT_SIZE > FoundryRecipeLayout.WIDTH) {
+            if (m >= FoundryRecipeLayout.MAX_MATTER_SLOTS) {
                 break;
             }
-            widgets.add(Widgets.createSlot(new Point(ox + mx, oy + FoundryRecipeLayout.MATTER_Y))
+            widgets.add(Widgets.createSlot(new Point(
+                            ox + FoundryRecipeLayout.matterX(m),
+                            oy + FoundryRecipeLayout.matterY(m)))
                     .entries(matter).markInput());
             m++;
         }

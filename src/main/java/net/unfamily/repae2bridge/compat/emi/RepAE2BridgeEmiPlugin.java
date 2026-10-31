@@ -13,6 +13,7 @@ import net.unfamily.repae2bridge.block.ModBlocks;
 import net.unfamily.repae2bridge.compat.FoundryRecipeLists;
 import net.unfamily.repae2bridge.compat.MegaCellsCompat;
 import net.unfamily.repae2bridge.item.ModItems;
+import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
 
 @EmiEntrypoint
 public class RepAE2BridgeEmiPlugin implements EmiPlugin {
@@ -25,6 +26,7 @@ public class RepAE2BridgeEmiPlugin implements EmiPlugin {
     public void register(EmiRegistry registry) {
         registry.addCategory(FOUNDRY);
         registry.addWorkstation(FOUNDRY, EmiStack.of(ModBlocks.MATTER_FOUNDRY.get()));
+        registry.addRecipeHandler(MatterFoundryMenu.TYPE, new MatterFoundryEmiRecipeHandler());
         for (var holder : FoundryRecipeLists.collect()) {
             registry.addRecipe(new MatterFoundryEmiRecipe(holder));
         }

@@ -1,16 +1,10 @@
 package net.unfamily.repae2bridge.block.custom;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import com.mojang.serialization.MapCodec;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.Containers;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.EntityBlock;
@@ -65,17 +59,7 @@ public class MatterAssemblerBlock extends Block implements EntityBlock {
         return InteractionResult.SUCCESS;
     }
 
-    @Override
-    protected void affectNeighborsAfterRemoval(BlockState state, ServerLevel level, BlockPos pos, boolean moving) {
-        if (level.getBlockEntity(pos) instanceof MatterAssemblerBlockEntity assembler) {
-            List<ItemStack> drops = new ArrayList<>();
-            assembler.addDrops(drops);
-            for (ItemStack drop : drops) {
-                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), drop);
-            }
-        }
-        super.affectNeighborsAfterRemoval(state, level, pos, moving);
-    }
+    // Inventory drops happen in MatterAssemblerBlockEntity.preRemoveSideEffects (BE still present).
 
     @Nullable
     @Override

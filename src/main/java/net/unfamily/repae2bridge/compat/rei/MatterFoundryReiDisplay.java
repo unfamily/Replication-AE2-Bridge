@@ -43,7 +43,7 @@ public class MatterFoundryReiDisplay implements Display {
             var display = MatterTypeUtil.getDisplayItemForMatterType(type);
             if (display != null) {
                 ItemStack stack = new ItemStack(display);
-                stack.setCount(Math.min(64, Math.max(1, (int) Math.ceil(cost.amount()))));
+                stack.setCount(Math.max(1, (int) Math.ceil(cost.amount())));
                 matterInputs.add(EntryIngredients.of(stack));
             }
         }

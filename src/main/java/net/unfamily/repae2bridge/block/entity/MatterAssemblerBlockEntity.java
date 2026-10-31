@@ -1,5 +1,6 @@
 package net.unfamily.repae2bridge.block.entity;
 
+import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
@@ -16,6 +17,7 @@ import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.util.ProblemReporter;
+import net.minecraft.world.Containers;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
@@ -331,6 +333,22 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         if (player instanceof ServerPlayer serverPlayer) {
             MenuOpener.open(MatterAssemblerMenu.TYPE, serverPlayer, MenuLocators.forBlockEntity(this));
         }
+    }
+
+    /**
+     * Called before the BE is removed from the level (vanilla 26+).
+     * {@code affectNeighborsAfterRemoval} is too late — the BE is already gone.
+     */
+    @Override
+    public void preRemoveSideEffects(BlockPos pos, BlockState state) {
+        if (level != null && !level.isClientSide()) {
+            List<ItemStack> drops = new ArrayList<>();
+            addDrops(drops);
+            for (ItemStack drop : drops) {
+                Containers.dropItemStack(level, pos.getX(), pos.getY(), pos.getZ(), drop);
+            }
+        }
+        super.preRemoveSideEffects(pos, state);
     }
 
     public void addDrops(List<ItemStack> drops) {

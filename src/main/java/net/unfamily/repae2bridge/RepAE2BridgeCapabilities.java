@@ -72,5 +72,16 @@ public class RepAE2BridgeCapabilities {
                     return null;
                 },
                 ModBlocks.MATTER_FOUNDRY.get());
+
+        // Matter Foundry local buffer for AE2 Export Bus / Pattern Provider (cap at recipe Y).
+        event.registerBlock(
+                ReplicationRegistry.Capabilities.MATTER_HANDLER,
+                (level, pos, state, be, side) -> {
+                    if (be instanceof MatterFoundryBlockEntity foundry) {
+                        return foundry.getMatterHandler();
+                    }
+                    return null;
+                },
+                ModBlocks.MATTER_FOUNDRY.get());
     }
 }

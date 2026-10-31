@@ -24,12 +24,12 @@ public final class FoundryJeiBackground implements IDrawable {
 
     public FoundryJeiBackground(int inputSlots, int matterSlots) {
         this.inputSlots = Math.min(FoundryRecipeLayout.MAX_INPUTS, Math.max(0, inputSlots));
-        this.matterSlots = Math.max(0, matterSlots);
+        this.matterSlots = Math.min(FoundryRecipeLayout.MAX_MATTER_SLOTS, Math.max(0, matterSlots));
     }
 
     /** Background sized for max layout (recipe draw overlays slots per recipe). */
     public FoundryJeiBackground() {
-        this(FoundryRecipeLayout.MAX_INPUTS, 8);
+        this(FoundryRecipeLayout.MAX_INPUTS, FoundryRecipeLayout.MAX_MATTER_SLOTS);
     }
 
     @Override
@@ -54,11 +54,9 @@ public final class FoundryJeiBackground implements IDrawable {
                 FoundryRecipeLayout.ARROW_W, FoundryRecipeLayout.ARROW_H);
         blitSlot(guiGraphics, xOffset + FoundryRecipeLayout.OUTPUT_X, yOffset + FoundryRecipeLayout.OUTPUT_Y);
         for (int i = 0; i < matterSlots; i++) {
-            int x = FoundryRecipeLayout.matterX(i);
-            if (x + FoundryRecipeLayout.SLOT_SIZE > FoundryRecipeLayout.WIDTH) {
-                break;
-            }
-            blitSlot(guiGraphics, xOffset + x, yOffset + FoundryRecipeLayout.MATTER_Y);
+            blitSlot(guiGraphics,
+                    xOffset + FoundryRecipeLayout.matterX(i),
+                    yOffset + FoundryRecipeLayout.matterY(i));
         }
     }
 

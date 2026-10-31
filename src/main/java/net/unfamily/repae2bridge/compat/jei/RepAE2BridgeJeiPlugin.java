@@ -9,6 +9,7 @@ import mezz.jei.api.registration.IGuiHandlerRegistration;
 import mezz.jei.api.registration.IRecipeCatalystRegistration;
 import mezz.jei.api.registration.IRecipeCategoryRegistration;
 import mezz.jei.api.registration.IRecipeRegistration;
+import mezz.jei.api.registration.IRecipeTransferRegistration;
 import mezz.jei.api.runtime.IJeiRuntime;
 
 import net.minecraft.resources.Identifier;
@@ -47,8 +48,15 @@ public class RepAE2BridgeJeiPlugin implements IModPlugin {
 
     @Override
     public void registerGuiHandlers(IGuiHandlerRegistration registration) {
-        registration.addRecipeClickArea(MatterFoundryScreen.class, 153, 36, 4, 16,
+        // GUI click zone (99,41)-(120,52) opens Matter Foundry recipes.
+        registration.addRecipeClickArea(MatterFoundryScreen.class, 99, 41, 21, 11,
                 MatterFoundryRecipeCategory.RECIPE_TYPE);
+    }
+
+    @Override
+    public void registerRecipeTransferHandlers(IRecipeTransferRegistration registration) {
+        // + button: item inputs only (matter slots are RENDER_ONLY).
+        registration.addRecipeTransferHandler(new MatterFoundryTransferInfo());
     }
 
     @Override

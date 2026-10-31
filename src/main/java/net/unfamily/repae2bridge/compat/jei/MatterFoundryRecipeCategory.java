@@ -90,6 +90,9 @@ public class MatterFoundryRecipeCategory implements IRecipeCategory<RecipeHolder
 
         int m = 0;
         for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
+            if (m >= FoundryRecipeLayout.MAX_MATTER_SLOTS) {
+                break;
+            }
             var type = cost.resolve();
             if (type == null) {
                 continue;
@@ -99,14 +102,10 @@ public class MatterFoundryRecipeCategory implements IRecipeCategory<RecipeHolder
                 continue;
             }
             ItemStack stack = new ItemStack(display);
-            stack.setCount(Math.min(64, Math.max(1, (int) Math.ceil(cost.amount()))));
-            int mx = FoundryRecipeLayout.matterX(m);
-            if (mx + FoundryRecipeLayout.SLOT_SIZE > FoundryRecipeLayout.WIDTH) {
-                break;
-            }
+            stack.setCount(Math.max(1, (int) Math.ceil(cost.amount())));
             builder.addSlot(RecipeIngredientRole.RENDER_ONLY,
-                            mx + FoundryRecipeLayout.ITEM_INSET,
-                            FoundryRecipeLayout.MATTER_Y + FoundryRecipeLayout.ITEM_INSET)
+                            FoundryRecipeLayout.matterX(m) + FoundryRecipeLayout.ITEM_INSET,
+                            FoundryRecipeLayout.matterY(m) + FoundryRecipeLayout.ITEM_INSET)
                     .add(VanillaTypes.ITEM_STACK, stack);
             m++;
         }

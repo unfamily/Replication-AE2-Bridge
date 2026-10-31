@@ -38,7 +38,8 @@
       "inputs": [
         { "item": "ae2:logic_processor", "count": 1 },
         { "item": "ae2:calculation_processor", "count": 1 },
-        { "item": "ae2:engineering_processor", "count": 1 }
+        { "item": "ae2:engineering_processor", "count": 1 },
+        { "item": "ae2:singularity", "count": 1 }
       ],
       "matter": [
         { "matter": "replication:ender", "amount": 10 },

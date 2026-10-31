@@ -1,11 +1,16 @@
 package net.unfamily.repae2bridge.menu;
 
+import java.util.ArrayList;
+import java.util.List;
+
 import net.minecraft.resources.Identifier;
 import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.inventory.MenuType;
+import net.minecraft.world.inventory.Slot;
 
 import appeng.menu.SlotSemantic;
 import appeng.menu.SlotSemantics;
+import appeng.menu.guisync.ClientActionKey;
 import appeng.menu.guisync.GuiSync;
 import appeng.menu.implementations.MenuTypeBuilder;
 import appeng.menu.implementations.UpgradeableMenu;
@@ -17,7 +22,7 @@ import net.unfamily.repae2bridge.RepAE2Bridge;
 import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 
 /**
- * Foundry GUI: 5 input slots + 1 output + upgrade panel + progress/energy sync.
+ * Foundry GUI: 5 input slots + 1 output + upgrade panel + progress/energy sync + matter dump.
  */
 public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity> implements IProgressProvider {
 
@@ -30,6 +35,8 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
     public static final SlotSemantic FOUNDRY_IN_2 = SlotSemantics.register("FOUNDRY_IN_2", false);
     public static final SlotSemantic FOUNDRY_IN_3 = SlotSemantics.register("FOUNDRY_IN_3", false);
     public static final SlotSemantic FOUNDRY_IN_4 = SlotSemantics.register("FOUNDRY_IN_4", false);
+
+    private static final ClientActionKey<Void> ACTION_DUMP_MATTER = new ClientActionKey<>("dumpMatterBuffer");
 
     // UpgradeableMenu already uses sync ids 0,1,5,6 — keep Foundry ids clear of those.
     @GuiSync(10)
@@ -47,6 +54,8 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
     public MatterFoundryMenu(int id, Inventory playerInventory, MatterFoundryBlockEntity host) {
         super(TYPE, id, playerInventory, host);
 
+        registerClientAction(ACTION_DUMP_MATTER, this::dumpMatterBufferServer);
+
         var inputs = host.getInputInventory();
         this.addSlot(new AppEngSlot(inputs, 0), FOUNDRY_IN_0);
         this.addSlot(new AppEngSlot(inputs, 1), FOUNDRY_IN_1);
@@ -54,6 +63,21 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
         this.addSlot(new AppEngSlot(inputs, 3), FOUNDRY_IN_3);
         this.addSlot(new AppEngSlot(inputs, 4), FOUNDRY_IN_4);
         this.addSlot(new OutputSlot(host.getOutputInventory(), 0, null), SlotSemantics.MACHINE_OUTPUT);
+    }
+
+    /** Called from the GUI dump button (client sends action; server clears buffer). */
+    public void dumpMatterBuffer() {
+        if (isClientSide()) {
+            sendClientAction(ACTION_DUMP_MATTER);
+            return;
+        }
+        dumpMatterBufferServer();
+    }
+
+    private void dumpMatterBufferServer() {
+        if (getHost() != null) {
+            getHost().dumpMatterBuffer();
+        }
     }
 
     @Override
@@ -85,20 +109,22 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
         return Math.max(1, energyCapacity);
     }
 
-    /** Progress provider for the FE bar (0..capacity). */
-    public IProgressProvider getEnergyProgressProvider() {
-        return energyProgressProvider;
+    /** Item input slots only (no matter buffer) for JEI/EMI/REI + transfer. */
+    public List<Slot> getFoundryInputSlots() {
+        List<Slot> slots = new ArrayList<>(5);
+        slots.addAll(getSlots(FOUNDRY_IN_0));
+        slots.addAll(getSlots(FOUNDRY_IN_1));
+        slots.addAll(getSlots(FOUNDRY_IN_2));
+        slots.addAll(getSlots(FOUNDRY_IN_3));
+        slots.addAll(getSlots(FOUNDRY_IN_4));
+        return slots;
     }
 
-    private final IProgressProvider energyProgressProvider = new IProgressProvider() {
-        @Override
-        public int getCurrentProgress() {
-            return energyStored;
-        }
-
-        @Override
-        public int getMaxProgress() {
-            return Math.max(1, energyCapacity);
-        }
-    };
+    /** Player inventory + hotbar used as ingredient sources for recipe transfer. */
+    public List<Slot> getPlayerSlotsForTransfer() {
+        List<Slot> slots = new ArrayList<>(36);
+        slots.addAll(getSlots(SlotSemantics.PLAYER_INVENTORY));
+        slots.addAll(getSlots(SlotSemantics.PLAYER_HOTBAR));
+        return slots;
+    }
 }

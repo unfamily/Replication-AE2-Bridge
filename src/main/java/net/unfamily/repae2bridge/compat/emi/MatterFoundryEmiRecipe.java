@@ -50,7 +50,7 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
             var display = MatterTypeUtil.getDisplayItemForMatterType(type);
             if (display != null) {
                 ItemStack stack = new ItemStack(display);
-                stack.setCount(Math.min(64, Math.max(1, (int) Math.ceil(cost.amount()))));
+                stack.setCount(Math.max(1, (int) Math.ceil(cost.amount())));
                 matterInputs.add(EmiStack.of(stack));
             }
         }
@@ -69,10 +69,8 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
 
     @Override
     public List<EmiIngredient> getInputs() {
-        List<EmiIngredient> all = new ArrayList<>(itemInputs.size() + matterInputs.size());
-        all.addAll(itemInputs);
-        all.addAll(matterInputs);
-        return all;
+        // Item inputs only so + / craft transfer never places matter display stacks.
+        return itemInputs;
     }
 
     @Override
@@ -106,11 +104,10 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
 
         int m = 0;
         for (EmiIngredient matter : matterInputs) {
-            int mx = FoundryRecipeLayout.matterX(m);
-            if (mx + FoundryRecipeLayout.SLOT_SIZE > FoundryRecipeLayout.WIDTH) {
+            if (m >= FoundryRecipeLayout.MAX_MATTER_SLOTS) {
                 break;
             }
-            widgets.addSlot(matter, mx, FoundryRecipeLayout.MATTER_Y);
+            widgets.addSlot(matter, FoundryRecipeLayout.matterX(m), FoundryRecipeLayout.matterY(m));
             m++;
         }
 
