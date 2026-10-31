@@ -1,6 +1,12 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "rep_ae2_bridge:item/metallic"
+    "model": "rep_ae2_bridge:item/metallic",
+    "tints": [
+      {
+        "type": "minecraft:constant",
+        "value": -4210753
+      }
+    ]
   }
 }

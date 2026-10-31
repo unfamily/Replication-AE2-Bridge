@@ -40,6 +40,7 @@ public class ModCreativeModeTabs {
                                 output.accept(ModBlocks.CHAMBER_FRAME.get());
                                 output.accept(ModBlocks.REPLICATION_UNIT.get());
                                 output.accept(ModItems.FLUIXING_REPLICA_ALLOY.get());
+                                output.accept(ModItems.MATTER_INFUSED_CRYSTAL.get());
                                 output.accept(ModItems.REPLICA_PROCESSOR.get());
                                 output.accept(ModItems.MATTER_CELL_HOUSING.get());
                                 if (MegaCellsCompat.isLoaded()) {

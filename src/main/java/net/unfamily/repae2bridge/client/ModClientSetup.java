@@ -17,6 +17,7 @@ import net.unfamily.repae2bridge.client.gui.BridgeScreen;
 import net.unfamily.repae2bridge.client.gui.MatterAssemblerScreen;
 import net.unfamily.repae2bridge.client.gui.MatterFoundryScreen;
 import net.unfamily.repae2bridge.client.item.IrregularPulseProperty;
+import net.unfamily.repae2bridge.client.item.MatterCrystalPulseProperty;
 import net.unfamily.repae2bridge.client.render.ReplicationUnitCubeModel;
 import net.unfamily.repae2bridge.client.renderer.MatterAssemblerRenderer;
 import net.unfamily.repae2bridge.client.renderer.ReplicationUnitRenderer;
@@ -49,6 +50,8 @@ public class ModClientSetup {
     public static void registerRangeSelectProperties(RegisterRangeSelectItemModelPropertyEvent event) {
         event.register(Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "irregular_pulse"),
                 IrregularPulseProperty.MAP_CODEC);
+        event.register(Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "matter_crystal_pulse"),
+                MatterCrystalPulseProperty.MAP_CODEC);
     }
 
     @SubscribeEvent

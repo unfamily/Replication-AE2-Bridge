@@ -3,9 +3,9 @@
     "type": "minecraft:range_dispatch",
     "property": "rep_ae2_bridge:irregular_pulse",
     "entries": [
-      { "threshold": 0.0, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_stand" } },
-      { "threshold": 0.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_normal" } },
-      { "threshold": 1.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_fast" } }
+      { "threshold": 0.0, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_green" } },
+      { "threshold": 0.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_purple" } },
+      { "threshold": 1.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_orange" } }
     ]
   }
 }

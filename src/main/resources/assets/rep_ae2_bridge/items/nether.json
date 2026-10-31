@@ -1,6 +1,12 @@
 {
   "model": {
     "type": "minecraft:model",
-    "model": "rep_ae2_bridge:item/nether"
+    "model": "rep_ae2_bridge:item/nether",
+    "tints": [
+      {
+        "type": "minecraft:constant",
+        "value": -5504224
+      }
+    ]
   }
 }

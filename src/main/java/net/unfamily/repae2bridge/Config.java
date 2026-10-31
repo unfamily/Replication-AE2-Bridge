@@ -97,7 +97,7 @@ public class Config {
 
     private static final ModConfigSpec.BooleanValue CHAMBER_ANOMALY_VISUAL = BUILDER
             .comment("Enable occasional orange anomaly flash on formed chambers (cosmetic only).")
-            .define("006_chamberAnomalyVisual", false);
+            .define("006_chamberAnomalyVisual", true);
 
     static {
         BUILDER.pop();

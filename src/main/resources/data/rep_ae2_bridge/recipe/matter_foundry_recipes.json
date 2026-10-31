@@ -10,14 +10,30 @@
         { "tag": "c:gems/fluix", "count": 4 }
       ],
       "matter": [
-        { "matter": "replication:metallic", "amount": 16 },
-        { "matter": "replication:precious", "amount": 16 },
-        { "matter": "replication:ender", "amount": 8 },
-        { "matter": "replication:quantum", "amount": 4 }
+        { "matter": "replication:metallic", "amount": 30 },
+        { "matter": "replication:precious", "amount": 10 },
+        { "matter": "replication:ender", "amount": 10 },
+        { "matter": "replication:quantum", "amount": 5 }
       ],
       "output": {
         "id": "rep_ae2_bridge:fluixing_replica_alloy",
         "count": 5
+      }
+    },
+    {
+      "energy": 5000,
+      "inputs": [
+        { "item": "minecraft:echo_shard", "count": 1 }
+      ],
+      "matter": [
+        { "matter": "replication:precious", "amount": 100 },
+        { "matter": "replication:earth", "amount": 100 },
+        { "matter": "replication:living", "amount": 10 },
+        { "matter": "replication:quantum", "amount": 10 }
+      ],
+      "output": {
+        "id": "rep_ae2_bridge:matter_infused_crystal",
+        "count": 1
       }
     },
     {

@@ -34,13 +34,16 @@ public class ModItems {
 
     public static final DeferredItem<Item> LIVING_MATTER = ITEMS.registerItem("living", MatterItem::new);
 
-    public static final DeferredItem<Item> QUANTUM_MATTER = ITEMS.registerItem("quantum", MatterItem::new);
+    public static final DeferredItem<Item> QUANTUM_MATTER = ITEMS.registerItem("quantum", QuantumMatterItem::new);
 
     public static final DeferredItem<Item> MATTER_CELL_HOUSING = ITEMS.registerItem("matter_cell_housing", Item::new);
 
     public static final DeferredItem<Item> FLUIXING_REPLICA_ALLOY = ITEMS.registerItem("fluixing_replica_alloy", Item::new);
 
     public static final DeferredItem<Item> REPLICA_PROCESSOR = ITEMS.registerItem("replica_processor", Item::new);
+
+    public static final DeferredItem<Item> MATTER_INFUSED_CRYSTAL =
+            ITEMS.registerItem("matter_infused_crystal", Item::new);
 
     /** MEGACells-style upgraded housing (`mega_*_cell_housing`). */
     public static final DeferredItem<Item> MEGA_MATTER_CELL_HOUSING =
