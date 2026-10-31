@@ -1,0 +1,12 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "ae2:crafting_unit",
+    "rep_ae2_bridge:replica_processor",
+    "rep_ae2_bridge:matter_assembler"
+  ],
+  "result": {
+    "id": "rep_ae2_bridge:replication_unit"
+  }
+}

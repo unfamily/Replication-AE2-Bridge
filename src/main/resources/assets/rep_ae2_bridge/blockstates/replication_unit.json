@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "formed=false": {
+      "model": "rep_ae2_bridge:block/replication_unit"
+    },
+    "formed=true": {
+      "type": "rep_ae2_bridge:replication_unit_cube"
+    }
+  }
+}

@@ -112,6 +112,22 @@ config="${mod_id}.mixins.json"
     side="BOTH"
     reason="Required by Replication network elements"
 
+[[dependencies.${mod_id}]]
+    modId="iska_lib"
+    type="required"
+    versionRange="[1.13.0.0.0,)"
+    ordering="AFTER"
+    side="BOTH"
+    reason="Recipe bundle splitter for Matter Foundry datapack entries"
+
+[[dependencies.${mod_id}]]
+    modId="another_config_manager"
+    type="required"
+    versionRange="[1.0.0.0.0,)"
+    ordering="AFTER"
+    side="BOTH"
+    reason="Required by Iskandert's Library"
+
 # Optional integrations (IDE/runtime testing; never hard-required)
 [[dependencies.${mod_id}]]
     modId="kubejs"
@@ -128,6 +144,31 @@ config="${mod_id}.mixins.json"
     ordering="AFTER"
     side="CLIENT"
     reason="Optional: standalone in-game guide for this addon"
+
+[[dependencies.${mod_id}]]
+    modId="jei"
+    type="optional"
+    versionRange="*"
+    ordering="AFTER"
+    side="CLIENT"
+    reason="Optional: Matter Foundry recipe category"
+
+[[dependencies.${mod_id}]]
+    modId="emi"
+    type="optional"
+    versionRange="*"
+    ordering="AFTER"
+    side="CLIENT"
+    reason="Optional: Matter Foundry recipe category"
+
+[[dependencies.${mod_id}]]
+    modId="roughlyenoughitems"
+    type="optional"
+    versionRange="*"
+    ordering="AFTER"
+    side="CLIENT"
+    reason="Optional: Matter Foundry recipe category"
+
 
 # Features are specific properties of the game environment, that you may want to declare you require. This example declares
 # that your mod requires GL version 3.2 or higher. Other features will be added. They are side aware so declaring this won't

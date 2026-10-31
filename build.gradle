@@ -32,6 +32,13 @@ repositories {
             includeGroup "dev.latvian.apps"
         }
     }
+    maven {
+        name = "Modrinth"
+        url = "https://api.modrinth.com/maven"
+        content {
+            includeGroup "maven.modrinth"
+        }
+    }
 }
 
 base {
@@ -120,6 +127,8 @@ dependencies {
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
     implementation "curse.maven:better-advanced-tooltips-1637623:${better_advanced_tooltips_file_id}"
+    implementation "curse.maven:iskanderts-library-1516512:${iska_lib_file_id}"
+    implementation "curse.maven:another-config-manager-1719301:${another_config_manager_file_id}"
 
     // Optional: IDE compile/runtime only (not hard deps of the published jar)
     // Mekanism ecosystem not available for 26.1.2 yet
@@ -127,6 +136,24 @@ dependencies {
     compileOnly "curse.maven:rhino-416294:${rhino_file_id}"
     localRuntime "curse.maven:kubejs-238086:${kubejs_file_id}"
     localRuntime "curse.maven:rhino-416294:${rhino_file_id}"
+
+    // Recipe viewers (JEI + EMI + REI APIs; one runtime viewer)
+    compileOnly "curse.maven:jei-238222:${jei_file_id}"
+    compileOnly "curse.maven:${emi_mod_maven}:${emi_file_id}"
+    compileOnly "curse.maven:${rei_mod_maven}:${rei_file_id}"
+    // REI transitive (Point/Rectangle + FluidStack)
+    compileOnly "maven.modrinth:cloth-config:26.1.154+neoforge"
+    compileOnly "maven.modrinth:architectury-api:20.1.17+neoforge"
+    def recipeViewer = findProperty('runtime_recipe_viewer') ?: 'jei'
+    if (recipeViewer == 'jei') {
+        localRuntime "curse.maven:jei-238222:${jei_file_id}"
+    } else if (recipeViewer == 'emi') {
+        localRuntime "curse.maven:${emi_mod_maven}:${emi_file_id}"
+    } else if (recipeViewer == 'rei') {
+        localRuntime "curse.maven:${rei_mod_maven}:${rei_file_id}"
+        localRuntime "maven.modrinth:cloth-config:26.1.154+neoforge"
+        localRuntime "maven.modrinth:architectury-api:20.1.17+neoforge"
+    }
 }
 
 // This block of code expands all declared replace properties in the specified resource targets.

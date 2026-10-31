@@ -13,4 +13,7 @@ This addon connects **Applied Energistics 2** with **Replication**. Matter from 
 
 * [AE2–Replication Bridge](bridge.md) — links both networks, energy sharing, and priorities
 * [Matter Assembler](matter_assembler.md) — fast AE2 worker that runs Replication jobs
+* [Matter Foundry](matter_foundry.md) — dual-power smelter for alloys and processors
+* [Matter Assembling Chamber](matter_assembling_chamber.md) — multiblock frame + units with shader fill
 * [Matter Storage](matter_storage.md) — cells, buses, monitors, and item→matter encoding
+

@@ -1,0 +1,79 @@
+{
+  "$schema": "schema.json",
+  "includes": [
+    "common/common.json",
+    "common/toolbox.json"
+  ],
+  "background": {
+    "texture": "rep_ae2_bridge:textures/gui/foundry.png",
+    "textureWidth": 256,
+    "textureHeight": 256,
+    "srcRect": [0, 0, 176, 208]
+  },
+  "slots": {
+    "FOUNDRY_IN_0": { "left": 31, "top": 22 },
+    "FOUNDRY_IN_1": { "left": 55, "top": 22 },
+    "FOUNDRY_IN_2": { "left": 31, "top": 54 },
+    "FOUNDRY_IN_3": { "left": 55, "top": 54 },
+    "FOUNDRY_IN_4": { "left": 79, "top": 38 },
+    "MACHINE_OUTPUT": { "left": 124, "top": 34 },
+    "PLAYER_INVENTORY": {
+      "left": 8,
+      "top": 126,
+      "grid": "BREAK_AFTER_9COLS"
+    },
+    "PLAYER_HOTBAR": {
+      "left": 8,
+      "top": 184,
+      "grid": "HORIZONTAL"
+    },
+    "TOOLBOX": {
+      "left": -60,
+      "bottom": 60,
+      "grid": "BREAK_AFTER_3COLS"
+    }
+  },
+  "text": {
+    "dialog_title": {
+      "text": {
+        "translate": "gui.rep_ae2_bridge.matter_foundry"
+      },
+      "position": {
+        "left": 8,
+        "top": 6
+      }
+    }
+  },
+  "images": {
+    "progressBar": {
+      "texture": "rep_ae2_bridge:textures/gui/foundry.png",
+      "srcRect": [177, 1, 4, 16]
+    },
+    "energyBar": {
+      "texture": "rep_ae2_bridge:textures/gui/foundry.png",
+      "srcRect": [176, 0, 5, 17]
+    }
+  },
+  "widgets": {
+    "progressBar": {
+      "left": 153,
+      "top": 36
+    },
+    "energyBar": {
+      "left": 161,
+      "top": 16
+    },
+    "openPriority": {
+      "left": 152,
+      "top": -5,
+      "width": 20,
+      "height": 20
+    },
+    "toolbox": {
+      "left": -61,
+      "bottom": 66,
+      "width": 59,
+      "height": 66
+    }
+  }
+}

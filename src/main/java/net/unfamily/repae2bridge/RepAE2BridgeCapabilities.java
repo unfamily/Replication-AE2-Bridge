@@ -11,6 +11,7 @@ import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 
 import net.unfamily.repae2bridge.ae2.matter.CompositeMatterHandler;
 import net.unfamily.repae2bridge.block.ModBlocks;
+import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
 
 /**
@@ -19,6 +20,7 @@ import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
 public class RepAE2BridgeCapabilities {
 
     public static void register(RegisterCapabilitiesEvent event) {
+        // Bridge block item capability
         event.registerBlock(Capabilities.Item.BLOCK, (level, blockPos, blockState, blockEntity, direction) -> {
             if (blockEntity instanceof RepAE2BridgeBlockEntity bridge
                     && (direction == Direction.UP || direction == null)) {
@@ -45,5 +47,30 @@ public class RepAE2BridgeCapabilities {
                 ReplicationRegistry.Blocks.MATTER_TANK.getBlock(),
                 ReplicationRegistry.Blocks.CREATIVE_MATTER_TANK.getBlock(),
                 ReplicationRegistry.Blocks.DISINTEGRATOR.getBlock());
+
+        // Matter Foundry energy capability
+        event.registerBlock(
+                Capabilities.Energy.BLOCK,
+                (level, pos, state, be, side) -> {
+                    if (be instanceof MatterFoundryBlockEntity foundry) {
+                        return foundry.getFeBuffer();
+                    }
+                    return null;
+                },
+                ModBlocks.MATTER_FOUNDRY.get());
+
+        // Matter Foundry item handler capability (input from sides, output from bottom)
+        event.registerBlock(
+                Capabilities.Item.BLOCK,
+                (level, pos, state, be, side) -> {
+                    if (be instanceof MatterFoundryBlockEntity foundry) {
+                        if (side == Direction.DOWN) {
+                            return foundry.getOutputSlot();
+                        }
+                        return foundry.getInputSlots();
+                    }
+                    return null;
+                },
+                ModBlocks.MATTER_FOUNDRY.get());
     }
 }

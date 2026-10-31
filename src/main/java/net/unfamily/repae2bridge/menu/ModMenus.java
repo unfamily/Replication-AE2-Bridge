@@ -18,6 +18,9 @@ public class ModMenus {
     public static final DeferredHolder<MenuType<?>, MenuType<MatterAssemblerMenu>> MATTER_ASSEMBLER =
             MENUS.register("matter_assembler", () -> MatterAssemblerMenu.TYPE);
 
+    public static final DeferredHolder<MenuType<?>, MenuType<MatterFoundryMenu>> MATTER_FOUNDRY =
+            MENUS.register("matter_foundry", () -> MatterFoundryMenu.TYPE);
+
     public static void register(IEventBus eventBus) {
         MENUS.register(eventBus);
     }

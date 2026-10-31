@@ -27,7 +27,11 @@ import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.unfamily.repae2bridge.item.ModItems;
 import net.unfamily.repae2bridge.item.ModCreativeModeTabs;
 import net.unfamily.repae2bridge.menu.ModMenus;
+import net.unfamily.repae2bridge.recipe.ModRecipes;
+import net.unfamily.repae2bridge.block.entity.ChamberFrameBlockEntity;
 import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
+import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
+import net.unfamily.repae2bridge.block.entity.ReplicationUnitBlockEntity;
 import net.unfamily.repae2bridge.ae2.cells.MatterCreativeCellHandler;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import appeng.api.AECapabilities;
@@ -43,6 +47,7 @@ import net.unfamily.repae2bridge.ae2.matter.MatterContainerItemStrategy;
 import net.unfamily.repae2bridge.client.MatterKeyRenderHandler;
 import net.neoforged.fml.ModList;
 import appeng.api.behaviors.ContainerItemStrategy;
+import net.unfamily.iskalib.crafting.RecipeBundleSplitter;
 
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
@@ -79,6 +84,7 @@ public class RepAE2Bridge
         ModCreativeModeTabs.register(modEventBus);
         ModBlockEntities.register(modEventBus);
         ModMenus.register(modEventBus);
+        ModRecipes.register(modEventBus);
 
         modEventBus.addListener((RegisterEvent event) -> {
             if (event.getRegistryKey() == AEKeyType.REGISTRY_KEY) {
@@ -143,6 +149,11 @@ public class RepAE2Bridge
                     appeng.core.definitions.AEItems.SPEED_CARD,
                     ModBlocks.MATTER_ASSEMBLER,
                     5);
+            appeng.api.upgrades.Upgrades.add(
+                    appeng.core.definitions.AEItems.SPEED_CARD,
+                    ModBlocks.MATTER_FOUNDRY,
+                    5);
+            RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
         });
 
         LOGGER.info("RepAE2Bridge: Bridge energy consumption set to {} AE/t", Config.bridgeEnergyConsumption);
@@ -173,7 +184,32 @@ public class RepAE2Bridge
             ModBlocks.MATTER_ASSEMBLER.get()
         );
 
-        // Bridge item handler capabilities
+        event.registerBlock(
+            AECapabilities.IN_WORLD_GRID_NODE_HOST,
+            (level, pos, state, be, context) -> {
+                if (be instanceof MatterFoundryBlockEntity foundry) {
+                    return foundry;
+                }
+                return null;
+            },
+            ModBlocks.MATTER_FOUNDRY.get()
+        );
+
+        // Units are not cable targets (getGridNode is null); cables attach to frames only.
+
+        // Formed chamber: cables connect to the frame shell.
+        event.registerBlock(
+            AECapabilities.IN_WORLD_GRID_NODE_HOST,
+            (level, pos, state, be, context) -> {
+                if (be instanceof ChamberFrameBlockEntity frame && frame.isChamberOnline()) {
+                    return frame;
+                }
+                return null;
+            },
+            ModBlocks.CHAMBER_FRAME.get()
+        );
+
+        // Bridge + Foundry item handler and energy capabilities
         RepAE2BridgeCapabilities.register(event);
     }
 

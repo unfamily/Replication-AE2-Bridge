@@ -1,0 +1,11 @@
+{
+  "model": {
+    "type": "minecraft:range_dispatch",
+    "property": "rep_ae2_bridge:irregular_pulse",
+    "entries": [
+      { "threshold": 0.0, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/replica_processor_0" } },
+      { "threshold": 0.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/replica_processor_1" } },
+      { "threshold": 1.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/replica_processor_2" } }
+    ]
+  }
+}

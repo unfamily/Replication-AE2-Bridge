@@ -7,8 +7,8 @@
     "ABA"
   ],
   "key": {
-    "A": "ae2:engineering_processor",
-    "B": "#c:ingots/replica",
+    "A": "rep_ae2_bridge:replica_processor",
+    "B": "rep_ae2_bridge:fluixing_replica_alloy",
     "C": "ae2:molecular_assembler"
   },
   "result": {

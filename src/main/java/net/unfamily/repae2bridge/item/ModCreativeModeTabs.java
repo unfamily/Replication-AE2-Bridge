@@ -11,6 +11,7 @@ import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.unfamily.repae2bridge.RepAE2Bridge;
 import net.unfamily.repae2bridge.block.ModBlocks;
+import net.unfamily.repae2bridge.compat.MegaCellsCompat;
 
 public class ModCreativeModeTabs {
     public static final DeferredRegister<CreativeModeTab> CREATIVE_MODE_TABS =
@@ -35,7 +36,15 @@ public class ModCreativeModeTabs {
                                 }
                                 output.accept(ModBlocks.REPAE2BRIDGE.get());
                                 output.accept(ModBlocks.MATTER_ASSEMBLER.get());
+                                output.accept(ModBlocks.MATTER_FOUNDRY.get());
+                                output.accept(ModBlocks.CHAMBER_FRAME.get());
+                                output.accept(ModBlocks.REPLICATION_UNIT.get());
+                                output.accept(ModItems.FLUIXING_REPLICA_ALLOY.get());
+                                output.accept(ModItems.REPLICA_PROCESSOR.get());
                                 output.accept(ModItems.MATTER_CELL_HOUSING.get());
+                                if (MegaCellsCompat.isLoaded()) {
+                                    output.accept(ModItems.MEGA_MATTER_CELL_HOUSING.get());
+                                }
                                 output.accept(ModItems.MATTER_CELL_1K.get());
                                 output.accept(ModItems.MATTER_CELL_4K.get());
                                 output.accept(ModItems.MATTER_CELL_16K.get());

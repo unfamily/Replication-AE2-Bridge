@@ -21,6 +21,18 @@ public class ModBlockEntities {
             BLOCK_ENTITIES.register("matter_assembler", () -> new BlockEntityType<>(
                     MatterAssemblerBlockEntity::new, ModBlocks.MATTER_ASSEMBLER.get()));
 
+    public static final Supplier<BlockEntityType<MatterFoundryBlockEntity>> MATTER_FOUNDRY_BE =
+            BLOCK_ENTITIES.register("matter_foundry", () -> new BlockEntityType<>(
+                    MatterFoundryBlockEntity::new, ModBlocks.MATTER_FOUNDRY.get()));
+
+    public static final Supplier<BlockEntityType<ReplicationUnitBlockEntity>> REPLICATION_UNIT_BE =
+            BLOCK_ENTITIES.register("replication_unit", () -> new BlockEntityType<>(
+                    ReplicationUnitBlockEntity::new, ModBlocks.REPLICATION_UNIT.get()));
+
+    public static final Supplier<BlockEntityType<ChamberFrameBlockEntity>> CHAMBER_FRAME_BE =
+            BLOCK_ENTITIES.register("chamber_frame", () -> new BlockEntityType<>(
+                    ChamberFrameBlockEntity::new, ModBlocks.CHAMBER_FRAME.get()));
+
     public static void register(IEventBus eventBus) {
         BLOCK_ENTITIES.register(eventBus);
     }

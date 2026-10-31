@@ -1,5 +1,6 @@
 package net.unfamily.repae2bridge.block.entity;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -67,9 +68,11 @@ public class MatterAssemblerBlockEntity extends BlockEntity
                     nodeOwner.setChanged();
                 }
             })
+            .setVisualRepresentation(ModBlocks.MATTER_ASSEMBLER.get())
             .setFlags(GridFlags.REQUIRE_CHANNEL)
             .setIdlePowerUsage(1.0)
             .setInWorldNode(true)
+            .setExposedOnSides(EnumSet.allOf(Direction.class))
             .setTagName("matter_assembler");
 
     private final IUpgradeInventory upgrades = UpgradeInventories.forMachine(
@@ -112,6 +115,11 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         }
 
         if (!online || craftingStack.isEmpty() || remainingCount <= 0) {
+            return;
+        }
+        // Replication cancelTask only notifies vanilla Replicators — drop orphaned assembler jobs.
+        if (replicationTaskId != null && !isBoundReplicationTaskAlive()) {
+            abortJob();
             return;
         }
 
@@ -158,7 +166,9 @@ public class MatterAssemblerBlockEntity extends BlockEntity
                     delivered = bridge.deliverMatterAssemblerReplicationUnit(
                             output, replicationTaskId, worldPosition);
                 } else {
-                    // AE2-originated craft: insert into AE2 (bridge buffer as fallback).
+                    if (!bridge.drainOneMatterForAe2Internal(craftingStack)) {
+                        return;
+                    }
                     delivered = bridge.receiveItemFromReplicator(output);
                 }
             }
@@ -200,8 +210,29 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         return true;
     }
 
+    /** Grow an AE2-internal job so the assembler stays busy between pushPattern bursts. */
+    public boolean extendAe2InternalJob(ItemStack stack, int extra, BlockPos bridgeSource) {
+        if (extra <= 0 || stack.isEmpty() || bridgeSource == null || replicationTaskId != null) {
+            return false;
+        }
+        if (isIdle() || !mainNode.isOnline()) {
+            return false;
+        }
+        if (!bridgeSource.equals(bridgePos) || !craftingStack.getItem().equals(stack.getItem())) {
+            return false;
+        }
+        long sum = (long) remainingCount + extra;
+        remainingCount = sum > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) sum;
+        setChanged();
+        return true;
+    }
+
     public boolean isIdle() {
         return craftingStack.isEmpty() || remainingCount <= 0;
+    }
+
+    public int getRemainingCount() {
+        return remainingCount;
     }
 
     public boolean isWorking() {
@@ -214,6 +245,10 @@ public class MatterAssemblerBlockEntity extends BlockEntity
 
     public ItemStack getCraftingStack() {
         return craftingStack;
+    }
+
+    public int getProgress() {
+        return progress;
     }
 
     public float getAnimationSpeed() {
@@ -251,6 +286,15 @@ public class MatterAssemblerBlockEntity extends BlockEntity
     /** Cancels the current job without delivering output (e.g. matter reservation failed). */
     public void abortJob() {
         clearJob();
+    }
+
+    private boolean isBoundReplicationTaskAlive() {
+        if (replicationTaskId == null || level == null || bridgePos == null) {
+            return false;
+        }
+        BlockEntity be = level.getBlockEntity(bridgePos);
+        return be instanceof RepAE2BridgeBlockEntity bridge
+                && bridge.hasPendingReplicationTask(replicationTaskId);
     }
 
     @Nullable

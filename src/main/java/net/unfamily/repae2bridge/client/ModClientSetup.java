@@ -1,10 +1,13 @@
 package net.unfamily.repae2bridge.client;
 
+import net.minecraft.resources.Identifier;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.RegisterBlockStateModels;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.RegisterRangeSelectItemModelPropertyEvent;
 
 import appeng.client.InitScreens;
 
@@ -12,9 +15,14 @@ import net.unfamily.repae2bridge.RepAE2Bridge;
 import net.unfamily.repae2bridge.block.entity.ModBlockEntities;
 import net.unfamily.repae2bridge.client.gui.BridgeScreen;
 import net.unfamily.repae2bridge.client.gui.MatterAssemblerScreen;
+import net.unfamily.repae2bridge.client.gui.MatterFoundryScreen;
+import net.unfamily.repae2bridge.client.item.IrregularPulseProperty;
+import net.unfamily.repae2bridge.client.render.ReplicationUnitCubeModel;
 import net.unfamily.repae2bridge.client.renderer.MatterAssemblerRenderer;
+import net.unfamily.repae2bridge.client.renderer.ReplicationUnitRenderer;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
 import net.unfamily.repae2bridge.menu.MatterAssemblerMenu;
+import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
 
 /**
  * Client setup: AE2 screen styles, BER registration.
@@ -27,10 +35,24 @@ public class ModClientSetup {
         InitScreens.register(event, BridgeMenu.TYPE, BridgeScreen::new, "/screens/rep_ae2_bridge.json");
         InitScreens.register(event, MatterAssemblerMenu.TYPE, MatterAssemblerScreen::new,
                 "/screens/matter_assembler.json");
+        InitScreens.register(event, MatterFoundryMenu.TYPE, MatterFoundryScreen::new,
+                "/screens/matter_foundry.json");
     }
 
     @SubscribeEvent
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.MATTER_ASSEMBLER_BE.get(), MatterAssemblerRenderer::new);
+        event.registerBlockEntityRenderer(ModBlockEntities.REPLICATION_UNIT_BE.get(), ReplicationUnitRenderer::new);
+    }
+
+    @SubscribeEvent
+    public static void registerRangeSelectProperties(RegisterRangeSelectItemModelPropertyEvent event) {
+        event.register(Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "irregular_pulse"),
+                IrregularPulseProperty.MAP_CODEC);
+    }
+
+    @SubscribeEvent
+    public static void registerBlockStateModels(RegisterBlockStateModels event) {
+        event.registerModel(ReplicationUnitCubeModel.Unbaked.ID, ReplicationUnitCubeModel.Unbaked.MAP_CODEC);
     }
 }

@@ -1,0 +1,12 @@
+{
+  "parent": "minecraft:block/cube",
+  "textures": {
+    "particle": "rep_ae2_bridge:block/matter_foundry_front_on",
+    "north": "rep_ae2_bridge:block/matter_foundry_front_on",
+    "south": "rep_ae2_bridge:block/matter_foundry_back_on",
+    "east": "rep_ae2_bridge:block/matter_foundry_side",
+    "west": "rep_ae2_bridge:block/matter_foundry_side",
+    "up": "rep_ae2_bridge:block/matter_foundry_top_on",
+    "down": "ae2:block/generics/bottom"
+  }
+}

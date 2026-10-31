@@ -25,7 +25,6 @@ public class ModBlocks {
                 .noOcclusion());
 
     // Match AE2 MolecularAssembler: metalProps(p).noOcclusion()
-    // (AEBaseBlock.metalProps = strength 2.2/11, MapColor.METAL, SoundType.METAL, forceSolidOn)
     public static final DeferredBlock<Block> MATTER_ASSEMBLER = BLOCKS.registerBlock("matter_assembler",
             MatterAssemblerBlock::new,
             () -> BlockBehaviour.Properties.of()
@@ -35,9 +34,39 @@ public class ModBlocks {
                 .forceSolidOn()
                 .noOcclusion());
 
+    public static final DeferredBlock<Block> MATTER_FOUNDRY = BLOCKS.registerBlock("matter_foundry",
+            MatterFoundryBlock::new,
+            () -> BlockBehaviour.Properties.of()
+                .strength(3.5F, 12.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion());
+
+    public static final DeferredBlock<Block> CHAMBER_FRAME = BLOCKS.registerBlock("chamber_frame",
+            ChamberFrameBlock::new,
+            () -> BlockBehaviour.Properties.of()
+                .strength(3.0F, 10.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion());
+
+    public static final DeferredBlock<Block> REPLICATION_UNIT = BLOCKS.registerBlock("replication_unit",
+            ReplicationUnitBlock::new,
+            () -> BlockBehaviour.Properties.of()
+                .strength(3.0F, 10.0F)
+                .mapColor(MapColor.METAL)
+                .sound(SoundType.METAL)
+                .forceSolidOn()
+                .noOcclusion());
+
     static {
         ModItems.ITEMS.registerSimpleBlockItem(REPAE2BRIDGE);
         ModItems.ITEMS.registerSimpleBlockItem(MATTER_ASSEMBLER);
+        ModItems.ITEMS.registerSimpleBlockItem(MATTER_FOUNDRY);
+        ModItems.ITEMS.registerSimpleBlockItem(CHAMBER_FRAME);
+        ModItems.ITEMS.registerSimpleBlockItem(REPLICATION_UNIT);
     }
 
     public static void register(IEventBus eventBus) {
@@ -49,6 +78,7 @@ public class ModBlocks {
         try {
             MatterPipeBlock.ALLOWED_CONNECTION_BLOCKS.add(block ->
                 block instanceof RepAE2BridgeBl ||
+                block instanceof MatterFoundryBlock ||
                 (block.getClass().getName().contains("repae2bridge"))
             );
         } catch (NoClassDefFoundError | NullPointerException e) {

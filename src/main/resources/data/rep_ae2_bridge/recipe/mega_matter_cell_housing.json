@@ -1,0 +1,23 @@
+{
+  "neoforge:conditions": [
+    {
+      "type": "neoforge:mod_loaded",
+      "modid": "megacells"
+    }
+  ],
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "aba",
+    "b b",
+    "ccc"
+  ],
+  "key": {
+    "a": "ae2:quartz_glass",
+    "b": "#c:dusts/redstone",
+    "c": "rep_ae2_bridge:fluixing_replica_alloy"
+  },
+  "result": {
+    "id": "rep_ae2_bridge:mega_matter_cell_housing"
+  }
+}

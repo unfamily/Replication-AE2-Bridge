@@ -13,4 +13,7 @@ Questo addon collega **Applied Energistics 2** con **Replication**. La materia d
 
 * [Ponte AE2–Replication](bridge.md) — collega le due reti, condivisione energia e priorità
 * [Assemblatore di Materia](matter_assembler.md) — lavoratore AE2 veloce per i lavori di Replication
+* [Fonderia di Materia](matter_foundry.md) — forno dual-power per leghe e processori
+* [Camera di Assemblaggio Materia](matter_assembling_chamber.md) — multiblocco telaio + unità con fill shader
 * [Storage di Materia](matter_storage.md) — celle, bus, monitor e encoding item→materia
+

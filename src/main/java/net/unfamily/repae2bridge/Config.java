@@ -44,6 +44,58 @@ public class Config {
 
     static {
         BUILDER.pop();
+        BUILDER.comment("Matter Foundry").push("matter_foundry");
+    }
+
+    private static final ModConfigSpec.IntValue MATTER_FOUNDRY_ENERGY_PER_TICK = BUILDER
+            .comment("FE/t drained from the internal FE buffer (or converted from AE) while the foundry is working.")
+            .defineInRange("000_matterFoundryEnergyPerTick", 40, 0, Integer.MAX_VALUE);
+
+    private static final ModConfigSpec.DoubleValue MATTER_FOUNDRY_FE_PER_AE = BUILDER
+            .comment("FE cost for 1 AE extracted from the AE2 grid when no FE is buffered.")
+            .defineInRange("001_matterFoundryFePerAe", 2.0, 0.1, 100.0);
+
+    private static final ModConfigSpec.IntValue MATTER_FOUNDRY_FE_CAPACITY = BUILDER
+            .comment("Internal FE buffer capacity of the Matter Foundry.")
+            .defineInRange("002_matterFoundryFeCapacity", 100_000, 1000, Integer.MAX_VALUE);
+
+    private static final ModConfigSpec.BooleanValue MATTER_FOUNDRY_LOGGING = BUILDER
+            .comment("Enable Matter Foundry debug logging.")
+            .define("003_matterFoundryLogging", false);
+
+    static {
+        BUILDER.pop();
+        BUILDER.comment("Matter Assembling Chamber").push("chamber");
+    }
+
+    private static final ModConfigSpec.IntValue CHAMBER_MIN_SIZE = BUILDER
+            .comment("Minimum multiblock side length (including frame).")
+            .defineInRange("000_chamberMinSize", 3, 3, 7);
+
+    private static final ModConfigSpec.IntValue CHAMBER_MAX_SIZE = BUILDER
+            .comment("Maximum multiblock side length (including frame).")
+            .defineInRange("001_chamberMaxSize", 7, 3, 7);
+
+    private static final ModConfigSpec.IntValue CHAMBER_SPEED = BUILDER
+            .comment("Chamber craft speed. Higher is faster: 100 = 1 item/tick base, 30 ≈ 3.3 ticks/item at 1 unit,",
+                    "(replaces old 002_chamberMaxProgress where higher meant slower).")
+            .defineInRange("002_chamberSpeed", 30, 1, 100);
+
+    private static final ModConfigSpec.DoubleValue CHAMBER_SPEED_PER_UNIT = BUILDER
+            .comment("Extra speed multiplier per additional replication unit:",
+                    "points/tick *= (1 + factor * (units-1)). At high values the chamber finishes multiple items per tick.")
+            .defineInRange("003_chamberSpeedPerUnit", 5.0, 0.0, 10.0);
+
+    private static final ModConfigSpec.DoubleValue CHAMBER_IDLE_POWER_AE = BUILDER
+            .comment("AE/t passive drain of a formed chamber (leader node) while online.")
+            .defineInRange("004_chamberIdlePowerAe", 16.0, 0.0, 100_000.0);
+
+    private static final ModConfigSpec.DoubleValue CHAMBER_ACTIVE_POWER_AE = BUILDER
+            .comment("AE/t drained while the chamber is processing a replication job.")
+            .defineInRange("005_chamberActivePowerAe", 160.0, 0.0, 100_000.0);
+
+    static {
+        BUILDER.pop();
         BUILDER.comment("Logging / development").push("logging");
     }
 
@@ -71,6 +123,17 @@ public class Config {
     public static int matterCellMaxTypes;
     public static int matterAssemblerMaxProgress;
     public static int matterAssemblerEnergyPerTick;
+    public static int matterFoundryEnergyPerTick;
+    public static double matterFoundryFePerAe;
+    public static int matterFoundryFeCapacity;
+    public static boolean matterFoundryLogging;
+    public static int chamberMinSize;
+    public static int chamberMaxSize;
+    /** Craft progress points added per tick at 1 unit (item completes at 100). */
+    public static int chamberSpeed;
+    public static double chamberSpeedPerUnit;
+    public static double chamberIdlePowerAe;
+    public static double chamberActivePowerAe;
     public static boolean enableDebugLogging;
     public static volatile boolean enableNetworkBlockEntityFix = true;
 
@@ -80,6 +143,16 @@ public class Config {
         matterCellMaxTypes = MATTER_CELL_MAX_TYPES.get();
         matterAssemblerMaxProgress = MATTER_ASSEMBLER_MAX_PROGRESS.get();
         matterAssemblerEnergyPerTick = MATTER_ASSEMBLER_ENERGY_PER_TICK.get();
+        matterFoundryEnergyPerTick = MATTER_FOUNDRY_ENERGY_PER_TICK.get();
+        matterFoundryFePerAe = MATTER_FOUNDRY_FE_PER_AE.get();
+        matterFoundryFeCapacity = MATTER_FOUNDRY_FE_CAPACITY.get();
+        matterFoundryLogging = MATTER_FOUNDRY_LOGGING.get();
+        chamberMinSize = CHAMBER_MIN_SIZE.get();
+        chamberMaxSize = CHAMBER_MAX_SIZE.get();
+        chamberSpeed = CHAMBER_SPEED.get();
+        chamberSpeedPerUnit = CHAMBER_SPEED_PER_UNIT.get();
+        chamberIdlePowerAe = CHAMBER_IDLE_POWER_AE.get();
+        chamberActivePowerAe = CHAMBER_ACTIVE_POWER_AE.get();
         enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
         enableNetworkBlockEntityFix = ENABLE_NETWORK_BLOCK_ENTITY_FIX.get();
     }

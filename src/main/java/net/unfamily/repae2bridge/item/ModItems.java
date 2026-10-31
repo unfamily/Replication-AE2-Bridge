@@ -38,6 +38,14 @@ public class ModItems {
 
     public static final DeferredItem<Item> MATTER_CELL_HOUSING = ITEMS.registerItem("matter_cell_housing", Item::new);
 
+    public static final DeferredItem<Item> FLUIXING_REPLICA_ALLOY = ITEMS.registerItem("fluixing_replica_alloy", Item::new);
+
+    public static final DeferredItem<Item> REPLICA_PROCESSOR = ITEMS.registerItem("replica_processor", Item::new);
+
+    /** MEGACells-style upgraded housing (`mega_*_cell_housing`). */
+    public static final DeferredItem<Item> MEGA_MATTER_CELL_HOUSING =
+            ITEMS.registerItem("mega_matter_cell_housing", Item::new);
+
     // MatterKeyType stores 8 units/byte (same as items). Keep ~1K/4K/... matter capacity by
     // using AE2_bytes = matter_capacity / 8, and bytesPerType = 1 (8 matter of type overhead).
     public static final DeferredItem<MatterStorageCell> MATTER_CELL_1K = ITEMS.registerItem(
