@@ -301,13 +301,14 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         this.progress = 0;
         this.bridgePos = bridgeSource.immutable();
         this.replicationTaskId = taskId;
+        VisualMode before = mode;
         refreshModeFromJob();
-        syncModeToChamber();
+        // Avoid block/model sync when hold already kept RUNNING — that caused a sprite snap.
+        if (before != mode) {
+            syncModeToChamber();
+        }
         refreshPowerUsage();
         setChanged();
-        if (level != null) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), Block.UPDATE_CLIENTS);
-        }
         return true;
     }
 
@@ -502,6 +503,9 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
                 .setValue(ReplicationUnitBlock.FORMED, formed)
                 .setValue(ReplicationUnitBlock.POWERED, powered)
                 .setValue(ReplicationUnitBlock.MODE, mode.ordinal());
+        if (updated == current && powered == lastSyncedOnline) {
+            return;
+        }
         if (updated != current) {
             level.setBlock(worldPosition, updated, Block.UPDATE_CLIENTS);
         }
@@ -637,7 +641,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     private int clientModeTo = -1;
     private float clientModeBlend = 1f;
 
-    /** Advances idle/running/anomaly blend toward the current MODE (~8 ticks). */
+    /** Advances idle/running/anomaly blend toward the current MODE. */
     public void updateClientModeBlend(float partialTicks) {
         int target = mode.ordinal();
         if (clientModeTo < 0) {
@@ -647,9 +651,16 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
             return;
         }
         if (target != clientModeTo) {
-            clientModeFrom = clientModeTo;
-            clientModeTo = target;
-            clientModeBlend = 0f;
+            if (target == clientModeFrom) {
+                // Reversed mid-fade (e.g. hold green → fade purple → work again): invert, no snap.
+                clientModeFrom = clientModeTo;
+                clientModeTo = target;
+                clientModeBlend = 1f - clientModeBlend;
+            } else {
+                clientModeFrom = clientModeTo;
+                clientModeTo = target;
+                clientModeBlend = 0f;
+            }
         }
         // Slightly slower than RUNNING_HOLD so the hold + fade read as one continuous green.
         clientModeBlend = Math.min(1f, clientModeBlend + partialTicks / 12f);
