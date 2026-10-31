@@ -7,6 +7,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.RegisterBlockStateModels;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
+import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 import net.neoforged.neoforge.client.event.RegisterRangeSelectItemModelPropertyEvent;
 
 import appeng.client.InitScreens;
@@ -18,12 +19,14 @@ import net.unfamily.repae2bridge.client.gui.MatterAssemblerScreen;
 import net.unfamily.repae2bridge.client.gui.MatterFoundryScreen;
 import net.unfamily.repae2bridge.client.item.IrregularPulseProperty;
 import net.unfamily.repae2bridge.client.item.MatterCrystalPulseProperty;
+import net.unfamily.repae2bridge.client.particle.GreenFlameParticle;
 import net.unfamily.repae2bridge.client.render.ReplicationUnitCubeModel;
 import net.unfamily.repae2bridge.client.renderer.MatterAssemblerRenderer;
 import net.unfamily.repae2bridge.client.renderer.ReplicationUnitRenderer;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
 import net.unfamily.repae2bridge.menu.MatterAssemblerMenu;
 import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
+import net.unfamily.repae2bridge.particle.ModParticles;
 
 /**
  * Client setup: AE2 screen styles, BER registration.
@@ -52,6 +55,11 @@ public class ModClientSetup {
                 IrregularPulseProperty.MAP_CODEC);
         event.register(Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "matter_crystal_pulse"),
                 MatterCrystalPulseProperty.MAP_CODEC);
+    }
+
+    @SubscribeEvent
+    public static void registerParticleProviders(RegisterParticleProvidersEvent event) {
+        event.registerSpriteSet(ModParticles.GREEN_FLAME.get(), GreenFlameParticle.Provider::new);
     }
 
     @SubscribeEvent

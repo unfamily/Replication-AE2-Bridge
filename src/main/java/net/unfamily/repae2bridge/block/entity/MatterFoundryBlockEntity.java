@@ -232,6 +232,18 @@ public class MatterFoundryBlockEntity extends BlockEntity
         }
 
         // Dual power: work with FE buffer and/or AE grid — AE online is not mandatory.
+        // Re-resolve after datapack/recipe changes: a cached instance may no longer exist
+        // in the RecipeManager or may no longer match the current inputs.
+        if (cachedRecipe != null && !isCachedRecipeStillValid()) {
+            cachedRecipe = null;
+            recipeChecked = false;
+            resetProgress();
+            if (level != null) {
+                level.invalidateCapabilities(worldPosition);
+            }
+            syncToClient();
+        }
+
         if (cachedRecipe == null && !recipeChecked) {
             cachedRecipe = findMatchingRecipe();
             recipeChecked = true;
@@ -354,6 +366,34 @@ public class MatterFoundryBlockEntity extends BlockEntity
             }
         }
         return null;
+    }
+
+    /** True if the cached recipe still matches current inputs and is still registered. */
+    private boolean isCachedRecipeStillValid() {
+        if (cachedRecipe == null || level == null) {
+            return false;
+        }
+        ItemStack[] stacks = new ItemStack[INPUT_SLOTS];
+        for (int i = 0; i < INPUT_SLOTS; i++) {
+            stacks[i] = inputSlots.getStack(i);
+        }
+        MatterFoundryRecipeInput input = new MatterFoundryRecipeInput(stacks);
+        if (!cachedRecipe.matches(input, level)) {
+            return false;
+        }
+        if (!(level instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            return true;
+        }
+        var access = serverLevel.recipeAccess();
+        if (!(access instanceof net.minecraft.world.item.crafting.RecipeManager manager)) {
+            return true;
+        }
+        for (var holder : manager.getRecipes()) {
+            if (holder.value() == cachedRecipe) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // ── Energy consumption (FE buffer, fallback to AE grid) ────────────────

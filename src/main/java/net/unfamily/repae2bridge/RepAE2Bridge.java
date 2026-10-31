@@ -27,6 +27,7 @@ import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.unfamily.repae2bridge.item.ModItems;
 import net.unfamily.repae2bridge.item.ModCreativeModeTabs;
 import net.unfamily.repae2bridge.menu.ModMenus;
+import net.unfamily.repae2bridge.particle.ModParticles;
 import net.unfamily.repae2bridge.recipe.ModRecipes;
 import net.unfamily.repae2bridge.block.entity.ChamberFrameBlockEntity;
 import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
@@ -85,6 +86,7 @@ public class RepAE2Bridge
         ModBlockEntities.register(modEventBus);
         ModMenus.register(modEventBus);
         ModRecipes.register(modEventBus);
+        ModParticles.register(modEventBus);
 
         modEventBus.addListener((RegisterEvent event) -> {
             if (event.getRegistryKey() == AEKeyType.REGISTRY_KEY) {

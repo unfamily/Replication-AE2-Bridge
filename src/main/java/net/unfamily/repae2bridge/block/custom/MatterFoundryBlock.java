@@ -5,6 +5,8 @@ import com.mojang.serialization.MapCodec;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.util.RandomSource;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.context.BlockPlaceContext;
@@ -28,6 +30,7 @@ import com.buuz135.replication.block.MatterPipeBlock;
 
 import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.unfamily.repae2bridge.block.entity.ModBlockEntities;
+import net.unfamily.repae2bridge.particle.ModParticles;
 
 /**
  * Matter Foundry block: horizontal-facing, active boolean, EntityBlock with ticker.
@@ -117,6 +120,46 @@ public class MatterFoundryBlock extends Block implements EntityBlock, INetworkDi
             foundry.openGui(player);
         }
         return InteractionResult.SUCCESS;
+    }
+
+    /**
+     * Same spawn offset as AE2 {@code VibrationChamberBlock#animateTick}: front face, jittered
+     * along up/west. Smoke + green flame while the foundry is active.
+     */
+    @Override
+    public void animateTick(BlockState state, Level level, BlockPos pos, RandomSource random) {
+        if (!state.getValue(ACTIVE)) {
+            return;
+        }
+
+        Direction front = state.getValue(HorizontalDirectionalBlock.FACING);
+        Direction top = Direction.UP;
+
+        double x = pos.getX() + 0.5;
+        double y = pos.getY() + 0.5;
+        double z = pos.getZ() + 0.5;
+
+        final int westX = front.getStepY() * top.getStepZ() - front.getStepZ() * top.getStepY();
+        final int westY = front.getStepZ() * top.getStepX() - front.getStepX() * top.getStepZ();
+        final int westZ = front.getStepX() * top.getStepY() - front.getStepY() * top.getStepX();
+
+        x += front.getStepX() * 0.6;
+        y += front.getStepY() * 0.6;
+        z += front.getStepZ() * 0.6;
+
+        final double ox = random.nextDouble();
+        final double oy = random.nextDouble() * 0.2;
+
+        x += top.getStepX() * (-0.3 + oy);
+        y += top.getStepY() * (-0.3 + oy);
+        z += top.getStepZ() * (-0.3 + oy);
+
+        x += westX * (0.3 * ox - 0.15);
+        y += westY * (0.3 * ox - 0.15);
+        z += westZ * (0.3 * ox - 0.15);
+
+        level.addParticle(ParticleTypes.SMOKE, x, y, z, 0.0, 0.0, 0.0);
+        level.addParticle(ModParticles.GREEN_FLAME.get(), x, y, z, 0.0, 0.0, 0.0);
     }
 
     // Inventory drops happen in MatterFoundryBlockEntity.preRemoveSideEffects (BE still present).
