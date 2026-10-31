@@ -5,7 +5,7 @@
     "entries": [
       { "threshold": 0.0, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_green" } },
       { "threshold": 0.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_purple" } },
-      { "threshold": 1.5, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_orange" } }
+      { "threshold": 1.0, "model": { "type": "minecraft:model", "model": "rep_ae2_bridge:item/mega_matter_cell_housing_orange" } }
     ]
   }
 }
