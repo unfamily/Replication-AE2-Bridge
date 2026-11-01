@@ -613,7 +613,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
     }
 
     public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots() {
-        if (level != null && level.isClientSide() && cachedRecipe == null && !clientRequiredMatter.isEmpty()) {
+        // Client never resolves cachedRecipe; Y amounts come only from synced matterRequired.
+        if (level != null && level.isClientSide()) {
             return matterBuffer.buildDisplayFromRequired(clientRequiredMatter);
         }
         return matterBuffer.buildDisplay(cachedRecipe);
@@ -730,6 +731,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
         if (level != null) {
             level.invalidateCapabilities(worldPosition);
         }
+        // Clear client-side Y requirements immediately when inputs no longer match a recipe.
+        syncToClient();
     }
 
     /**
@@ -1082,9 +1085,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
             output.putInt("maxProgress", maxProgress);
             output.putBoolean("active", active);
             matterBuffer.save(output);
-            // Sync required Y for client GUI (recipe costs by id).
+            // Always write matterRequired (empty when no recipe) so the client clears stale Y values.
+            var req = output.childrenList("matterRequired");
             if (cachedRecipe != null) {
-                var req = output.childrenList("matterRequired");
                 for (MatterFoundryRecipe.MatterCost cost : cachedRecipe.getMatter()) {
                     ValueOutput child = req.addChild();
                     child.store("id", net.minecraft.resources.Identifier.CODEC, cost.matterId());
