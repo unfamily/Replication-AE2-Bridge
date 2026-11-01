@@ -12,10 +12,14 @@ import com.buuz135.replication.api.network.IMatterTanksSupplier;
 import com.buuz135.replication.network.MatterNetwork;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 
+import appeng.api.parts.IPartHost;
+
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
+import net.unfamily.repae2bridge.parts.CableRepAe2BridgePart;
 
 /**
  * Local-network matter helpers for bridge block/cable. Does not cross-link distinct
@@ -46,6 +50,19 @@ public final class BridgeMatterFederation {
             BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
             if (tile instanceof RepAE2BridgeBlockEntity) {
                 continue;
+            }
+            // Cable bridge exposes AE2 via Ae2MatterTank; treat like the fullblock bridge.
+            if (tile instanceof IPartHost host) {
+                boolean hasCableBridge = false;
+                for (Direction face : Direction.values()) {
+                    if (host.getPart(face) instanceof CableRepAe2BridgePart) {
+                        hasCableBridge = true;
+                        break;
+                    }
+                }
+                if (hasCableBridge) {
+                    continue;
+                }
             }
             consumer.accept(element);
         }

@@ -100,7 +100,8 @@ import java.util.Objects;
 public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBlockEntity>
         implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost,
         IPriorityHost, IMatterTanksSupplier, IMatterTanksConsumer,
-        net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost {
+        net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost,
+        net.unfamily.repae2bridge.ae2.Ae2MatterHost {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 

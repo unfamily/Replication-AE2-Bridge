@@ -34,10 +34,12 @@ import appeng.api.parts.IPartItem;
 import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.KeyCounter;
+import appeng.api.networking.storage.IStorageService;
 import appeng.api.storage.IStorageMounts;
 import appeng.api.storage.IStorageProvider;
 import appeng.api.storage.MEStorage;
 import appeng.api.util.AECableType;
+import appeng.me.helpers.MachineSource;
 import appeng.menu.MenuOpener;
 import appeng.menu.locator.MenuLocators;
 import appeng.parts.AEBasePart;
@@ -56,6 +58,8 @@ import com.buuz135.replication.network.MatterNetwork;
 import com.hrznstudio.titanium.block_network.NetworkManager;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 
+import net.unfamily.repae2bridge.ae2.Ae2MatterHost;
+import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
 import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
@@ -68,11 +72,12 @@ import net.unfamily.repae2bridge.menu.BridgeMenu;
  * Exposes local-network matter to AE2 (storage + crafting patterns).
  */
 public class CableRepAe2BridgePart extends AEBasePart
-        implements IRepAe2BridgeHost, IStorageProvider, ICraftingProvider, IGridTickable {
+        implements IRepAe2BridgeHost, IStorageProvider, ICraftingProvider, IGridTickable, Ae2MatterHost {
 
     private boolean feedReplicationEnergy = true;
     private int priority;
     private final MatterItemsStorage matterItemsStorage = new MatterItemsStorage();
+    private List<Ae2MatterTank> ae2MatterTanks;
 
     public CableRepAe2BridgePart(IPartItem<?> partItem) {
         super(partItem);
@@ -168,6 +173,129 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (getMainNode().isReady()) {
             ICraftingProvider.requestUpdate(getMainNode());
             IStorageProvider.requestUpdate(getMainNode());
+        }
+    }
+
+    /** Virtual AE2 cell tanks exposed to Replication via CableBus mixin. */
+    public List<? extends Ae2MatterTank> getAe2MatterTanks() {
+        return getOrCreateAe2MatterTanks();
+    }
+
+    private List<Ae2MatterTank> getOrCreateAe2MatterTanks() {
+        int expected = 0;
+        for (IMatterType type : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+            if (type != null && !type.equals(MatterType.EMPTY)) {
+                expected++;
+            }
+        }
+        if (ae2MatterTanks == null || ae2MatterTanks.size() != expected) {
+            List<Ae2MatterTank> tanks = new ArrayList<>();
+            for (IMatterType type : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
+                if (type == null || type.equals(MatterType.EMPTY)) {
+                    continue;
+                }
+                tanks.add(new Ae2MatterTank(this, type));
+            }
+            ae2MatterTanks = tanks;
+        }
+        return ae2MatterTanks;
+    }
+
+    @Override
+    public long getAe2MatterAmount(IMatterType type) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || !getMainNode().isReady()) {
+            return 0;
+        }
+        IGrid grid = getMainNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        var stacks = storage.getInventory().getAvailableStacks();
+        long amount = stacks.get(key);
+        if (amount <= 0) {
+            long sum = 0;
+            for (var entry : stacks) {
+                if (key.equals(entry.getKey())) {
+                    sum += entry.getLongValue();
+                }
+            }
+            amount = sum;
+        }
+        long externalLocal = BridgeMatterFederation.sumPhysicalMatter(
+                BridgeMatterFederation.localHolders(getMatterNetwork(), getBlockPos()), type);
+        return Math.max(0, amount - externalLocal);
+    }
+
+    @Override
+    public long getAe2MatterFreeSpace(IMatterType type) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || !getMainNode().isReady()) {
+            return 0;
+        }
+        IGrid grid = getMainNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        long probe = 1_000_000_000L;
+        return Math.max(0, storage.getInventory().insert(key, probe, Actionable.SIMULATE, new MachineSource(this)));
+    }
+
+    @Override
+    public long insertAe2Matter(IMatterType type, long amount, boolean simulate) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || amount <= 0 || !getMainNode().isReady()) {
+            return 0;
+        }
+        IGrid grid = getMainNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        return storage.getInventory().insert(
+                key, amount, simulate ? Actionable.SIMULATE : Actionable.MODULATE, new MachineSource(this));
+    }
+
+    @Override
+    public long extractAe2Matter(IMatterType type, long amount, boolean simulate) {
+        ReplicationMatterKey key = ReplicationMatterKey.of(type);
+        if (key == null || amount <= 0 || !getMainNode().isReady()) {
+            return 0;
+        }
+        IGrid grid = getMainNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return 0;
+        }
+        return storage.getInventory().extract(
+                key, amount, simulate ? Actionable.SIMULATE : Actionable.MODULATE, new MachineSource(this));
+    }
+
+    @Override
+    public void notifyAe2MatterChanged(IMatterType type) {
+        MatterNetwork network = getMatterNetwork();
+        if (network != null && type != null && !type.equals(MatterType.EMPTY)) {
+            network.onTankValueChanged(type);
+        }
+        if (getMainNode().isReady()) {
+            IStorageProvider.requestUpdate(getMainNode());
+        }
+        if (getHost() != null) {
+            getHost().markForSave();
         }
     }
 
@@ -528,6 +656,11 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
     }
 
+    /** Public so device-federation can force Titanium registration if AE2 came up first. */
+    public void ensureMatterNetworkRegistered() {
+        registerMatterElement();
+    }
+
     private void registerMatterElement() {
         Level level = getLevel();
         BlockPos pos = getBlockPos();
@@ -535,7 +668,20 @@ public class CableRepAe2BridgePart extends AEBasePart
             return;
         }
         NetworkManager manager = NetworkManager.get(level);
-        if (manager == null || manager.getElement(pos) != null) {
+        if (manager == null) {
+            return;
+        }
+        NetworkElement existing = manager.getElement(pos);
+        if (existing != null) {
+            // Re-queue if this cable was classified before Ae2MatterTank exposure existed.
+            if (existing.getNetwork() instanceof MatterNetwork matter) {
+                var access = (net.unfamily.repae2bridge.mixin.MatterNetworkAccessor) (Object) matter;
+                List<NetworkElement> holders = access.rep_ae2_bridge$getMatterStacksHoldersRaw();
+                List<NetworkElement> queue = access.rep_ae2_bridge$getQueueNetworkElementsRaw();
+                if (holders != null && queue != null && !holders.contains(existing) && !queue.contains(existing)) {
+                    queue.add(existing);
+                }
+            }
             return;
         }
         try {

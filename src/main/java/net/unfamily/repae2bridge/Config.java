@@ -20,6 +20,11 @@ public class Config {
             .comment("Idle AE/t drain of the Bridge AE2 node")
             .defineInRange("000_bridgeEnergyConsumption", 500, 0, Integer.MAX_VALUE);
 
+    private static final ModConfigSpec.BooleanValue FEDERATE_DEVICES_ACROSS_AE2 = BUILDER
+            .comment("When multiple bridges share one AE2 grid, expose chip storages and replicators",
+                    "across distinct Replication pipe networks (terminal + craft workers).")
+            .define("001_federateDevicesAcrossAe2", true);
+
     static {
         BUILDER.pop();
         BUILDER.comment("Matter storage cells").push("matter_cells");
@@ -125,6 +130,7 @@ public class Config {
     static final ModConfigSpec SPEC = BUILDER.build();
 
     public static int bridgeEnergyConsumption;
+    public static boolean federateDevicesAcrossAe2 = true;
     public static int matterCellMaxTypes;
     public static int matterAssemblerMaxProgress;
     public static int matterAssemblerEnergyPerTick;
@@ -146,6 +152,7 @@ public class Config {
     @SubscribeEvent
     static void onLoad(final ModConfigEvent event) {
         bridgeEnergyConsumption = BRIDGE_ENERGY_CONSUMPTION.get();
+        federateDevicesAcrossAe2 = FEDERATE_DEVICES_ACROSS_AE2.get();
         matterCellMaxTypes = MATTER_CELL_MAX_TYPES.get();
         matterAssemblerMaxProgress = MATTER_ASSEMBLER_MAX_PROGRESS.get();
         matterAssemblerEnergyPerTick = MATTER_ASSEMBLER_ENERGY_PER_TICK.get();

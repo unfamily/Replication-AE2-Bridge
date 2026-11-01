@@ -13,7 +13,11 @@
     "PatternEncodingTermMenuMixin",
     "CraftingCpuLogicMixin",
     "MatterPipeBlockMixin",
-    "GuideMeSceneCompilersMixin"
+    "GuideMeSceneCompilersMixin",
+    "MatterNetworkAccessor",
+    "MatterNetworkDeviceFederationMixin",
+    "ReplicationTaskManagerFederationMixin",
+    "CableBusBridgeMatterMixin"
   ],
   "client": [
     "PatternEncodingTermScreenMixin",
