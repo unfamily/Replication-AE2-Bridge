@@ -1,0 +1,13 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    {
+      "item": "rep_ae2_bridge:fluixing_replica_alloy_block"
+    }
+  ],
+  "result": {
+    "id": "rep_ae2_bridge:fluixing_replica_alloy",
+    "count": 9
+  }
+}

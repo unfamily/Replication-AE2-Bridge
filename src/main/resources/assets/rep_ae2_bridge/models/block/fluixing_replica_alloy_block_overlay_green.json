@@ -1,0 +1,22 @@
+{
+  "parent": "minecraft:block/block",
+  "render_type": "minecraft:cutout",
+  "textures": {
+    "particle": "rep_ae2_bridge:block/fluixing_replica_alloy_block_overlay_green",
+    "overlay": "rep_ae2_bridge:block/fluixing_replica_alloy_block_overlay_green"
+  },
+  "elements": [
+    {
+      "from": [0, 0, 0],
+      "to": [16, 16, 16],
+      "faces": {
+        "north": {"uv": [0, 0, 16, 16], "texture": "#overlay", "tintindex": 0, "cullface": "north"},
+        "east":  {"uv": [0, 0, 16, 16], "texture": "#overlay", "tintindex": 0, "cullface": "east"},
+        "south": {"uv": [0, 0, 16, 16], "texture": "#overlay", "tintindex": 0, "cullface": "south"},
+        "west":  {"uv": [0, 0, 16, 16], "texture": "#overlay", "tintindex": 0, "cullface": "west"},
+        "up":    {"uv": [0, 0, 16, 16], "texture": "#overlay", "tintindex": 0, "cullface": "up"},
+        "down":  {"uv": [0, 0, 16, 16], "texture": "#overlay", "tintindex": 0, "cullface": "down"}
+      }
+    }
+  ]
+}

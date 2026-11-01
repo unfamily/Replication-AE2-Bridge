@@ -33,6 +33,10 @@ public class ModBlockEntities {
             BLOCK_ENTITIES.register("chamber_frame", () -> BlockEntityType.Builder.of(
                     ChamberFrameBlockEntity::new, ModBlocks.CHAMBER_FRAME.get()).build(null));
 
+    public static final Supplier<BlockEntityType<FluixingReplicaAlloyBlockEntity>> FLUIXING_REPLICA_ALLOY_BLOCK_BE =
+            BLOCK_ENTITIES.register("fluixing_replica_alloy_block", () -> BlockEntityType.Builder.of(
+                    FluixingReplicaAlloyBlockEntity::new, ModBlocks.FLUIXING_REPLICA_ALLOY_BLOCK.get()).build(null));
+
     public static void register(IEventBus eventBus) {
         BLOCK_ENTITIES.register(eventBus);
     }

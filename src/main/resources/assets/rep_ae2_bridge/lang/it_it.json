@@ -8,6 +8,7 @@
   "item.rep_ae2_bridge.living": "Vivente",
   "item.rep_ae2_bridge.quantum": "Quantica",
   "block.rep_ae2_bridge.rep_ae2_bridge": "Ponte AE2-Replication",
+  "item.rep_ae2_bridge.cable_rep_ae2_bridge": "Ponte AE2-Replication",
   "block.rep_ae2_bridge.repae2bridge": "Ponte RepAE2",
   "item.rep_ae2_bridge.repae2bridge": "Ponte RepAE2",
   "item.rep_ae2_bridge.custom_matter": "%s",
@@ -48,5 +49,6 @@
   "item.rep_ae2_bridge.guide": "Guida Replication AE2 Bridge",
   "tooltip.rep_ae2_bridge.guide.line0": "Manuale GuideME di questo addon",
   "gui.rep_ae2_bridge.matter_encoding": "Pattern di disintegrazione materia",
-  "gui.rep_ae2_bridge.matter_encoding.primary_output": "Output primario (craftabile AE2)"
+  "gui.rep_ae2_bridge.matter_encoding.primary_output": "Output primario (craftabile AE2)",
+  "block.rep_ae2_bridge.fluixing_replica_alloy_block": "Blocco di Lega Replica Fluixing"
 }

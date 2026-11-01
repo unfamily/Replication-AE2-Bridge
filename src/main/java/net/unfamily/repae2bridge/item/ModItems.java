@@ -1,11 +1,16 @@
 package net.unfamily.repae2bridge.item;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
+import net.unfamily.repae2bridge.parts.CableRepAe2BridgePart;
 import net.minecraft.world.item.Item;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 import net.minecraft.core.registries.BuiltInRegistries;
+
+import appeng.api.parts.PartModels;
+import appeng.items.parts.PartItem;
+import appeng.items.parts.PartModelsHelper;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -47,6 +52,14 @@ public class ModItems {
 
     public static final DeferredHolder<Item, Item> FLUIXING_REPLICA_ALLOY = ITEMS.register("fluixing_replica_alloy",
         () -> new Item(new Item.Properties()));
+
+    public static final DeferredHolder<Item, PartItem<CableRepAe2BridgePart>> CABLE_REP_AE2_BRIDGE = ITEMS.register(
+            "cable_rep_ae2_bridge",
+            () -> new PartItem<>(new Item.Properties(), CableRepAe2BridgePart.class, CableRepAe2BridgePart::new));
+
+    static {
+        PartModels.registerModels(PartModelsHelper.createModels(CableRepAe2BridgePart.class));
+    }
 
     public static final DeferredHolder<Item, Item> REPLICA_PROCESSOR = ITEMS.register("replica_processor",
         () -> new Item(new Item.Properties()));

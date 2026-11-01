@@ -1,0 +1,17 @@
+{
+  "parent": "rep_ae2_bridge:block/fluixing_replica_alloy_block_green",
+  "overrides": [
+    {
+      "predicate": {
+        "rep_ae2_bridge:irregular_pulse": 0.5
+      },
+      "model": "rep_ae2_bridge:item/fluixing_replica_alloy_block_purple"
+    },
+    {
+      "predicate": {
+        "rep_ae2_bridge:irregular_pulse": 1.0
+      },
+      "model": "rep_ae2_bridge:item/fluixing_replica_alloy_block_orange"
+    }
+  ]
+}

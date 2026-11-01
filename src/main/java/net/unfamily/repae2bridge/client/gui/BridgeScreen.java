@@ -14,7 +14,7 @@ import guideme.PageAnchor;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
 
 /**
- * Bridge screen: energy-feed lever (AECheckbox) + priority tab; no player inventory.
+ * Bridge screen: energy-feed checkbox + priority tab.
  */
 public class BridgeScreen extends AEBaseScreen<BridgeMenu> {
 
@@ -30,6 +30,7 @@ public class BridgeScreen extends AEBaseScreen<BridgeMenu> {
                 });
         this.feedEnergyCheckbox.setChangeListener(
                 () -> menu.setFeedReplicationEnergy(this.feedEnergyCheckbox.isSelected()));
+
         widgets.addOpenPriorityButton();
     }
 

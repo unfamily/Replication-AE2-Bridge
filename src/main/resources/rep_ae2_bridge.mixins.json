@@ -14,7 +14,12 @@
       "ConfigInventoryMixin",
       "PatternEncodingLogicMixin",
       "PatternEncodingTermMenuMixin",
-      "CraftingCpuLogicMixin"
+      "CraftingCpuLogicMixin",
+      "MatterPipeBlockMixin",
+      "MatterNetworkAccessor",
+      "MatterNetworkDeviceFederationMixin",
+      "ReplicationTaskManagerFederationMixin",
+      "CableBusBridgeMatterMixin"
     ],
     "client": [
       "SpriteLoaderMixin",

@@ -17,7 +17,22 @@ public final class IrregularPulseProperty {
     }
 
     public static float get(ItemStack stack, @Nullable ClientLevel level, @Nullable LivingEntity entity, int seed) {
-        long time = level != null ? level.getGameTime() : 0L;
+        return phaseValue(level != null ? level.getGameTime() : 0L, seed);
+    }
+
+    /** 0 = green/stand, 1 = purple/normal, 2 = orange/fast. */
+    public static int overlayIndex(long gameTime, int seed) {
+        float value = phaseValue(gameTime, seed);
+        if (value >= 1.0F) {
+            return 2;
+        }
+        if (value >= 0.5F) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static float phaseValue(long time, int seed) {
         long t = time + (seed * 31L);
         long window = t / 80L;
         int hash = Long.hashCode(window * 0x9E3779B97F4A7C15L + seed);

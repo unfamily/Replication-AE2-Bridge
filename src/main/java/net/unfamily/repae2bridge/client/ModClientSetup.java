@@ -22,6 +22,7 @@ import net.neoforged.neoforge.client.model.geometry.StandaloneGeometryBakingCont
 import appeng.init.client.InitScreens;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
+import net.unfamily.repae2bridge.block.ModBlocks;
 import net.unfamily.repae2bridge.block.entity.ModBlockEntities;
 import net.unfamily.repae2bridge.client.gui.BridgeScreen;
 import net.unfamily.repae2bridge.client.gui.MatterAssemblerScreen;
@@ -31,6 +32,7 @@ import net.unfamily.repae2bridge.client.item.MatterCrystalPulseProperty;
 import net.unfamily.repae2bridge.client.model.CustomMatterItemModel;
 import net.unfamily.repae2bridge.client.particle.GreenFlameParticle;
 import net.unfamily.repae2bridge.client.render.ReplicationUnitFormedModel;
+import net.unfamily.repae2bridge.client.renderer.FluixingReplicaAlloyRenderer;
 import net.unfamily.repae2bridge.client.renderer.MatterAssemblerRenderer;
 import net.unfamily.repae2bridge.client.renderer.ReplicationUnitRenderer;
 import net.unfamily.repae2bridge.item.CustomMatterItem;
@@ -70,11 +72,20 @@ public class ModClientSetup {
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.MATTER_ASSEMBLER_BE.get(), MatterAssemblerRenderer::new);
         event.registerBlockEntityRenderer(ModBlockEntities.REPLICATION_UNIT_BE.get(), ReplicationUnitRenderer::new);
+        event.registerBlockEntityRenderer(ModBlockEntities.FLUIXING_REPLICA_ALLOY_BLOCK_BE.get(),
+                FluixingReplicaAlloyRenderer::new);
     }
 
     @SubscribeEvent
     public static void registerParticleProviders(RegisterParticleProvidersEvent event) {
         event.registerSpriteSet(ModParticles.GREEN_FLAME.get(), GreenFlameParticle.Provider::new);
+    }
+
+    @SubscribeEvent
+    public static void registerAdditionalModels(ModelEvent.RegisterAdditional event) {
+        event.register(FluixingReplicaAlloyRenderer.GREEN);
+        event.register(FluixingReplicaAlloyRenderer.PURPLE);
+        event.register(FluixingReplicaAlloyRenderer.ORANGE);
     }
 
     @SubscribeEvent
@@ -133,6 +144,8 @@ public class ModClientSetup {
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
             ItemProperties.register(ModItems.FLUIXING_REPLICA_ALLOY.get(), IRREGULAR_PULSE,
+                    IrregularPulseProperty::get);
+            ItemProperties.register(ModBlocks.FLUIXING_REPLICA_ALLOY_BLOCK.asItem(), IRREGULAR_PULSE,
                     IrregularPulseProperty::get);
             ItemProperties.register(ModItems.REPLICA_PROCESSOR.get(), IRREGULAR_PULSE,
                     IrregularPulseProperty::get);

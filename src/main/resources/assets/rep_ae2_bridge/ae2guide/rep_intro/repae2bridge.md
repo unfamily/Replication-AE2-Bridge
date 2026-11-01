@@ -7,6 +7,7 @@ categories:
 - rep_bridge_components
 item_ids:
 - rep_ae2_bridge:rep_ae2_bridge
+- rep_ae2_bridge:cable_rep_ae2_bridge
 ---
 
 # ME-Replication Bridge
@@ -16,6 +17,8 @@ item_ids:
 </Row>
 
 The RepAE2Bridge is a component that connects the AE2 ME system with the Replication matter network, providing seamless integration between the two systems.
+
+It is also available as a cable part (`cable_rep_ae2_bridge`) that mounts on an ME cable bus; craft it shapelessly from the full block (and back). Matter pipes connect to the part's external face.
 
 ## Features
 

@@ -59,6 +59,14 @@ public class ModBlocks {
                 .forceSolidOn()
                 .noOcclusion()));
 
+    public static final DeferredBlock<Block> FLUIXING_REPLICA_ALLOY_BLOCK = registerBlock(
+            "fluixing_replica_alloy_block",
+            () -> new FluixingReplicaAlloyBlock(BlockBehaviour.Properties.of()
+                .strength(3.0F, 6.0F)
+                .mapColor(MapColor.COLOR_PURPLE)
+                .sound(SoundType.METAL)
+                .requiresCorrectToolForDrops()));
+
     private static <T extends Block> DeferredBlock<T> registerBlock(String name, Supplier<T> block) {
         DeferredBlock<T> toReturn = BLOCKS.register(name, block);
         registerBlockItem(name, toReturn);

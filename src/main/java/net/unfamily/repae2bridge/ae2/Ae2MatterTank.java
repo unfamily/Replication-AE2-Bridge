@@ -9,21 +9,19 @@ import com.buuz135.replication.api.matter_fluid.MatterStack;
 
 import net.neoforged.neoforge.fluids.capability.IFluidHandler;
 
-import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
-
 /**
- * Virtual Replication matter tank backed by AE2 {@link ReplicationMatterKey} storage on the bridge grid.
+ * Virtual Replication matter tank backed by AE2 {@link ReplicationMatterKey} storage.
  */
 public final class Ae2MatterTank implements IMatterTank {
 
     /** Soft cap so Replication UI math stays sane with creative cells. */
     private static final double DISPLAY_CAP = 1_000_000_000_000d;
 
-    private final RepAE2BridgeBlockEntity bridge;
+    private final Ae2MatterHost host;
     private final IMatterType matterType;
 
-    public Ae2MatterTank(RepAE2BridgeBlockEntity bridge, IMatterType matterType) {
-        this.bridge = bridge;
+    public Ae2MatterTank(Ae2MatterHost host, IMatterType matterType) {
+        this.host = host;
         this.matterType = matterType;
     }
 
@@ -36,7 +34,7 @@ public final class Ae2MatterTank implements IMatterTank {
         if (matterType == null || matterType.equals(MatterType.EMPTY)) {
             return MatterStack.EMPTY;
         }
-        long amount = bridge.getAe2MatterAmount(matterType);
+        long amount = host.getAe2MatterAmount(matterType);
         if (amount <= 0) {
             return MatterStack.EMPTY;
         }
@@ -50,8 +48,8 @@ public final class Ae2MatterTank implements IMatterTank {
 
     @Override
     public double getCapacity() {
-        long stored = bridge.getAe2MatterAmount(matterType);
-        long free = bridge.getAe2MatterFreeSpace(matterType);
+        long stored = host.getAe2MatterAmount(matterType);
+        long free = host.getAe2MatterFreeSpace(matterType);
         double capacity = (double) stored + (double) free;
         if (capacity <= 0) {
             return DISPLAY_CAP;
@@ -73,9 +71,9 @@ public final class Ae2MatterTank implements IMatterTank {
         if (amount <= 0) {
             return 0;
         }
-        long inserted = bridge.insertAe2Matter(matterType, amount, !action.execute());
+        long inserted = host.insertAe2Matter(matterType, amount, !action.execute());
         if (inserted > 0 && action.execute()) {
-            bridge.notifyAe2MatterChanged(matterType);
+            host.notifyAe2MatterChanged(matterType);
         }
         return inserted;
     }
@@ -89,12 +87,12 @@ public final class Ae2MatterTank implements IMatterTank {
         if (amount <= 0) {
             return MatterStack.EMPTY;
         }
-        long extracted = bridge.extractAe2Matter(matterType, amount, !action.execute());
+        long extracted = host.extractAe2Matter(matterType, amount, !action.execute());
         if (extracted <= 0) {
             return MatterStack.EMPTY;
         }
         if (action.execute()) {
-            bridge.notifyAe2MatterChanged(matterType);
+            host.notifyAe2MatterChanged(matterType);
         }
         return new MatterStack(matterType, extracted);
     }
