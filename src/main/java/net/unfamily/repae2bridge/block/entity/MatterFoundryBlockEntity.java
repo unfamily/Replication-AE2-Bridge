@@ -578,17 +578,29 @@ public class MatterFoundryBlockEntity extends BlockEntity
     }
 
     /**
-     * GUI helper: same as {@link #getMatterDisplaySlots()} but forces Y=0 when {@code showRequired}
-     * is false (no valid recipe matched from menu slots — drops stale synced Y).
+     * GUI helper: only recipe-required matter slots (X buffer / Y required, including {@code 0/Y}).
+     * Pass {@code null} when inputs do not match — hide buffer contents (may exceed 18 types).
+     * Y comes from the recipe (client menu match), X from the live buffer.
      */
-    public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots(boolean showRequired) {
-        if (level != null && level.isClientSide()) {
-            if (!showRequired) {
-                return matterBuffer.buildDisplayFromRequired(Map.of());
-            }
-            return matterBuffer.buildDisplayFromRequired(clientRequiredMatter);
+    public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots(@Nullable MatterFoundryRecipe recipe) {
+        if (recipe == null) {
+            // No valid recipe: do not list buffered types (buffer can hold more than 18 display slots).
+            return java.util.Collections.nCopies(
+                    FoundryMatterBuffer.MAX_TYPES, new FoundryMatterBuffer.DisplaySlot(null, 0, 0));
         }
-        return matterBuffer.buildDisplay(showRequired ? cachedRecipe : null);
+        java.util.LinkedHashMap<ResourceLocation, Integer> required = new java.util.LinkedHashMap<>();
+        for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
+            if (cost.amount() <= 0) {
+                continue;
+            }
+            required.put(cost.matterId(), cost.amount());
+            // Ensure matter-info cache knows this id (icon resolve on client).
+            if (cost.resolve() == null) {
+                net.unfamily.repae2bridge.util.MatterTypeUtil.getMatterInfoById(cost.matterId());
+            }
+        }
+        // Recipe types only — do not append extra buffered types outside the recipe.
+        return matterBuffer.buildDisplayFromRequiredRecipeOnly(required);
     }
 
     @Nullable

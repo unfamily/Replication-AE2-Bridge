@@ -84,9 +84,10 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
         int relMouseX = mouseX - offsetX;
         int relMouseY = mouseY - offsetY;
 
-        // Menu slots are synced; BE clientRequiredMatter can lag — never show Y without a match.
-        boolean showRequired = menuHasValidFoundryRecipe();
-        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots(showRequired);
+        // Resolve Y from the matched recipe via menu slots (synced). Do not rely on BE
+        // clientRequiredMatter alone — it can lag empty and hide 0/Y.
+        MatterFoundryRecipe matched = findMenuFoundryRecipe();
+        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots(matched);
         for (int i = 0; i < Math.min(FoundryMatterBuffer.MAX_TYPES, slots.size()); i++) {
             FoundryMatterBuffer.DisplaySlot slot = slots.get(i);
             if (slot.isEmpty()) {
@@ -111,11 +112,12 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
             }
 
             long xAmt = (long) Math.floor(slot.buffered());
-            long yAmt = showRequired ? (long) Math.ceil(slot.required()) : 0L;
-            // Always X/Y while a recipe requirement exists (including 0/Y).
-            String label = yAmt > 0
-                    ? formatCompact(xAmt) + "/" + formatCompact(yAmt)
-                    : formatCompact(xAmt);
+            long yAmt = (long) Math.ceil(slot.required());
+            // Recipe slots only: always X/Y (X = buffer now, may be > Y; including 0/Y).
+            if (yAmt <= 0) {
+                continue;
+            }
+            String label = formatCompact(xAmt) + "/" + formatCompact(yAmt);
             // Overlay on the icon (bottom of 16×16), same style as 26 GUI.
             drawSmallWhiteLabel(guiGraphics, label, itemX, itemY + 11);
 
@@ -130,12 +132,13 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
     }
 
     /**
-     * Uses menu input slots (container-synced) so stale BE {@code matterRequired} cannot show Y
-     * when the player has already cleared/changed inputs.
+     * Uses menu input slots (container-synced) to resolve the active Foundry recipe.
+     * Returns null when inputs are empty or do not match — then Y must not be shown.
      */
-    private boolean menuHasValidFoundryRecipe() {
+    @Nullable
+    private MatterFoundryRecipe findMenuFoundryRecipe() {
         if (getPlayer().level() == null) {
-            return false;
+            return null;
         }
         List<Slot> inputs = menu.getFoundryInputSlots();
         ItemStack[] stacks = new ItemStack[inputs.size()];
@@ -147,16 +150,16 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
             }
         }
         if (!hasAny) {
-            return false;
+            return null;
         }
         MatterFoundryRecipeInput input = new MatterFoundryRecipeInput(stacks);
         var level = getPlayer().level();
         for (var holder : level.getRecipeManager().getAllRecipesFor(ModRecipes.MATTER_FOUNDRY_TYPE.get())) {
             if (holder.value().matches(input, level)) {
-                return true;
+                return holder.value();
             }
         }
-        return false;
+        return null;
     }
 
     private void drawSmallWhiteLabel(GuiGraphics guiGraphics, String label, int x, int y) {
