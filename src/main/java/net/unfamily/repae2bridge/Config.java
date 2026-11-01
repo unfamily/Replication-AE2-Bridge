@@ -53,20 +53,16 @@ public class Config {
     }
 
     private static final ModConfigSpec.IntValue MATTER_FOUNDRY_ENERGY_PER_TICK = BUILDER
-            .comment("FE/t drained from the internal FE buffer (or converted from AE) while the foundry is working.")
+            .comment("FE/t drained from the internal FE buffer (or converted from AE via AE2 PowerUnit) while the foundry is working.")
             .defineInRange("000_matterFoundryEnergyPerTick", 40, 0, Integer.MAX_VALUE);
-
-    private static final ModConfigSpec.DoubleValue MATTER_FOUNDRY_FE_PER_AE = BUILDER
-            .comment("FE cost for 1 AE extracted from the AE2 grid when no FE is buffered.")
-            .defineInRange("001_matterFoundryFePerAe", 2.0, 0.1, 100.0);
 
     private static final ModConfigSpec.IntValue MATTER_FOUNDRY_FE_CAPACITY = BUILDER
             .comment("Internal FE buffer capacity of the Matter Foundry.")
-            .defineInRange("002_matterFoundryFeCapacity", 100_000, 1000, Integer.MAX_VALUE);
+            .defineInRange("001_matterFoundryFeCapacity", 100_000, 1000, Integer.MAX_VALUE);
 
     private static final ModConfigSpec.BooleanValue MATTER_FOUNDRY_LOGGING = BUILDER
             .comment("Enable Matter Foundry debug logging.")
-            .define("003_matterFoundryLogging", false);
+            .define("002_matterFoundryLogging", false);
 
     static {
         BUILDER.pop();
@@ -135,7 +131,6 @@ public class Config {
     public static int matterAssemblerMaxProgress;
     public static int matterAssemblerEnergyPerTick;
     public static int matterFoundryEnergyPerTick;
-    public static double matterFoundryFePerAe;
     public static int matterFoundryFeCapacity;
     public static boolean matterFoundryLogging;
     public static int chamberMinSize;
@@ -157,7 +152,6 @@ public class Config {
         matterAssemblerMaxProgress = MATTER_ASSEMBLER_MAX_PROGRESS.get();
         matterAssemblerEnergyPerTick = MATTER_ASSEMBLER_ENERGY_PER_TICK.get();
         matterFoundryEnergyPerTick = MATTER_FOUNDRY_ENERGY_PER_TICK.get();
-        matterFoundryFePerAe = MATTER_FOUNDRY_FE_PER_AE.get();
         matterFoundryFeCapacity = MATTER_FOUNDRY_FE_CAPACITY.get();
         matterFoundryLogging = MATTER_FOUNDRY_LOGGING.get();
         chamberMinSize = CHAMBER_MIN_SIZE.get();

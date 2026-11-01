@@ -328,6 +328,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public static void setWorldUnloading(boolean unloading, @Nullable net.minecraft.world.level.Level level, @Nullable BlockPos pos) {
         // Only log once when set to true or if more than 15 seconds have passed
         if (unloading && !worldUnloading) {
+            // Raise the flag FIRST so ticks / neighbor updates cannot re-register during disconnect
+            worldUnloading = true;
+
             // First time it's set to true - always log
             String dimensionInfo = level != null ? 
                 " [Dimension: " + level.dimension().identifier() + "]" : "";
@@ -346,6 +349,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             // This prevents the NetworkManager from trying to save bridges during world unload
             LOGGER.info("RepAE2Bridge: Disconnecting {} active bridges from AE2 and Titanium/Replication networks", activeBridges.size());
             disconnectAllBridgesFromNetworks();
+            // Cable bridges are not BlockEntities — disconnect them from Titanium/Replication too
+            net.unfamily.repae2bridge.parts.CableRepAe2BridgePart.disconnectAllCableBridgesFromNetworks();
             
         } else if (!unloading && worldUnloading) {
             // State changed from true to false - always log
@@ -357,8 +362,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.info("GLOBAL WORLD UNLOADING FLAG SET TO: false - Normal operation resumed{}{}", 
                        dimensionInfo, positionInfo);
             worldUnloadingWarningsHidden = 0; // Reset counter
+            worldUnloading = false;
+        } else {
+            worldUnloading = unloading;
         }
-        worldUnloading = unloading;
     }
 
     /**

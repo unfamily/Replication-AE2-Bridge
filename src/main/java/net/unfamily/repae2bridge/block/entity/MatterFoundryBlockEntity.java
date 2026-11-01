@@ -48,6 +48,7 @@ import org.slf4j.Logger;
 
 import appeng.api.config.Actionable;
 import appeng.api.config.PowerMultiplier;
+import appeng.api.config.PowerUnit;
 import appeng.api.config.Setting;
 import appeng.api.config.Settings;
 import appeng.api.config.YesNo;
@@ -497,9 +498,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
             var grid = mainNode.getGrid();
             if (grid != null) {
                 IEnergyService energy = grid.getEnergyService();
-                double aeNeeded = remaining / Config.matterFoundryFePerAe;
+                double aeNeeded = PowerUnit.FE.convertTo(PowerUnit.AE, remaining);
                 double aeExtracted = energy.extractAEPower(aeNeeded, Actionable.MODULATE, PowerMultiplier.CONFIG);
-                fromBuffer += (int) (aeExtracted * Config.matterFoundryFePerAe);
+                fromBuffer += (int) PowerUnit.AE.convertTo(PowerUnit.FE, aeExtracted);
             }
         }
         return Math.min(fromBuffer, feAmount);

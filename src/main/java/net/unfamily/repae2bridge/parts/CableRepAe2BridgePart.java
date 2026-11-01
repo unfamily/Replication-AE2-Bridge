@@ -1,9 +1,14 @@
 package net.unfamily.repae2bridge.parts;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.jetbrains.annotations.Nullable;
+import org.slf4j.Logger;
+
+import com.mojang.logging.LogUtils;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -58,6 +63,7 @@ import com.buuz135.replication.network.MatterNetwork;
 import com.hrznstudio.titanium.block_network.NetworkManager;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 
+import net.unfamily.repae2bridge.Config;
 import net.unfamily.repae2bridge.ae2.Ae2MatterHost;
 import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
 import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
@@ -73,6 +79,11 @@ import net.unfamily.repae2bridge.menu.BridgeMenu;
  */
 public class CableRepAe2BridgePart extends AEBasePart
         implements IRepAe2BridgeHost, IStorageProvider, ICraftingProvider, IGridTickable, Ae2MatterHost {
+
+    private static final Logger LOGGER = LogUtils.getLogger();
+
+    /** Active cable bridges — used to force Titanium disconnect during world unload. */
+    private static final Set<CableRepAe2BridgePart> activeCableBridges = new HashSet<>();
 
     private boolean feedReplicationEnergy = true;
     private int priority;
@@ -120,6 +131,20 @@ public class CableRepAe2BridgePart extends AEBasePart
     @Override
     public void addToWorld() {
         super.addToWorld();
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: addToWorld skipped network join — world unloading",
+                        getLocationInfo());
+            }
+            return;
+        }
+        if (!isClientSide()) {
+            activeCableBridges.add(this);
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Registered in active cable bridges (total: {})",
+                        getLocationInfo(), activeCableBridges.size());
+            }
+        }
         registerMatterElement();
         notifyAdjacentPipes();
         if (getMainNode().isReady()) {
@@ -130,9 +155,113 @@ public class CableRepAe2BridgePart extends AEBasePart
 
     @Override
     public void removeFromWorld() {
-        unregisterMatterElementIfOrphaned();
-        notifyAdjacentPipes();
+        boolean unloading = RepAE2BridgeBlockEntity.isWorldUnloading();
+        if (!isClientSide()) {
+            activeCableBridges.remove(this);
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Removed from active cable bridges (remaining: {})",
+                        getLocationInfo(), activeCableBridges.size());
+            }
+        }
+        if (unloading) {
+            // Force remove + skip pipe neighbor updates — neighborChanged during save hangs Titanium
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: removeFromWorld during unload — force disconnect, skip pipe notify",
+                        getLocationInfo());
+            }
+            disconnectFromMatterNetwork();
+        } else {
+            unregisterMatterElementIfOrphaned();
+            notifyAdjacentPipes();
+        }
         super.removeFromWorld();
+    }
+
+    private String getLocationInfo() {
+        Level level = getLevel();
+        BlockPos pos = getBlockPos();
+        Direction side = getSide();
+        String dim = level != null ? level.dimension().identifier().toString() : "unknown";
+        String face = side != null ? side.getSerializedName() : "unknown";
+        return " [Dimension: " + dim + "] [Position: " + pos.getX() + ", " + pos.getY() + ", "
+                + pos.getZ() + "] [Side: " + face + "]";
+    }
+
+    /**
+     * Force-remove this cable's matter network element (no orphan check).
+     * Used during world unload so Titanium NetworkManager does not hang.
+     */
+    public void disconnectFromMatterNetwork() {
+        Level level = getLevel();
+        BlockPos pos = getBlockPos();
+        if (level == null || level.isClientSide() || pos.equals(BlockPos.ZERO)) {
+            return;
+        }
+        try {
+            NetworkManager manager = NetworkManager.get(level);
+            if (manager != null) {
+                NetworkElement element = manager.getElement(pos);
+                if (element != null) {
+                    LOGGER.info("CableBridge{}: Removing from Titanium/Replication NetworkManager",
+                            getLocationInfo());
+                    manager.removeElement(pos);
+                    LOGGER.info("CableBridge{}: Titanium/Replication network disconnected",
+                            getLocationInfo());
+                } else if (Config.enableDebugLogging) {
+                    LOGGER.info("CableBridge{}: No matter network element to remove", getLocationInfo());
+                }
+            }
+        } catch (Exception e) {
+            LOGGER.warn("CableBridge{}: Error disconnecting from Titanium/Replication network: {}",
+                    getLocationInfo(), e.getMessage());
+        }
+    }
+
+    /**
+     * Disconnect all active cable bridges from Titanium/Replication during world unloading.
+     */
+    public static void disconnectAllCableBridgesFromNetworks() {
+        List<CableRepAe2BridgePart> parts = new ArrayList<>(activeCableBridges);
+        LOGGER.info("CableRepAe2Bridge: Starting matter network disconnection for {} cable bridges",
+                parts.size());
+
+        int disconnected = 0;
+        int failed = 0;
+        Set<String> clearedPositions = new HashSet<>();
+
+        for (CableRepAe2BridgePart part : parts) {
+            try {
+                Level level = part.getLevel();
+                BlockPos pos = part.getBlockPos();
+                if (level == null || pos.equals(BlockPos.ZERO)) {
+                    if (Config.enableDebugLogging) {
+                        LOGGER.info("CableRepAe2Bridge: Skipping cable bridge with invalid level/pos{}",
+                                part.getLocationInfo());
+                    }
+                    continue;
+                }
+                // One NetworkManager entry per cable-bus position — remove once
+                String posKey = level.dimension().identifier() + "|" + pos.asLong();
+                if (!clearedPositions.add(posKey)) {
+                    if (Config.enableDebugLogging) {
+                        LOGGER.info("CableRepAe2Bridge: Skipping duplicate pos for cable bridge at {}",
+                                part.getLocationInfo());
+                    }
+                    continue;
+                }
+                LOGGER.info("CableRepAe2Bridge: Disconnecting cable bridge at {}",
+                        part.getLocationInfo());
+                part.disconnectFromMatterNetwork();
+                disconnected++;
+            } catch (Exception e) {
+                LOGGER.warn("CableRepAe2Bridge: Failed to disconnect cable bridge: {}", e.getMessage());
+                failed++;
+            }
+        }
+
+        activeCableBridges.clear();
+        LOGGER.info("CableRepAe2Bridge: Cable matter network disconnection completed - {} successful, {} failed",
+                disconnected, failed);
     }
 
     @Override
@@ -590,7 +719,17 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (isClientSide()) {
             return TickRateModulation.SLEEP;
         }
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Tick skipped — world unloading", getLocationInfo());
+            }
+            return TickRateModulation.SLEEP;
+        }
         if (getMatterNetwork() == null) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Matter network missing — attempting register",
+                        getLocationInfo());
+            }
             registerMatterElement();
         }
         feedEnergyToMatterNetwork();
@@ -662,6 +801,13 @@ public class CableRepAe2BridgePart extends AEBasePart
     }
 
     private void registerMatterElement() {
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Skipping matter register — world unloading",
+                        getLocationInfo());
+            }
+            return;
+        }
         Level level = getLevel();
         BlockPos pos = getBlockPos();
         if (level == null || level.isClientSide() || pos.equals(BlockPos.ZERO)) {
@@ -669,6 +815,10 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
         NetworkManager manager = NetworkManager.get(level);
         if (manager == null) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: NetworkManager unavailable — defer register",
+                        getLocationInfo());
+            }
             return;
         }
         NetworkElement existing = manager.getElement(pos);
@@ -680,6 +830,10 @@ public class CableRepAe2BridgePart extends AEBasePart
                 List<NetworkElement> queue = access.rep_ae2_bridge$getQueueNetworkElementsRaw();
                 if (holders != null && queue != null && !holders.contains(existing) && !queue.contains(existing)) {
                     queue.add(existing);
+                    if (Config.enableDebugLogging) {
+                        LOGGER.info("CableBridge{}: Re-queued existing matter element for tank exposure",
+                                getLocationInfo());
+                    }
                 }
             }
             return;
@@ -707,7 +861,14 @@ public class CableRepAe2BridgePart extends AEBasePart
                     return false;
                 }
             });
-        } catch (RuntimeException ignored) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Registered matter network element", getLocationInfo());
+            }
+        } catch (RuntimeException e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Matter register deferred ({}): {}",
+                        getLocationInfo(), e.getClass().getSimpleName(), e.getMessage());
+            }
         }
     }
 
@@ -717,11 +878,19 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (level == null || level.isClientSide() || pos.equals(BlockPos.ZERO)) {
             return;
         }
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            disconnectFromMatterNetwork();
+            return;
+        }
         BlockEntity be = level.getBlockEntity(pos);
         if (be instanceof IPartHost host) {
             for (Direction face : Direction.values()) {
                 IPart part = host.getPart(face);
                 if (part instanceof CableRepAe2BridgePart && part != this) {
+                    if (Config.enableDebugLogging) {
+                        LOGGER.info("CableBridge{}: Orphan unregister skipped — sibling on {} remains",
+                                getLocationInfo(), face.getSerializedName());
+                    }
                     return;
                 }
             }
@@ -730,12 +899,27 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (manager != null && manager.getElement(pos) != null) {
             try {
                 manager.removeElement(pos);
-            } catch (RuntimeException ignored) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.info("CableBridge{}: Unregistered orphaned matter network element",
+                            getLocationInfo());
+                }
+            } catch (RuntimeException e) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.info("CableBridge{}: Orphan unregister failed ({}): {}",
+                            getLocationInfo(), e.getClass().getSimpleName(), e.getMessage());
+                }
             }
         }
     }
 
     private void notifyAdjacentPipes() {
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Skipping pipe neighbor notify — world unloading",
+                        getLocationInfo());
+            }
+            return;
+        }
         Level level = getLevel();
         BlockPos pos = getBlockPos();
         Direction side = getSide();
@@ -743,6 +927,9 @@ public class CableRepAe2BridgePart extends AEBasePart
             return;
         }
         BlockPos pipePos = pos.relative(side);
+        if (Config.enableDebugLogging) {
+            LOGGER.info("CableBridge{}: Notifying adjacent pipe at {}", getLocationInfo(), pipePos);
+        }
         level.neighborChanged(pipePos, level.getBlockState(pos).getBlock(), null);
     }
 }
