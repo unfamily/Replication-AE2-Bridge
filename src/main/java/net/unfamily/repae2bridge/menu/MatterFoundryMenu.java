@@ -102,6 +102,8 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
             craftingMaxProgress = getHost().getMaxProgress();
             energyStored = getHost().getFeStored();
             energyCapacity = Math.max(1, getHost().getFeCapacity());
+            // Push matter X/Y (and clear stale Y when no recipe) while the GUI is open.
+            getHost().syncMatterDisplayToClient();
         }
         super.broadcastChanges();
     }

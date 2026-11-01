@@ -226,7 +226,11 @@ public class MatterTypeUtil {
         if (name.equalsIgnoreCase("precious")) return ModItems.PRECIOUS_MATTER.get();
         if (name.equalsIgnoreCase("living")) return ModItems.LIVING_MATTER.get();
         if (name.equalsIgnoreCase("quantum")) return ModItems.QUANTUM_MATTER.get();
-        return ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
+        Item custom = ServerLifecycleEventHandler.getCustomMatterToItemMap().get(type);
+        if (custom != null) {
+            return custom;
+        }
+        return DynamicMatterRegistry.getMatterItem(type);
     }
 
     public static boolean isMatterCacheEmpty() {

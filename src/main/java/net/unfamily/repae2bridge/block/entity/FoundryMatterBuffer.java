@@ -63,6 +63,16 @@ public final class FoundryMatterBuffer {
         return amounts.isEmpty();
     }
 
+    /** Cheap fingerprint for GUI sync (buffer X changes). */
+    public int displaySyncHash() {
+        int hash = amounts.size();
+        for (Map.Entry<ResourceLocation, Double> e : amounts.entrySet()) {
+            hash = 31 * hash + e.getKey().hashCode();
+            hash = 31 * hash + Double.hashCode(e.getValue());
+        }
+        return hash;
+    }
+
     public double getRequired(@Nullable MatterFoundryRecipe recipe, IMatterType type) {
         if (recipe == null || type == null) {
             return 0;

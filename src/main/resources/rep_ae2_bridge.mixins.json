@@ -26,7 +26,8 @@
       "RepoMixin",
       "PatternEncodingTermScreenMixin",
       "ProcessingEncodingPanelMixin",
-      "EncodePatternTransferHandlerMixin"
+      "EmiEncodePatternHandlerMixin",
+      "ReiEncodePatternTransferHandlerMixin"
     ],
     "injectors": {
       "defaultRequire": 1

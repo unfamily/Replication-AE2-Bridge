@@ -76,8 +76,11 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
         if (!(menu.getHost() instanceof MatterFoundryBlockEntity foundry)) {
             return;
         }
+        // drawFG runs with pose translated to (leftPos, topPos); mouse args are screen-absolute.
+        int relMouseX = mouseX - offsetX;
+        int relMouseY = mouseY - offsetY;
+
         List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots();
-        var font = this.font;
         for (int i = 0; i < Math.min(FoundryMatterBuffer.MAX_TYPES, slots.size()); i++) {
             FoundryMatterBuffer.DisplaySlot slot = slots.get(i);
             if (slot.isEmpty()) {
@@ -90,29 +93,32 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
             }
             int x = MATTER_ORIGIN_X + col * MATTER_SLOT_W;
             int y = MATTER_ORIGIN_Y + row * MATTER_SLOT_H;
+            int itemX = x + 1;
+            int itemY = y;
 
             if (slot.type() != null) {
                 var displayItem = MatterTypeUtil.getDisplayItemForMatterType(slot.type());
                 if (displayItem != null) {
-                    ItemStack icon = new ItemStack(displayItem);
-                    guiGraphics.renderItem(icon, x + 1, y);
+                    // No itemDecorations — X/Y is drawn as overlay on the icon.
+                    guiGraphics.renderItem(new ItemStack(displayItem), itemX, itemY);
                 }
             }
 
             long xAmt = (long) Math.floor(slot.buffered());
             long yAmt = (long) Math.ceil(slot.required());
+            // Always X/Y while a recipe requirement exists (including 0/Y).
             String label = yAmt > 0
                     ? formatCompact(xAmt) + "/" + formatCompact(yAmt)
                     : formatCompact(xAmt);
-            drawSmallWhiteLabel(guiGraphics, label, x + 1, y + MATTER_SLOT_H - 5);
+            // Overlay on the icon (bottom of 16×16), same style as 26 GUI.
+            drawSmallWhiteLabel(guiGraphics, label, itemX, itemY + 11);
 
-            int absX = offsetX + x;
-            int absY = offsetY + y;
-            if (mouseX >= absX && mouseX < absX + MATTER_SLOT_W
-                    && mouseY >= absY && mouseY < absY + MATTER_SLOT_H) {
+            if (relMouseX >= x && relMouseX < x + MATTER_SLOT_W
+                    && relMouseY >= y && relMouseY < y + MATTER_SLOT_H) {
                 String name = slot.type() != null ? slot.type().getName() : "?";
                 String full = yAmt > 0 ? (xAmt + "/" + yAmt) : String.valueOf(xAmt);
-                drawTooltip(guiGraphics, mouseX, mouseY, List.of(Component.literal(name + ": " + full)));
+                // Relative coords: pose is already translated in renderLabels.
+                drawTooltip(guiGraphics, relMouseX, relMouseY, List.of(Component.literal(name + ": " + full)));
             }
         }
     }
@@ -120,7 +126,7 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
     private void drawSmallWhiteLabel(GuiGraphics guiGraphics, String label, int x, int y) {
         var poseStack = guiGraphics.pose();
         poseStack.pushPose();
-        poseStack.translate(x, y, 0);
+        poseStack.translate(x, y, 200);
         poseStack.scale(LABEL_SCALE, LABEL_SCALE, 1.0f);
         guiGraphics.drawString(this.font, label, 0, 0, LABEL_COLOR, true);
         poseStack.popPose();

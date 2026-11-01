@@ -1,6 +1,7 @@
 package net.unfamily.repae2bridge.compat.rei;
 
 import java.util.List;
+import java.util.Locale;
 
 import me.shedaniel.math.Point;
 import me.shedaniel.math.Rectangle;
@@ -11,8 +12,11 @@ import me.shedaniel.rei.api.client.registry.display.DisplayCategory;
 import me.shedaniel.rei.api.common.category.CategoryIdentifier;
 import me.shedaniel.rei.api.common.util.EntryStacks;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+
+import appeng.client.gui.me.common.StackSizeRenderer;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
 import net.unfamily.repae2bridge.block.ModBlocks;
@@ -61,14 +65,21 @@ public class MatterFoundryReiCategory implements DisplayCategory<MatterFoundryRe
         }
 
         int m = 0;
+        List<Long> amounts = display.getMatterAmounts();
         for (var matter : display.getMatterInputs()) {
             if (m >= FoundryRecipeLayout.MAX_MATTER_SLOTS) {
                 break;
             }
-            widgets.add(Widgets.createSlot(new Point(
-                            ox + FoundryRecipeLayout.matterX(m),
-                            oy + FoundryRecipeLayout.matterY(m)))
-                    .entries(matter).markInput());
+            int slotX = ox + FoundryRecipeLayout.matterX(m);
+            int slotY = oy + FoundryRecipeLayout.matterY(m);
+            widgets.add(Widgets.createSlot(new Point(slotX, slotY)).entries(matter));
+            long amount = m < amounts.size() ? amounts.get(m) : 0L;
+            String label = formatCompact(Math.max(0L, amount));
+            int itemX = slotX + FoundryRecipeLayout.ITEM_INSET;
+            int itemY = slotY + FoundryRecipeLayout.ITEM_INSET;
+            widgets.add(Widgets.createDrawableWidget((graphics, mouseX, mouseY, delta) ->
+                    StackSizeRenderer.renderSizeLabel(
+                            graphics, Minecraft.getInstance().font, itemX, itemY, label)));
             m++;
         }
 
@@ -91,5 +102,25 @@ public class MatterFoundryReiCategory implements DisplayCategory<MatterFoundryRe
     @Override
     public int getDisplayWidth(MatterFoundryReiDisplay display) {
         return FoundryRecipeLayout.WIDTH;
+    }
+
+    private static String formatCompact(long amount) {
+        if (amount < 1_000L) {
+            return Long.toString(amount);
+        }
+        double scaled = amount;
+        char[] suffixes = { 'k', 'M', 'B', 'T' };
+        int suffix = -1;
+        while (scaled >= 1_000d && suffix < suffixes.length - 1) {
+            scaled /= 1_000d;
+            suffix++;
+        }
+        String number = scaled >= 100d
+                ? String.format(Locale.ROOT, "%.0f", scaled)
+                : String.format(Locale.ROOT, "%.1f", scaled);
+        if (number.endsWith(".0")) {
+            number = number.substring(0, number.length() - 2);
+        }
+        return number + suffixes[suffix];
     }
 }

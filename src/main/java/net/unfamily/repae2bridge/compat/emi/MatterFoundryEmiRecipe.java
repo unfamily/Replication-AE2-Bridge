@@ -2,6 +2,7 @@ package net.unfamily.repae2bridge.compat.emi;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -28,6 +29,7 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
     private final RecipeHolder<MatterFoundryRecipe> holder;
     private final List<EmiIngredient> itemInputs = new ArrayList<>();
     private final List<EmiIngredient> matterInputs = new ArrayList<>();
+    private final List<Long> matterAmounts = new ArrayList<>();
     private final List<EmiStack> outputs = new ArrayList<>();
 
     public MatterFoundryEmiRecipe(RecipeHolder<MatterFoundryRecipe> holder) {
@@ -49,12 +51,21 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
             }
             var display = MatterTypeUtil.getDisplayItemForMatterType(type);
             if (display != null) {
-                ItemStack stack = new ItemStack(display);
-                stack.setCount(Math.max(1, (int) Math.ceil(cost.amount())));
-                matterInputs.add(EmiStack.of(stack));
+                // Count stays 1; amount is drawn as AE2-style overlay in addWidgets().
+                matterInputs.add(EmiStack.of(new ItemStack(display)));
+                matterAmounts.add((long) Math.ceil(cost.amount()));
             }
         }
         outputs.add(EmiStack.of(recipe.getResultItem()));
+    }
+
+    public MatterFoundryRecipe getRecipe() {
+        return holder.value();
+    }
+
+    @Override
+    public @Nullable RecipeHolder<?> getBackingRecipe() {
+        return holder;
     }
 
     @Override
@@ -107,7 +118,16 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
             if (m >= FoundryRecipeLayout.MAX_MATTER_SLOTS) {
                 break;
             }
-            widgets.addSlot(matter, FoundryRecipeLayout.matterX(m), FoundryRecipeLayout.matterY(m));
+            int slotX = FoundryRecipeLayout.matterX(m);
+            int slotY = FoundryRecipeLayout.matterY(m);
+            widgets.addSlot(matter, slotX, slotY);
+            long amount = m < matterAmounts.size() ? matterAmounts.get(m) : 0L;
+            String label = formatCompact(Math.max(0L, amount));
+            int itemX = slotX + FoundryRecipeLayout.ITEM_INSET;
+            int itemY = slotY + FoundryRecipeLayout.ITEM_INSET;
+            widgets.addDrawable(itemX, itemY, 16, 16, (gui, mouseX, mouseY, delta) ->
+                    appeng.client.gui.me.common.StackSizeRenderer.renderSizeLabel(
+                            gui, net.minecraft.client.Minecraft.getInstance().font, itemX, itemY, label));
             m++;
         }
 
@@ -117,5 +137,25 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
                 FoundryRecipeLayout.TEXT_MARGIN, FoundryRecipeLayout.TEXT_ENERGY_Y, 0xFF404040, false);
         widgets.addText(Component.literal(ticks + " t"),
                 FoundryRecipeLayout.TEXT_MARGIN, FoundryRecipeLayout.TEXT_TIME_Y, 0xFF404040, false);
+    }
+
+    private static String formatCompact(long amount) {
+        if (amount < 1_000L) {
+            return Long.toString(amount);
+        }
+        double scaled = amount;
+        char[] suffixes = { 'k', 'M', 'B', 'T' };
+        int suffix = -1;
+        while (scaled >= 1_000d && suffix < suffixes.length - 1) {
+            scaled /= 1_000d;
+            suffix++;
+        }
+        String number = scaled >= 100d
+                ? String.format(Locale.ROOT, "%.0f", scaled)
+                : String.format(Locale.ROOT, "%.1f", scaled);
+        if (number.endsWith(".0")) {
+            number = number.substring(0, number.length() - 2);
+        }
+        return number + suffixes[suffix];
     }
 }

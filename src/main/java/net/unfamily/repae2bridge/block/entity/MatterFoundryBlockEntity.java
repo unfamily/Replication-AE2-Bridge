@@ -160,6 +160,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
     private final java.util.LinkedHashMap<net.minecraft.resources.ResourceLocation, Integer> clientRequiredMatter =
             new java.util.LinkedHashMap<>();
 
+    /** Last synced fingerprint for open-GUI matter display (recipe Y + buffer X). */
+    private int lastMatterDisplaySyncHash = Integer.MIN_VALUE;
+
     public MatterFoundryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.MATTER_FOUNDRY_BE.get(), pos, state);
         this.feBuffer = new EnergyStorage(
@@ -969,8 +972,28 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     private void syncToClient() {
         if (level != null && !level.isClientSide()) {
+            // Invalidate hash so the next open-GUI poll still resends if needed.
+            lastMatterDisplaySyncHash = Integer.MIN_VALUE;
             level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
         }
+    }
+
+    /**
+     * Keep open GUIs updated (buffer X + recipe Y). No-ops when nothing changed.
+     * Clears stale Y on the client when {@code cachedRecipe} becomes null.
+     */
+    public void syncMatterDisplayToClient() {
+        if (level == null || level.isClientSide()) {
+            return;
+        }
+        int hash = java.util.Objects.hash(
+                cachedRecipe == null ? null : cachedRecipe.hashCode(),
+                matterBuffer.displaySyncHash());
+        if (hash == lastMatterDisplaySyncHash) {
+            return;
+        }
+        lastMatterDisplaySyncHash = hash;
+        level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
     }
 
     // ── Serialization ──────────────────────────────────────────────────────

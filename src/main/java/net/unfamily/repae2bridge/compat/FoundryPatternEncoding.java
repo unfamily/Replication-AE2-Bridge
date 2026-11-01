@@ -7,8 +7,10 @@ import java.util.Objects;
 import appeng.api.stacks.GenericStack;
 import appeng.integration.modules.itemlists.EncodingHelper;
 import appeng.menu.me.items.PatternEncodingTermMenu;
+import appeng.parts.encoding.EncodingMode;
 
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
+import net.unfamily.repae2bridge.menu.MatterEncodingMenuAccess;
 import net.unfamily.repae2bridge.recipe.MatterFoundryRecipe;
 
 /**
@@ -21,6 +23,12 @@ public final class FoundryPatternEncoding {
     }
 
     public static void encodeToTerminal(PatternEncodingTermMenu menu, MatterFoundryRecipe recipe) {
+        // Leave the matter-disintegration tab so AE2 processing slots accept stacked inputs.
+        if (menu instanceof MatterEncodingMenuAccess access && access.repAe2Bridge$isMatterMode()) {
+            access.repAe2Bridge$setMatterMode(false);
+        }
+        menu.setMode(EncodingMode.PROCESSING);
+
         List<List<GenericStack>> inputs = new ArrayList<>();
 
         for (MatterFoundryRecipe.CountedIngredient counted : recipe.getInputs()) {

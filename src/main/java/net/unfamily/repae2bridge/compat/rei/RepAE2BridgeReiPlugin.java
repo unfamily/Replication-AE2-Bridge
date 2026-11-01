@@ -29,7 +29,8 @@ public class RepAE2BridgeReiPlugin implements REIClientPlugin {
     @Override
     public void registerDisplays(DisplayRegistry registry) {
         for (var holder : FoundryRecipeLists.collect()) {
-            registry.add(new MatterFoundryReiDisplay(holder));
+            // Keep RecipeHolder as display origin so AE2/REI transfer can resolve the recipe.
+            registry.add(new MatterFoundryReiDisplay(holder), holder);
         }
     }
 
@@ -45,6 +46,7 @@ public class RepAE2BridgeReiPlugin implements REIClientPlugin {
     @Override
     public void registerTransferHandlers(TransferHandlerRegistry registry) {
         registry.register(new MatterFoundryReiTransferHandler());
+        registry.register(new FoundryPatternReiTransferHandler());
     }
 
     @Override

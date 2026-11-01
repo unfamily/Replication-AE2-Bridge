@@ -55,8 +55,11 @@ public class RepAE2BridgeJeiPlugin implements IModPlugin {
 
     @Override
     public void registerRecipeTransferHandlers(IRecipeTransferRegistration registration) {
-        // + button: item inputs only (matter slots are RENDER_ONLY).
+        // Foundry GUI +: item inputs only (matter slots are RENDER_ONLY).
         registration.addRecipeTransferHandler(new MatterFoundryTransferInfo());
+        // Pattern Encoding Terminal +: processing mode with items + matter keys.
+        registration.addRecipeTransferHandler(new FoundryPatternEncodeTransferHandler(),
+                MatterFoundryRecipeCategory.RECIPE_TYPE);
     }
 
     @Override
