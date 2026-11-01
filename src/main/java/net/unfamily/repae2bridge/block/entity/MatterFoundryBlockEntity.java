@@ -565,7 +565,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
     }
 
     public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots() {
-        if (level != null && level.isClientSide() && cachedRecipe == null && !clientRequiredMatter.isEmpty()) {
+        // Client never resolves cachedRecipe; Y amounts come only from synced matterRequired.
+        if (level != null && level.isClientSide()) {
             return matterBuffer.buildDisplayFromRequired(clientRequiredMatter);
         }
         return matterBuffer.buildDisplay(cachedRecipe);
@@ -682,9 +683,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
         cachedRecipe = null;
         recipeChecked = false;
         setChanged();
-        if (level != null) {
-            setChanged();
-        }
+        // Clear client-side Y requirements immediately when inputs no longer match a recipe.
+        syncToClient();
     }
 
     /**
@@ -1024,16 +1024,17 @@ public class MatterFoundryBlockEntity extends BlockEntity
         tag.putInt("maxProgress", maxProgress);
         tag.putBoolean("active", active);
         matterBuffer.save(tag, registries);
+        // Always write matterRequired (empty when no recipe) so the client clears stale Y values.
+        ListTag req = new ListTag();
         if (cachedRecipe != null) {
-            ListTag req = new ListTag();
             for (MatterFoundryRecipe.MatterCost cost : cachedRecipe.getMatter()) {
                 CompoundTag child = new CompoundTag();
                 child.putString("id", cost.matterId().toString());
                 child.putInt("amount", cost.amount());
                 req.add(child);
             }
-            tag.put("matterRequired", req);
         }
+        tag.put("matterRequired", req);
         return tag;
     }
 
