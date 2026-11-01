@@ -8,6 +8,7 @@ categories:
 - rep_bridge_components
 item_ids:
 - rep_ae2_bridge:rep_ae2_bridge
+- rep_ae2_bridge:cable_rep_ae2_bridge
 ---
 
 # Ponte AE2–Replication
@@ -17,6 +18,8 @@ item_ids:
 </Row>
 
 Il Ponte è il collegamento tra la tua **rete ME** e una **rete di materia Replication**. Posizionalo dove entrambe possono raggiungerlo: un cavo ME da un lato, un tubo di materia dall’altro.
+
+È disponibile anche come parte cavo (`cable_rep_ae2_bridge`) sul cable bus ME; si crafta shapeless dal blocco (e viceversa). I tubi di materia si collegano alla faccia esterna della parte.
 
 ## Cosa fa
 

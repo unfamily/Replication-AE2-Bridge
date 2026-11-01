@@ -17,7 +17,7 @@ import net.unfamily.repae2bridge.RepAE2Bridge;
 
 /**
  * Opens the standalone GuideME guide for this addon (not AE2's guide).
- * AEBaseScreen only indexes AE2's guide, so addon screens need this after leaving ae2guide.
+ * AEBaseScreen only indexes AE2's guide, so addon screens open ours explicitly.
  */
 final class AddonGuideHelp {
 
