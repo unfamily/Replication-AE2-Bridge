@@ -19,17 +19,29 @@ public record IrregularPulseProperty() implements RangeSelectItemModelProperty {
 
     @Override
     public float get(ItemStack stack, @Nullable ClientLevel level, @Nullable ItemOwner owner, int seed) {
-        long time = level != null ? level.getGameTime() : 0L;
-        // Mix seed so different stacks desync slightly.
+        return phaseValue(level != null ? level.getGameTime() : 0L, seed);
+    }
+
+    /** 0 = green/stand, 1 = purple/normal, 2 = orange/fast. */
+    public static int overlayIndex(long gameTime, int seed) {
+        float value = phaseValue(gameTime, seed);
+        if (value >= 1.5F) {
+            return 2;
+        }
+        if (value >= 0.5F) {
+            return 1;
+        }
+        return 0;
+    }
+
+    private static float phaseValue(long time, int seed) {
         long t = time + (seed * 31L);
-        // ~80 tick windows; within each window pick phase from a cheap hash.
         long window = t / 80L;
         int hash = Long.hashCode(window * 0x9E3779B97F4A7C15L + seed);
         int roll = Math.floorMod(hash, 100);
         if (roll < 20) {
-            return 2.0F; // occasional fast (reverse sprite phase)
+            return 2.0F;
         }
-        // Alternate stand/normal with occasional sticky repeats.
         boolean sticky = Math.floorMod(hash >> 8, 5) == 0;
         boolean odd = (window & 1L) != 0L;
         if (sticky) {

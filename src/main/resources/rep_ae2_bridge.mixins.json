@@ -11,7 +11,9 @@
     "ConfigInventoryMixin",
     "PatternEncodingLogicMixin",
     "PatternEncodingTermMenuMixin",
-    "CraftingCpuLogicMixin"
+    "CraftingCpuLogicMixin",
+    "MatterPipeBlockMixin",
+    "GuideMeSceneCompilersMixin"
   ],
   "client": [
     "PatternEncodingTermScreenMixin",

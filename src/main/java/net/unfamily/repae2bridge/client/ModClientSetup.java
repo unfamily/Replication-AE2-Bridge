@@ -5,10 +5,12 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
+import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterBlockStateModels;
 import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 import net.neoforged.neoforge.client.event.RegisterRangeSelectItemModelPropertyEvent;
+import net.neoforged.neoforge.client.model.standalone.SimpleUnbakedStandaloneModel;
 
 import appeng.client.InitScreens;
 
@@ -21,6 +23,7 @@ import net.unfamily.repae2bridge.client.item.IrregularPulseProperty;
 import net.unfamily.repae2bridge.client.item.MatterCrystalPulseProperty;
 import net.unfamily.repae2bridge.client.particle.GreenFlameParticle;
 import net.unfamily.repae2bridge.client.render.ReplicationUnitCubeModel;
+import net.unfamily.repae2bridge.client.renderer.FluixingReplicaAlloyRenderer;
 import net.unfamily.repae2bridge.client.renderer.MatterAssemblerRenderer;
 import net.unfamily.repae2bridge.client.renderer.ReplicationUnitRenderer;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
@@ -47,6 +50,8 @@ public class ModClientSetup {
     public static void registerRenderers(EntityRenderersEvent.RegisterRenderers event) {
         event.registerBlockEntityRenderer(ModBlockEntities.MATTER_ASSEMBLER_BE.get(), MatterAssemblerRenderer::new);
         event.registerBlockEntityRenderer(ModBlockEntities.REPLICATION_UNIT_BE.get(), ReplicationUnitRenderer::new);
+        event.registerBlockEntityRenderer(ModBlockEntities.FLUIXING_REPLICA_ALLOY_BLOCK_BE.get(),
+                FluixingReplicaAlloyRenderer::new);
     }
 
     @SubscribeEvent
@@ -65,5 +70,15 @@ public class ModClientSetup {
     @SubscribeEvent
     public static void registerBlockStateModels(RegisterBlockStateModels event) {
         event.registerModel(ReplicationUnitCubeModel.Unbaked.ID, ReplicationUnitCubeModel.Unbaked.MAP_CODEC);
+    }
+
+    @SubscribeEvent
+    public static void registerStandaloneModels(ModelEvent.RegisterStandalone event) {
+        event.register(FluixingReplicaAlloyRenderer.GREEN,
+                SimpleUnbakedStandaloneModel.blockStateModel(FluixingReplicaAlloyRenderer.GREEN_ID));
+        event.register(FluixingReplicaAlloyRenderer.PURPLE,
+                SimpleUnbakedStandaloneModel.blockStateModel(FluixingReplicaAlloyRenderer.PURPLE_ID));
+        event.register(FluixingReplicaAlloyRenderer.ORANGE,
+                SimpleUnbakedStandaloneModel.blockStateModel(FluixingReplicaAlloyRenderer.ORANGE_ID));
     }
 }

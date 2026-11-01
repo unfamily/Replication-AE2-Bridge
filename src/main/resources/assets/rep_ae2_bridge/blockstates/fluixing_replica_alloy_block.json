@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "rep_ae2_bridge:block/fluixing_replica_alloy_block"
+    }
+  }
+}

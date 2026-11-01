@@ -1,0 +1,6 @@
+{
+  "model": {
+    "type": "ae2:model",
+    "model": "rep_ae2_bridge:part/cable_rep_ae2_bridge"
+  }
+}

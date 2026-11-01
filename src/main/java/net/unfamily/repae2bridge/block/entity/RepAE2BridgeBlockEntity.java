@@ -99,7 +99,8 @@ import java.util.Objects;
  */
 public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBlockEntity>
         implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost,
-        IPriorityHost, IMatterTanksSupplier, IMatterTanksConsumer {
+        IPriorityHost, IMatterTanksSupplier, IMatterTanksConsumer,
+        net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -2493,7 +2494,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (matterType == null || matterType.equals(MatterType.EMPTY)) {
                     continue;
                 }
-                long amount = calculateExternalMatterAmount(matterType);
+                // Mount only this bridge's local-network tanks.
+                long amount = calculateLocalExternalMatterAmount(matterType);
                 if (amount <= 0) {
                     continue;
                 }
@@ -2994,10 +2996,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return craftTank.getMatterAmount();
         }
         List<IMatterTanksConsumer> consumers = new ArrayList<>();
-        for (NetworkElement element : network.getMatterStacksHolders()) {
-            if (!element.getLevel().isLoaded(element.getPos()) || element.getPos().equals(worldPosition)) {
-                continue;
-            }
+        for (NetworkElement element : BridgeMatterFederation.localHolders(getNetwork(), getBlockPos())) {
             BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
             if (tile instanceof IMatterTanksConsumer consumer) {
                 consumers.add(consumer);
@@ -3714,17 +3713,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         var stacks = storage.getInventory().getAvailableStacks();
         long amount = stacks.get(key);
-        if (amount > 0) {
-            return amount;
-        }
-        // Fallback if KeyCounter primary-key identity ever mismatches equals().
-        long sum = 0;
-        for (var entry : stacks) {
-            if (key.equals(entry.getKey())) {
-                sum += entry.getLongValue();
+        if (amount <= 0) {
+            long sum = 0;
+            for (var entry : stacks) {
+                if (key.equals(entry.getKey())) {
+                    sum += entry.getLongValue();
+                }
             }
+            amount = sum;
         }
-        return Math.max(0, sum);
+        // Ae2MatterTank must not re-report physical tanks already counted by MatterNetwork.
+        long externalLocal = calculateLocalExternalMatterAmount(type);
+        return Math.max(0, amount - externalLocal);
     }
 
     public long getAe2MatterFreeSpace(IMatterType type) {
@@ -3830,33 +3830,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Matter visible to AE2 craft from external Replication tanks only.
-     * The craft absorb buffer is Replication-only ({@link #getTanks()}) — listing it in AE2
-     * made leftover buffer matter look like "still crafting" network stock.
+     * Local-network physical tanks only (AE2 mount).
+     */
+    private long calculateLocalExternalMatterAmount(IMatterType matterType) {
+        return BridgeMatterFederation.sumPhysicalMatter(
+                BridgeMatterFederation.localHolders(getNetwork(), getBlockPos()), matterType);
+    }
+
+    /**
+     * Federated physical tanks (AE2 extract / craft drain).
+     * Skips {@link Ae2MatterTank}; craft buffer is Replication-only via {@link #getTanks()}.
      */
     private long calculateExternalMatterAmount(IMatterType matterType) {
-        MatterNetwork network = getNetworkSafe();
-        if (network == null) {
-            return 0;
-        }
-        long amount = 0;
-        for (NetworkElement element : network.getMatterStacksHolders()) {
-            if (!element.getLevel().isLoaded(element.getPos())) {
-                continue;
-            }
-            if (element.getPos().equals(worldPosition)) {
-                continue;
-            }
-            BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
-            if (tile instanceof IMatterTanksSupplier tanksSupplier) {
-                for (IMatterTank tank : tanksSupplier.getTanks()) {
-                    if (!tank.getMatter().isEmpty() && tank.getMatter().getMatterType().equals(matterType)) {
-                        amount += (long) tank.getMatterAmount();
-                    }
-                }
-            }
-        }
-        return amount;
+        return BridgeMatterFederation.sumPhysicalMatter(
+                BridgeMatterFederation.localHolders(getNetwork(), getBlockPos()), matterType);
     }
 
     /**
@@ -3867,19 +3854,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (amount <= 0) {
             return 0;
         }
-        MatterNetwork network = getNetworkSafe();
-        if (network == null) {
-            return 0;
-        }
         long remaining = amount;
         long drainedTotal = 0;
 
-        for (NetworkElement element : network.getMatterStacksHolders()) {
+        for (NetworkElement element : BridgeMatterFederation.localHolders(getNetwork(), getBlockPos())) {
             if (remaining <= 0) {
                 break;
-            }
-            if (!element.getLevel().isLoaded(element.getPos()) || element.getPos().equals(worldPosition)) {
-                continue;
             }
             BlockEntity tile = element.getLevel().getBlockEntity(element.getPos());
             if (!(tile instanceof IMatterTanksSupplier tanksSupplier)) {
@@ -3888,6 +3868,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             for (IMatterTank tank : tanksSupplier.getTanks()) {
                 if (remaining <= 0) {
                     break;
+                }
+                if (tank instanceof Ae2MatterTank) {
+                    continue;
                 }
                 var content = tank.getMatter();
                 if (content.isEmpty() || !content.getMatterType().equals(matterType)) {
@@ -4102,6 +4085,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public void toggleFeedReplicationEnergy() {
         setFeedReplicationEnergy(!feedReplicationEnergy);
     }
+
+    public IManagedGridNode getMainNode() {
+        return mainNode;
+    }
+
 
     /**
      * Tracks matter creation by monitoring changes in matter amounts within the network
@@ -4375,21 +4363,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     private long availableMatterForCraft(MatterNetwork network, IMatterType type) {
         long total = 0;
-        boolean countedAe2 = false;
-        for (NetworkElement holderEl : network.getMatterStacksHolders()) {
-            if (!holderEl.getLevel().isLoaded(holderEl.getPos())) {
-                continue;
-            }
+        for (NetworkElement holderEl : BridgeMatterFederation.localHolders(getNetwork(), getBlockPos())) {
             var tile = holderEl.getLevel().getBlockEntity(holderEl.getPos());
             if (!(tile instanceof IMatterTanksSupplier supplier)) {
                 continue;
             }
             for (var tank : supplier.getTanks()) {
-                if (tank instanceof Ae2MatterTank ae2) {
-                    if (!countedAe2 && Objects.equals(ae2.getMatterType(), type)) {
-                        total += extractAe2Matter(type, Long.MAX_VALUE / 4, true);
-                        countedAe2 = true;
-                    }
+                if (tank instanceof Ae2MatterTank) {
                     continue;
                 }
                 var content = tank.getMatter();
@@ -4398,9 +4378,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
             }
         }
-        if (!countedAe2) {
-            total += extractAe2Matter(type, Long.MAX_VALUE / 4, true);
-        }
+        total += extractAe2Matter(type, Long.MAX_VALUE / 4, true);
         return total;
     }
 
@@ -4410,13 +4388,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         var action = execute
                 ? net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE
                 : net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.SIMULATE;
-        boolean drainedAe2 = false;
-        for (NetworkElement holderEl : network.getMatterStacksHolders()) {
+        for (NetworkElement holderEl : BridgeMatterFederation.localHolders(getNetwork(), getBlockPos())) {
             if (left <= 0) {
                 break;
-            }
-            if (!holderEl.getLevel().isLoaded(holderEl.getPos())) {
-                continue;
             }
             var tile = holderEl.getLevel().getBlockEntity(holderEl.getPos());
             if (!(tile instanceof IMatterTanksSupplier supplier)) {
@@ -4426,20 +4400,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (left <= 0) {
                     break;
                 }
-                if (tank instanceof Ae2MatterTank ae2) {
-                    if (drainedAe2 || !Objects.equals(ae2.getMatterType(), type)) {
-                        continue;
-                    }
-                    // Live extract — avoids stale getAvailableStacks() after pushPattern insert.
-                    long want = (long) Math.floor(left);
-                    long got = extractAe2Matter(type, want, !execute);
-                    if (got > 0) {
-                        left -= got;
-                        if (execute) {
-                            scheduleReplicationTankSync(type);
-                        }
-                    }
-                    drainedAe2 = true;
+                if (tank instanceof Ae2MatterTank) {
                     continue;
                 }
                 var content = tank.getMatter();
@@ -4452,12 +4413,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 left -= drained.getAmount();
             }
         }
-        if (left > 0.01 && !drainedAe2 && execute) {
+        if (left > 0.01) {
             long want = (long) Math.floor(left);
-            long got = extractAe2Matter(type, want, false);
+            long got = extractAe2Matter(type, want, !execute);
             if (got > 0) {
                 left -= got;
-                scheduleReplicationTankSync(type);
+                if (execute) {
+                    scheduleReplicationTankSync(type);
+                }
             }
         }
         return left;

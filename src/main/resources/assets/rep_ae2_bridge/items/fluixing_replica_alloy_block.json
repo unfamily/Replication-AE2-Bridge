@@ -1,0 +1,29 @@
+{
+  "model": {
+    "type": "minecraft:range_dispatch",
+    "property": "rep_ae2_bridge:irregular_pulse",
+    "entries": [
+      {
+        "threshold": 0.0,
+        "model": {
+          "type": "minecraft:model",
+          "model": "rep_ae2_bridge:item/fluixing_replica_alloy_block_green"
+        }
+      },
+      {
+        "threshold": 0.5,
+        "model": {
+          "type": "minecraft:model",
+          "model": "rep_ae2_bridge:item/fluixing_replica_alloy_block_purple"
+        }
+      },
+      {
+        "threshold": 1.5,
+        "model": {
+          "type": "minecraft:model",
+          "model": "rep_ae2_bridge:item/fluixing_replica_alloy_block_orange"
+        }
+      }
+    ]
+  }
+}

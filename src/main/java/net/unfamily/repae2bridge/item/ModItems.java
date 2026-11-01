@@ -1,10 +1,13 @@
 package net.unfamily.repae2bridge.item;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
+import net.unfamily.repae2bridge.parts.CableRepAe2BridgePart;
 import net.minecraft.world.item.Item;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.neoforge.registries.DeferredItem;
 import net.neoforged.neoforge.registries.DeferredRegister;
+
+import appeng.items.parts.PartItem;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -39,6 +42,10 @@ public class ModItems {
     public static final DeferredItem<Item> MATTER_CELL_HOUSING = ITEMS.registerItem("matter_cell_housing", Item::new);
 
     public static final DeferredItem<Item> FLUIXING_REPLICA_ALLOY = ITEMS.registerItem("fluixing_replica_alloy", Item::new);
+
+    public static final DeferredItem<PartItem<CableRepAe2BridgePart>> CABLE_REP_AE2_BRIDGE = ITEMS.registerItem(
+            "cable_rep_ae2_bridge",
+            props -> new PartItem<>(props, CableRepAe2BridgePart.class, CableRepAe2BridgePart::new));
 
     public static final DeferredItem<Item> REPLICA_PROCESSOR = ITEMS.registerItem("replica_processor", Item::new);
 

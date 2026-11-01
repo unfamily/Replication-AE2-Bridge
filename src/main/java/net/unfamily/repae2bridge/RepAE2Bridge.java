@@ -45,7 +45,6 @@ import net.unfamily.repae2bridge.ae2.MatterKeyType;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.matter.MatterBehaviors;
 import net.unfamily.repae2bridge.ae2.matter.MatterContainerItemStrategy;
-import net.unfamily.repae2bridge.client.MatterKeyRenderHandler;
 import net.neoforged.fml.ModList;
 import appeng.api.behaviors.ContainerItemStrategy;
 import net.unfamily.iskalib.crafting.RecipeBundleSplitter;
@@ -94,11 +93,6 @@ public class RepAE2Bridge
                 LOGGER.info("RepAE2Bridge: Registered AE2 matter key type");
             }
         });
-        modEventBus.addListener(this::onClientSetup);
-    }
-
-    private void onClientSetup(final FMLClientSetupEvent event) {
-        event.enqueueWork(MatterKeyRenderHandler::register);
     }
 
     private void commonSetup(final FMLCommonSetupEvent event)
@@ -251,7 +245,7 @@ public class RepAE2Bridge
         @SubscribeEvent
         public static void onClientSetup(FMLClientSetupEvent event)
         {
-            // LOGGER.info("RepAE2Bridge: Client setup");
+            event.enqueueWork(net.unfamily.repae2bridge.client.MatterKeyRenderHandler::register);
         }
     }
 

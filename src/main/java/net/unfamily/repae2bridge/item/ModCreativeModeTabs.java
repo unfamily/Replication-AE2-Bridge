@@ -35,11 +35,13 @@ public class ModCreativeModeTabs {
                                     output.accept(custom);
                                 }
                                 output.accept(ModBlocks.REPAE2BRIDGE.get());
+                                output.accept(ModItems.CABLE_REP_AE2_BRIDGE.get());
                                 output.accept(ModBlocks.MATTER_ASSEMBLER.get());
                                 output.accept(ModBlocks.MATTER_FOUNDRY.get());
                                 output.accept(ModBlocks.CHAMBER_FRAME.get());
                                 output.accept(ModBlocks.REPLICATION_UNIT.get());
                                 output.accept(ModItems.FLUIXING_REPLICA_ALLOY.get());
+                                output.accept(ModBlocks.FLUIXING_REPLICA_ALLOY_BLOCK.get());
                                 output.accept(ModItems.MATTER_INFUSED_CRYSTAL.get());
                                 output.accept(ModItems.REPLICA_PROCESSOR.get());
                                 output.accept(ModItems.MATTER_CELL_HOUSING.get());

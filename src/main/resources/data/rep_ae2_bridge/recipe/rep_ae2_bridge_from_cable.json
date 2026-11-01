@@ -1,0 +1,11 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    "rep_ae2_bridge:cable_rep_ae2_bridge"
+  ],
+  "result": {
+    "id": "rep_ae2_bridge:rep_ae2_bridge",
+    "count": 1
+  }
+}

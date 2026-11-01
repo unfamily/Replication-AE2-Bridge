@@ -11,10 +11,10 @@ import appeng.menu.guisync.GuiSync;
 import appeng.menu.implementations.MenuTypeBuilder;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
-import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
+import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
 
 /**
- * Bridge menu: energy-feed toggle only (no player inventory).
+ * Bridge menu: energy-feed toggle (no player inventory).
  */
 public class BridgeMenu extends AEBaseMenu {
 
@@ -22,15 +22,15 @@ public class BridgeMenu extends AEBaseMenu {
             new ClientActionKey<>("toggleEnergyFeed");
 
     public static final MenuType<BridgeMenu> TYPE = MenuTypeBuilder
-            .create(BridgeMenu::new, RepAE2BridgeBlockEntity.class)
+            .create(BridgeMenu::new, IRepAe2BridgeHost.class)
             .buildUnregistered(Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "bridge"));
 
-    private final RepAE2BridgeBlockEntity host;
+    private final IRepAe2BridgeHost host;
 
     @GuiSync(1)
     public boolean feedReplicationEnergy = true;
 
-    public BridgeMenu(int id, Inventory playerInventory, RepAE2BridgeBlockEntity host) {
+    public BridgeMenu(int id, Inventory playerInventory, IRepAe2BridgeHost host) {
         super(TYPE, id, playerInventory, host);
         this.host = host;
         registerClientAction(ACTION_TOGGLE_ENERGY_FEED, ByteBufCodecs.BOOL, this::setFeedReplicationEnergy);
@@ -44,7 +44,7 @@ public class BridgeMenu extends AEBaseMenu {
         super.broadcastChanges();
     }
 
-    public RepAE2BridgeBlockEntity getHost() {
+    public IRepAe2BridgeHost getHost() {
         return host;
     }
 

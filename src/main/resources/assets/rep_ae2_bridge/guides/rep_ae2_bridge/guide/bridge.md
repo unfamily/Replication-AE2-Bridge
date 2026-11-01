@@ -8,6 +8,7 @@ categories:
 - rep_bridge_components
 item_ids:
 - rep_ae2_bridge:rep_ae2_bridge
+- rep_ae2_bridge:cable_rep_ae2_bridge
 ---
 
 # AE2–Replication Bridge
@@ -17,6 +18,8 @@ item_ids:
 </Row>
 
 The Bridge is the link between your **ME network** and a **Replication matter network**. Place it where both can reach it: an ME cable on one side, a matter pipe on another.
+
+It is also available as a cable part (`cable_rep_ae2_bridge`) that mounts on an ME cable bus; craft it shapelessly from the full block (and back). Matter pipes connect to the part's external face.
 
 ## What it does
 

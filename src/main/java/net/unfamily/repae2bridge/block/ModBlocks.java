@@ -61,12 +61,22 @@ public class ModBlocks {
                 .forceSolidOn()
                 .noOcclusion());
 
+    public static final DeferredBlock<Block> FLUIXING_REPLICA_ALLOY_BLOCK = BLOCKS.registerBlock(
+            "fluixing_replica_alloy_block",
+            FluixingReplicaAlloyBlock::new,
+            () -> BlockBehaviour.Properties.of()
+                .strength(3.0F, 6.0F)
+                .mapColor(MapColor.COLOR_PURPLE)
+                .sound(SoundType.METAL)
+                .requiresCorrectToolForDrops());
+
     static {
         ModItems.ITEMS.registerSimpleBlockItem(REPAE2BRIDGE);
         ModItems.ITEMS.registerSimpleBlockItem(MATTER_ASSEMBLER);
         ModItems.ITEMS.registerSimpleBlockItem(MATTER_FOUNDRY);
         ModItems.ITEMS.registerSimpleBlockItem(CHAMBER_FRAME);
         ModItems.ITEMS.registerSimpleBlockItem(REPLICATION_UNIT);
+        ModItems.ITEMS.registerSimpleBlockItem(FLUIXING_REPLICA_ALLOY_BLOCK);
     }
 
     public static void register(IEventBus eventBus) {
