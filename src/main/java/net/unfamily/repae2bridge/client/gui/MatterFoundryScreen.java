@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
 import appeng.api.config.Settings;
@@ -23,6 +24,9 @@ import guideme.PageAnchor;
 import net.unfamily.repae2bridge.block.entity.FoundryMatterBuffer;
 import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
+import net.unfamily.repae2bridge.recipe.MatterFoundryRecipe;
+import net.unfamily.repae2bridge.recipe.MatterFoundryRecipeInput;
+import net.unfamily.repae2bridge.recipe.ModRecipes;
 import net.unfamily.repae2bridge.util.MatterTypeUtil;
 
 /**
@@ -80,7 +84,9 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
         int relMouseX = mouseX - offsetX;
         int relMouseY = mouseY - offsetY;
 
-        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots();
+        // Menu slots are synced; BE clientRequiredMatter can lag — never show Y without a match.
+        boolean showRequired = menuHasValidFoundryRecipe();
+        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots(showRequired);
         for (int i = 0; i < Math.min(FoundryMatterBuffer.MAX_TYPES, slots.size()); i++) {
             FoundryMatterBuffer.DisplaySlot slot = slots.get(i);
             if (slot.isEmpty()) {
@@ -105,7 +111,7 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
             }
 
             long xAmt = (long) Math.floor(slot.buffered());
-            long yAmt = (long) Math.ceil(slot.required());
+            long yAmt = showRequired ? (long) Math.ceil(slot.required()) : 0L;
             // Always X/Y while a recipe requirement exists (including 0/Y).
             String label = yAmt > 0
                     ? formatCompact(xAmt) + "/" + formatCompact(yAmt)
@@ -121,6 +127,36 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
                 drawTooltip(guiGraphics, relMouseX, relMouseY, List.of(Component.literal(name + ": " + full)));
             }
         }
+    }
+
+    /**
+     * Uses menu input slots (container-synced) so stale BE {@code matterRequired} cannot show Y
+     * when the player has already cleared/changed inputs.
+     */
+    private boolean menuHasValidFoundryRecipe() {
+        if (getPlayer().level() == null) {
+            return false;
+        }
+        List<Slot> inputs = menu.getFoundryInputSlots();
+        ItemStack[] stacks = new ItemStack[inputs.size()];
+        boolean hasAny = false;
+        for (int i = 0; i < inputs.size(); i++) {
+            stacks[i] = inputs.get(i).getItem();
+            if (!stacks[i].isEmpty()) {
+                hasAny = true;
+            }
+        }
+        if (!hasAny) {
+            return false;
+        }
+        MatterFoundryRecipeInput input = new MatterFoundryRecipeInput(stacks);
+        var level = getPlayer().level();
+        for (var holder : level.getRecipeManager().getAllRecipesFor(ModRecipes.MATTER_FOUNDRY_TYPE.get())) {
+            if (holder.value().matches(input, level)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private void drawSmallWhiteLabel(GuiGraphics guiGraphics, String label, int x, int y) {

@@ -26,10 +26,12 @@ import net.minecraft.nbt.Tag;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.Containers;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -575,6 +577,20 @@ public class MatterFoundryBlockEntity extends BlockEntity
         return matterBuffer.buildDisplay(cachedRecipe);
     }
 
+    /**
+     * GUI helper: same as {@link #getMatterDisplaySlots()} but forces Y=0 when {@code showRequired}
+     * is false (no valid recipe matched from menu slots — drops stale synced Y).
+     */
+    public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots(boolean showRequired) {
+        if (level != null && level.isClientSide()) {
+            if (!showRequired) {
+                return matterBuffer.buildDisplayFromRequired(Map.of());
+            }
+            return matterBuffer.buildDisplayFromRequired(clientRequiredMatter);
+        }
+        return matterBuffer.buildDisplay(showRequired ? cachedRecipe : null);
+    }
+
     @Nullable
     private MatterNetwork getReplicationNetwork() {
         if (level == null || level.isClientSide()) return null;
@@ -971,10 +987,10 @@ public class MatterFoundryBlockEntity extends BlockEntity
     // ── Sync ───────────────────────────────────────────────────────────────
 
     private void syncToClient() {
-        if (level != null && !level.isClientSide()) {
+        if (level instanceof ServerLevel serverLevel) {
             // Invalidate hash so the next open-GUI poll still resends if needed.
             lastMatterDisplaySyncHash = Integer.MIN_VALUE;
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+            sendMatterUpdatePacket(serverLevel);
         }
     }
 
@@ -983,17 +999,32 @@ public class MatterFoundryBlockEntity extends BlockEntity
      * Clears stale Y on the client when {@code cachedRecipe} becomes null.
      */
     public void syncMatterDisplayToClient() {
-        if (level == null || level.isClientSide()) {
+        if (!(level instanceof ServerLevel serverLevel)) {
             return;
         }
         int hash = java.util.Objects.hash(
-                cachedRecipe == null ? null : cachedRecipe.hashCode(),
+                cachedRecipe == null ? 0 : System.identityHashCode(cachedRecipe),
                 matterBuffer.displaySyncHash());
         if (hash == lastMatterDisplaySyncHash) {
             return;
         }
         lastMatterDisplaySyncHash = hash;
-        level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        sendMatterUpdatePacket(serverLevel);
+    }
+
+    /**
+     * {@code sendBlockUpdated} alone does not push BE NBT; send the update packet explicitly
+     * so {@code matterRequired} (including empty) reaches the client.
+     */
+    private void sendMatterUpdatePacket(ServerLevel serverLevel) {
+        ClientboundBlockEntityDataPacket packet = ClientboundBlockEntityDataPacket.create(this);
+        if (packet == null) {
+            return;
+        }
+        for (ServerPlayer player : serverLevel.getChunkSource().chunkMap.getPlayers(
+                new ChunkPos(worldPosition), false)) {
+            player.connection.send(packet);
+        }
     }
 
     // ── Serialization ──────────────────────────────────────────────────────
