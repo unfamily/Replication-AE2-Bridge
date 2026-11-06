@@ -22,6 +22,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
 import net.unfamily.repae2bridge.Config;
+import net.unfamily.repae2bridge.mixin.MatterNetworkAccessor;
 import net.unfamily.repae2bridge.parts.CableRepAe2BridgePart;
 
 /**
@@ -31,6 +32,19 @@ import net.unfamily.repae2bridge.parts.CableRepAe2BridgePart;
 public final class BridgeDeviceFederation {
 
     private BridgeDeviceFederation() {
+    }
+
+    /**
+     * Local chip storages only — never the AE2-federated {@link MatterNetwork#getChipSuppliers()} list.
+     * Bridge AE2 pattern paths must bind tasks to chips on this Titanium network alone.
+     */
+    public static List<NetworkElement> localChipSuppliers(@Nullable MatterNetwork network) {
+        if (network == null) {
+            return List.of();
+        }
+        List<NetworkElement> raw =
+                ((MatterNetworkAccessor) (Object) network).rep_ae2_bridge$getChipSuppliersRaw();
+        return raw != null ? raw : List.of();
     }
 
     /** Distinct peer networks reachable via the same AE2 grid(s) as {@code source}. */

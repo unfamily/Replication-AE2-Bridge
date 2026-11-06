@@ -98,7 +98,8 @@ import java.util.Objects;
  * BlockEntity for the RepAE2Bridge that connects the AE2 network with the Replication matter network
  */
 public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBlockEntity>
-        implements IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost,
+        implements net.unfamily.repae2bridge.ae2.IAe2BridgeCraftHost,
+        IInWorldGridNodeHost, ICraftingInventory, ICraftingProvider, IStorageProvider, IActionHost,
         IPriorityHost, IMatterTanksSupplier, IMatterTanksConsumer,
         net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost,
         net.unfamily.repae2bridge.ae2.Ae2MatterHost {
@@ -128,7 +129,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Counter for initialization ticks
     private int initializationTicks = 0;
 
-    // Priority for AE2 crafting / Replication tank holder ordering
+    // Priority for AE2 crafting / Replication tank holder ordering.
     @Save
     private int priority = 0;
 
@@ -2022,7 +2023,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             MatterNetwork network = getNetwork();
             if (network != null) {
                 // Check if the item can be crafted
-                for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+                for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
                     var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                     if (tile instanceof ChipStorageBlockEntity chipStorage) {
                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
@@ -2051,7 +2052,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         MatterNetwork network = getNetwork();
         if (network != null && what instanceof AEItemKey) {
             AEItemKey itemKey = (AEItemKey) what;
-            for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+            for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
                 var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                 if (tile instanceof ChipStorageBlockEntity chipStorage) {
                     for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
@@ -2072,7 +2073,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (network != null) {
                 List<AEKey> templates = new ArrayList<>();
                 // Search for all items that can be crafted with Replication
-                for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+                for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
                     var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                     if (tile instanceof ChipStorageBlockEntity chipStorage) {
                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
@@ -2096,28 +2097,40 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         List<IPatternDetails> patterns = new ArrayList<>();
-        MatterNetwork network = getNetwork();
-        if (network != null) {
-            // For each chip storage in the network
-            for (NetworkElement chipSupplier : network.getChipSuppliers()) {
-                var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
-                if (tile instanceof ChipStorageBlockEntity chipStorage) {
-                    // For each pattern in the chip storage
-                    for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
-                        if (!pattern.getStack().isEmpty() && pattern.getCompletion() == 1) {
-                            var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
-                            if (matterCompound == null) {
-                                continue;
-                            }
-                            // Matter inputs so AE2 reserves cell stock; pushPattern absorbs into craft buffer.
-                            var details = ReplicationBridgePatternDetails.of(pattern.getStack());
-                            if (details != null) {
-                                patterns.add(details);
+        try {
+            MatterNetwork network = getNetwork();
+            if (network != null) {
+                Set<Item> seenItems = new HashSet<>();
+                // For each chip storage in the network
+                for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
+                    var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
+                    if (tile instanceof ChipStorageBlockEntity chipStorage) {
+                        // For each pattern in the chip storage
+                        for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
+                            if (!pattern.getStack().isEmpty() && pattern.getCompletion() == 1) {
+                                Item item = pattern.getStack().getItem();
+                                if (!seenItems.add(item)) {
+                                    continue;
+                                }
+                                var matterCompound = ReplicationCalculation.getMatterCompound(pattern.getStack());
+                                if (matterCompound == null) {
+                                    continue;
+                                }
+                                // Matter inputs so AE2 reserves cell stock; pushPattern absorbs into craft buffer.
+                                var details = ReplicationBridgePatternDetails.of(pattern.getStack());
+                                if (details != null) {
+                                    patterns.add(details);
+                                }
                             }
                         }
                     }
                 }
             }
+        } catch (Exception e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.warn("Bridge{}: getAvailablePatterns failed: {}", getLocationInfo(), e.getMessage());
+            }
+            return List.of();
         }
         //LOGGER.info("Bridge: Total available patterns: {}", patterns.size());
         return patterns;
@@ -2145,7 +2158,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     // Se sono tutti occupati, il task resta in coda nella rete Replication
 
                     // Search for the pattern in all chip storage in the network
-                    for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+                    for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
                         var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                         if (tile instanceof ChipStorageBlockEntity chipStorage) {
                             for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
@@ -2161,20 +2174,30 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         return false;
                                     }
                                     // 2) AE2-internal bypass when chamber/MA is on this grid.
-                                    // Must NOT fall through to ReplicationTask — a failed cell park used to
-                                    // flood the terminal and freeze it on open.
+                                    // Only keep the bypass if we assigned work now or a worker is already
+                                    // running this item — otherwise fall through to ReplicationTask so the
+                                    // CPU is not left waiting forever on ae2InternalPending.
                                     if (hasAe2GridWorker()) {
-                                        // Defer cell park to bridge tick — avoid O(pushes) storage ops under AdvancedAE.
                                         ae2CraftParkPending = true;
-                                        // Only count real pushPattern units — never prefill from CPU job size.
                                         ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
+                                        int before = ae2InternalPending.getOrDefault(key, 0);
                                         ae2InternalPending.merge(key, 1, Integer::sum);
-                                        // Cheap cached top-up so chambers do not sit idle until the next bridge tick.
                                         lightFeedAe2InternalOnPush(itemStack);
-                                        return true;
+                                        int after = ae2InternalPending.getOrDefault(key, 0);
+                                        // Pending dropped → a chamber/MA took (or extended) this unit.
+                                        if (after < before + 1) {
+                                            return true;
+                                        }
+                                        // Could not feed: roll back and fall through to ReplicationTask path.
+                                        if (after <= 1) {
+                                            ae2InternalPending.remove(key);
+                                        } else {
+                                            ae2InternalPending.put(key, after - 1);
+                                        }
                                     }
-                                    // 3) No AE2 workers: Replication accumulation → possible ReplicationTask.
-                                    flushCraftBufferToStorage(false);
+                                    // 3) No usable AE2 workers: Replication accumulation → possible ReplicationTask.
+                                    // Prefer AE2 cells so chamber/MA drainMatterForAe2Internal can see the matter.
+                                    flushCraftBufferToStorage(true);
                                     ItemWithSourceId key = new ItemWithSourceId(itemStack, this.blockId);
                                     Map<ItemWithSourceId, Integer> sourceCounters =
                                             requestCounters.getOrDefault(this.blockId, new HashMap<>());
@@ -2273,7 +2296,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             MatterNetwork network = getNetwork();
             if (network != null) {
                 // Search for the pattern in the Replication network
-                for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+                for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
                     var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
                     if (tile instanceof ChipStorageBlockEntity chipStorage) {
                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
@@ -2469,9 +2492,41 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public class MatterItemsStorage implements MEStorage {
         @Override
         public long insert(AEKey what, long amount, Actionable mode, IActionSource source) {
-            // Craft-cancel refunds must return to AE2 cells, not be voided here.
-            // Real inserts (disintegrator, buses) also go through cell mounts, not this facade.
-            return 0;
+            if (initialized != 1 || amount <= 0 || !(what instanceof ReplicationMatterKey matterKey)) {
+                return 0;
+            }
+            IMatterType type = matterKey.resolveMatterType();
+            if (type == null || type.equals(MatterType.EMPTY)) {
+                return 0;
+            }
+            boolean simulate = mode == Actionable.SIMULATE;
+            long remaining = amount;
+            long inserted = 0;
+            // Refund into craft buffer first, then physical tanks — never void.
+            CraftMatterTank craft = findCraftMatterTank(type);
+            if (craft != null && remaining > 0) {
+                double filled = craft.fill(
+                        new com.buuz135.replication.api.matter_fluid.MatterStack(type, remaining),
+                        simulate
+                                ? net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.SIMULATE
+                                : net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                long got = (long) Math.floor(filled);
+                inserted += got;
+                remaining -= got;
+            }
+            if (remaining > 0) {
+                long filled = BridgeMatterFederation.fillPhysicalMatter(
+                        BridgeMatterFederation.localHolders(getNetworkSafe(), getBlockPos()),
+                        type,
+                        remaining,
+                        simulate);
+                inserted += filled;
+            }
+            if (!simulate && inserted > 0) {
+                setChanged();
+                scheduleReplicationTankSync(type);
+            }
+            return inserted;
         }
 
         @Override
@@ -2483,9 +2538,25 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (type == null || type.equals(MatterType.EMPTY)) {
                 return 0;
             }
-            // Drain external Replication tanks / craft buffer so craft simulation and
-            // CPU extract match getAvailableStacks (no phantom stock).
-            return drainExternalMatter(type, amount, mode == Actionable.SIMULATE);
+            boolean simulate = mode == Actionable.SIMULATE;
+            long remaining = amount;
+            long drained = 0;
+            // Craft buffer first, then physical tanks (AE2 cells are separate mounts).
+            CraftMatterTank craft = findCraftMatterTank(type);
+            if (craft != null && remaining > 0) {
+                var stack = craft.drain(
+                        (double) remaining,
+                        simulate
+                                ? net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.SIMULATE
+                                : net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                long got = (long) Math.floor(stack.getAmount());
+                drained += got;
+                remaining -= got;
+            }
+            if (remaining > 0) {
+                drained += drainExternalMatter(type, remaining, simulate);
+            }
+            return drained;
         }
 
         @Override
@@ -2502,8 +2573,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (matterType == null || matterType.equals(MatterType.EMPTY)) {
                     continue;
                 }
-                // Mount only this bridge's local-network tanks.
                 long amount = calculateLocalExternalMatterAmount(matterType);
+                CraftMatterTank craft = findCraftMatterTank(matterType);
+                if (craft != null) {
+                    amount += (long) Math.floor(craft.getMatterAmount());
+                }
                 if (amount <= 0) {
                     continue;
                 }
@@ -3154,6 +3228,33 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         return !cachedChamberLeaders.isEmpty() || !cachedOnlineAssemblers.isEmpty();
     }
 
+    /** True if a chamber/MA owned by this bridge is already running AE2-internal work for {@code item}. */
+    private boolean hasActiveAe2InternalJobForItem(Item item) {
+        if (item == null || mainNode.getGrid() == null) {
+            return false;
+        }
+        refreshAe2WorkerCache();
+        for (ReplicationUnitBlockEntity unit : cachedChamberLeaders) {
+            if (unit != null
+                    && !unit.isIdle()
+                    && unit.getReplicationTaskId() == null
+                    && worldPosition.equals(unit.getBridgePos())
+                    && unit.getCraftingStack().getItem().equals(item)) {
+                return true;
+            }
+        }
+        for (MatterAssemblerBlockEntity assembler : cachedOnlineAssemblers) {
+            if (assembler != null
+                    && !assembler.isIdle()
+                    && assembler.getReplicationTaskId() == null
+                    && worldPosition.equals(assembler.getBridgePos())
+                    && assembler.getCraftingStack().getItem().equals(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /**
      * O(workers) feed on pushPattern using the worker cache — keeps remainingCount topped up
      * at AE2 push rate without scanning the grid every call.
@@ -3456,8 +3557,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Fast AE2-internal matter drain for {@code count} crafts: AE2 cells + local craft buffer only.
-     * Skips full Replication-holder scans and per-call storage updates (those spiked TPS).
+     * AE2-internal matter drain for {@code count} crafts: AE2 cells, craft buffer, then physical tanks.
+     * Physical tanks are required after {@link #flushCraftBufferToStorage} parks leftovers there.
      */
     public boolean drainMatterForAe2Internal(ItemStack patternStack, int count) {
         if (count <= 0 || patternStack == null || patternStack.isEmpty()) {
@@ -3467,6 +3568,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (matterCompound == null) {
             return true;
         }
+        MatterNetwork network = getNetworkSafe();
         // Simulate
         for (MatterValue matterValue : matterCompound.getValues().values()) {
             long needed = (long) Math.ceil(matterValue.getAmount()) * count;
@@ -3479,6 +3581,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 CraftMatterTank craft = findCraftMatterTank(type);
                 if (craft != null) {
                     have += (long) Math.floor(craft.getMatterAmount());
+                }
+            }
+            if (have < needed && network != null) {
+                double still = drainMatterTypeFromHolders(network, type, needed - have, false);
+                if (still <= 0.01) {
+                    have = needed;
                 }
             }
             if (have < needed) {
@@ -3502,6 +3610,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
                     left -= (long) Math.floor(drained.getAmount());
                 }
+            }
+            if (left > 0 && network != null) {
+                left = (long) Math.ceil(drainMatterTypeFromHolders(network, type, left, true));
             }
             if (left > 0) {
                 return false;
@@ -3606,10 +3717,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return;
         }
 
-        // Prefer AE2-internal queue over terminal tasks whenever a chamber/MA exists.
+        // Prefer AE2-internal workers when present; anything they cannot take now becomes a
+        // ReplicationTask so CPUs are never parked forever in ae2InternalPending alone.
         if (hasAe2GridWorker()) {
-            ae2InternalPending.merge(new ItemWithSourceId(patternStack, this.blockId), remaining, Integer::sum);
-            return;
+            ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
+            ae2InternalPending.merge(key, remaining, Integer::sum);
+            lightFeedAe2InternalOnPush(patternStack);
+            int left = ae2InternalPending.getOrDefault(key, 0);
+            if (left <= 0) {
+                return;
+            }
+            ae2InternalPending.remove(key);
+            remaining = left;
         }
 
         ReplicationTask task = new ReplicationTask(
@@ -3923,138 +4042,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
     /**
-     * Lets idle Matter Assemblers claim pending Replication terminal tasks (like Replicators).
-     * <p>
-     * Replication's {@code findTaskForReplicator} budgets parallel slots from
-     * {@code network.getReplicators()} only — Matter Assemblers are invisible there, so a
-     * network with assemblers but no replicators would only allow one worker per MULTIPLE task.
-     * We mirror that formula with assembler count included.
+     * Lets idle Matter Assemblers / chambers claim pending Replication terminal tasks (like Replicators).
      */
     private void assignReplicationTasksToAssemblers() {
-        MatterNetwork network = getNetworkSafe();
-        IGrid grid = mainNode.getGrid();
-        if (network == null || grid == null || level == null || level.isClientSide()) {
-            return;
-        }
-
-        List<ReplicationUnitBlockEntity> idleChambers = new ArrayList<>();
-        int onlineChamberLeaders = 0;
-        for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit == null || !unit.isFormed() || !unit.isChamberLeader() || !unit.getMainNode().isOnline()) {
-                continue;
-            }
-            onlineChamberLeaders++;
-            if (unit.isIdle()) {
-                idleChambers.add(unit);
-            }
-        }
-
-        List<MatterAssemblerBlockEntity> onlineAssemblers = new ArrayList<>();
-        List<MatterAssemblerBlockEntity> idle = new ArrayList<>();
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler == null || !assembler.getMainNode().isOnline()) {
-                continue;
-            }
-            onlineAssemblers.add(assembler);
-            if (assembler.isIdle()) {
-                idle.add(assembler);
-            }
-        }
-        if (idle.isEmpty() && idleChambers.isEmpty()) {
-            return;
-        }
-        idle.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
-
-        int maxWorkersPerMultipleTask = computeAssemblerReplicatorBudget(
-                network, onlineAssemblers.size() + onlineChamberLeaders);
-
-        // Chambers first — assign large batches (not 1) so Replication UI crafts match chamber speed.
-        java.util.Map<String, Integer> chamberClaimed = new java.util.HashMap<>();
-        for (int ci = 0; ci < idleChambers.size(); ci++) {
-            ReplicationUnitBlockEntity chamber = idleChambers.get(ci);
-            IReplicationTask task = findReplicationTaskForAssembler(
-                    network, chamber.getBlockPos(), maxWorkersPerMultipleTask);
-            if (task == null) {
-                continue;
-            }
-            ItemStack pattern = task.getReplicatingStack();
-            if (pattern == null || pattern.isEmpty()) {
-                continue;
-            }
-            String taskKey = task.getUuid().toString();
-            int left = task.getTotalAmount() - task.getCurrentAmount() - chamberClaimed.getOrDefault(taskKey, 0);
-            if (left <= 0) {
-                continue;
-            }
-            int chambersLeft = idleChambers.size() - ci;
-            int batch = Math.max(1, (left + chambersLeft - 1) / chambersLeft);
-            if (!chamber.tryStartJob(pattern, batch, worldPosition, task.getUuid())) {
-                continue;
-            }
-            chamberClaimed.merge(taskKey, batch, Integer::sum);
-            task.acceptReplicator(chamber.getBlockPos());
-            task.storeMatterStacksFor(level, chamber.getBlockPos(), network);
-            if (!task.getStoredMatterStack().containsKey(chamber.getBlockPos().asLong())) {
-                task.getReplicatorsOnTask().remove(chamber.getBlockPos().asLong());
-                chamberClaimed.merge(taskKey, -batch, Integer::sum);
-                chamber.abortJob();
-            }
-        }
-
-        for (MatterAssemblerBlockEntity assembler : idle) {
-            IReplicationTask task = findReplicationTaskForAssembler(
-                    network, assembler.getBlockPos(), maxWorkersPerMultipleTask);
-            if (task == null) {
-                continue;
-            }
-            ItemStack pattern = task.getReplicatingStack();
-            if (pattern == null || pattern.isEmpty()) {
-                continue;
-            }
-
-            // Reserve assembler first, then drain matter into the task (Replication holder path).
-            if (!assembler.tryStartJob(pattern, 1, worldPosition, task.getUuid())) {
-                continue;
-            }
-            task.acceptReplicator(assembler.getBlockPos());
-            task.storeMatterStacksFor(level, assembler.getBlockPos(), network);
-            if (!task.getStoredMatterStack().containsKey(assembler.getBlockPos().asLong())) {
-                // Could not reserve matter — abort job and release claim.
-                task.getReplicatorsOnTask().remove(assembler.getBlockPos().asLong());
-                assembler.abortJob();
-            }
-        }
-    }
-
-    /**
-     * Same budget math as ReplicationTaskManager.findTaskForReplicator, but counting
-     * online Matter Assemblers together with real Replicators.
-     */
-    private static int computeAssemblerReplicatorBudget(MatterNetwork network, int onlineAssemblerCount) {
-        int workers = network.getReplicators().size() + Math.max(0, onlineAssemblerCount);
-        long multipleTasks = 0;
-        for (IReplicationTask pending : network.getTaskManager().getPendingTasks().values()) {
-            if (pending.getMode() == IReplicationTask.Mode.MULTIPLE) {
-                multipleTasks++;
-            }
-        }
-        long reservedForSingle = network.getTaskManager().getPendingTasks().size() - multipleTasks;
-        workers -= (int) reservedForSingle;
-        if (multipleTasks == 0) {
-            multipleTasks = 1;
-        }
-        return Math.max(1, (int) Math.ceil(workers / (double) multipleTasks));
-    }
-
-    @Nullable
-    private static IReplicationTask findReplicationTaskForAssembler(
-            MatterNetwork network, BlockPos assemblerPos, int maxWorkersPerMultipleTask) {
-        for (IReplicationTask task : network.getTaskManager().getPendingTasks().values()) {
-            if (task.canAcceptReplicator(assemblerPos, maxWorkersPerMultipleTask)) {
-                return task;
-            }
-        }
-        return null;
+        net.unfamily.repae2bridge.ae2.BridgeReplicationTaskAssign.assign(
+                getNetworkSafe(), mainNode.getGrid(), level, worldPosition);
     }
 
     // ISubMenuHost implementation
@@ -4354,7 +4346,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         for (MatterValue matterValue : matterCompound.getValues().values()) {
             double needed = Math.ceil(matterValue.getAmount()) * count;
             double left = needed;
-            left = drainMatterTypeFromHolders(network, matterValue.getMatter(), left, true);
+            IMatterType type = matterValue.getMatter();
+            CraftMatterTank craft = findCraftMatterTank(type);
+            if (craft != null && left > 0.01) {
+                var drained = craft.drain(
+                        left,
+                        net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
+                left -= drained.getAmount();
+            }
+            left = drainMatterTypeFromHolders(network, type, left, true);
             if (left > 0.01) {
                 return false;
             }
@@ -4371,13 +4371,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     private long availableMatterForCraft(MatterNetwork network, IMatterType type) {
         long total = 0;
+        CraftMatterTank craft = findCraftMatterTank(type);
+        if (craft != null) {
+            total += (long) Math.floor(craft.getMatterAmount());
+        }
         for (NetworkElement holderEl : BridgeMatterFederation.localHolders(getNetwork(), getBlockPos())) {
             var tile = holderEl.getLevel().getBlockEntity(holderEl.getPos());
             if (!(tile instanceof IMatterTanksSupplier supplier)) {
                 continue;
             }
             for (var tank : supplier.getTanks()) {
-                if (tank instanceof Ae2MatterTank) {
+                if (tank instanceof Ae2MatterTank || tank instanceof CraftMatterTank) {
                     continue;
                 }
                 var content = tank.getMatter();
@@ -4408,7 +4412,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (left <= 0) {
                     break;
                 }
-                if (tank instanceof Ae2MatterTank) {
+                // Craft buffer and AE2 mirrors are drained by dedicated callers.
+                if (tank instanceof Ae2MatterTank || tank instanceof CraftMatterTank) {
                     continue;
                 }
                 var content = tank.getMatter();

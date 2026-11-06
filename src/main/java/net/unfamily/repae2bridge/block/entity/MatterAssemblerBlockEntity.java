@@ -161,8 +161,8 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         boolean delivered = false;
 
         if (bridgePos != null) {
-            BlockEntity be = level.getBlockEntity(bridgePos);
-            if (be instanceof RepAE2BridgeBlockEntity bridge) {
+            var bridge = net.unfamily.repae2bridge.ae2.BridgeHostLookup.find(level, bridgePos);
+            if (bridge != null) {
                 if (replicationTaskId != null) {
                     // Replication UI / network task: deliver to task source (terminal), never AE2.
                     delivered = bridge.deliverMatterAssemblerReplicationUnit(
@@ -299,9 +299,8 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         if (replicationTaskId == null || level == null || bridgePos == null) {
             return false;
         }
-        BlockEntity be = level.getBlockEntity(bridgePos);
-        return be instanceof RepAE2BridgeBlockEntity bridge
-                && bridge.hasPendingReplicationTask(replicationTaskId);
+        var bridge = net.unfamily.repae2bridge.ae2.BridgeHostLookup.find(level, bridgePos);
+        return bridge != null && bridge.hasPendingReplicationTask(replicationTaskId);
     }
 
     @Nullable

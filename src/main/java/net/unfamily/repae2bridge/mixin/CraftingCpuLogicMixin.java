@@ -11,6 +11,7 @@ import appeng.crafting.execution.CraftingCpuLogic;
 import appeng.me.cluster.implementations.CraftingCPUCluster;
 
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
+import net.unfamily.repae2bridge.parts.CableRepAe2BridgePart;
 
 /**
  * When an AE2 crafting job is cancelled, cancel bridge-sourced Replication tasks and
@@ -36,6 +37,11 @@ public abstract class CraftingCpuLogicMixin {
         for (RepAE2BridgeBlockEntity bridge : grid.getMachines(RepAE2BridgeBlockEntity.class)) {
             if (bridge != null) {
                 bridge.cancelAe2LinkedReplicationWork();
+            }
+        }
+        for (CableRepAe2BridgePart cable : grid.getMachines(CableRepAe2BridgePart.class)) {
+            if (cable != null) {
+                cable.cancelAe2LinkedReplicationWork();
             }
         }
     }

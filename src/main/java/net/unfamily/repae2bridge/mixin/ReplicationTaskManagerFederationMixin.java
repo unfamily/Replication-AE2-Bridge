@@ -37,8 +37,9 @@ public abstract class ReplicationTaskManagerFederationMixin {
         SEARCHING_PEERS.set(true);
         try {
             for (MatterNetwork peer : BridgeDeviceFederation.peerNetworks(matterNetwork)) {
-                // Local-only search on peer (guard skips nested federation).
-                IReplicationTask task = peer.getTaskManager().findTaskForReplicator(pos, matterNetwork);
+                // Search peer pendingTasks with peer network context (budget via peer.getReplicators).
+                // SEARCHING_PEERS skips nested federation so this stays local to the peer manager.
+                IReplicationTask task = peer.getTaskManager().findTaskForReplicator(pos, peer);
                 if (task != null) {
                     cir.setReturnValue(task);
                     return;

@@ -1,9 +1,13 @@
 package net.unfamily.repae2bridge.parts;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -14,12 +18,15 @@ import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.storage.ValueInput;
 import net.minecraft.world.level.storage.ValueOutput;
 import net.minecraft.world.phys.Vec3;
+
+import net.neoforged.neoforge.capabilities.Capabilities;
 
 import appeng.api.config.Actionable;
 import appeng.api.crafting.IPatternDetails;
@@ -60,17 +67,23 @@ import com.buuz135.replication.calculation.MatterValue;
 import com.buuz135.replication.calculation.ReplicationCalculation;
 import com.buuz135.replication.network.DefaultMatterNetworkElement;
 import com.buuz135.replication.network.MatterNetwork;
+import com.buuz135.replication.util.TransferUtil;
 import com.hrznstudio.titanium.block_network.NetworkManager;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 
 import net.unfamily.repae2bridge.Config;
 import net.unfamily.repae2bridge.ae2.Ae2MatterHost;
 import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
+import net.unfamily.repae2bridge.ae2.BridgeAe2WorkerFeed;
+import net.unfamily.repae2bridge.ae2.IAe2BridgeCraftHost;
 import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
+import net.unfamily.repae2bridge.block.entity.BridgeDeviceFederation;
 import net.unfamily.repae2bridge.block.entity.BridgeMatterFederation;
+import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
+import net.unfamily.repae2bridge.block.entity.ReplicationUnitBlockEntity;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
 
 /**
@@ -78,7 +91,8 @@ import net.unfamily.repae2bridge.menu.BridgeMenu;
  * Exposes local-network matter to AE2 (storage + crafting patterns).
  */
 public class CableRepAe2BridgePart extends AEBasePart
-        implements IRepAe2BridgeHost, IStorageProvider, ICraftingProvider, IGridTickable, Ae2MatterHost {
+        implements IRepAe2BridgeHost, IStorageProvider, ICraftingProvider, IGridTickable, Ae2MatterHost,
+        IAe2BridgeCraftHost {
 
     private static final Logger LOGGER = LogUtils.getLogger();
 
@@ -86,9 +100,18 @@ public class CableRepAe2BridgePart extends AEBasePart
     private static final Set<CableRepAe2BridgePart> activeCableBridges = new HashSet<>();
 
     private boolean feedReplicationEnergy = true;
-    private int priority;
+    private int priority = 0;
     private final MatterItemsStorage matterItemsStorage = new MatterItemsStorage();
     private List<Ae2MatterTank> ae2MatterTanks;
+    /** Replicator delivery sink (Capabilities.Item.BLOCK on the cable bus). */
+    private CableBridgeAe2ItemSink replicationItemSink;
+    /** At most one classification remount per part lifetime — avoid thrashing Titanium. */
+    private boolean attemptedClassificationRemount;
+
+    /** AE2-internal bypass queue (chamber / MA) — parity with block bridge. */
+    private final Map<Item, Integer> ae2InternalPending = new HashMap<>();
+    private final Map<Item, ItemStack> ae2InternalPatterns = new HashMap<>();
+    private final AtomicInteger ae2FeedCursor = new AtomicInteger();
 
     public CableRepAe2BridgePart(IPartItem<?> partItem) {
         super(partItem);
@@ -275,7 +298,7 @@ public class CableRepAe2BridgePart extends AEBasePart
     public void readFromNBT(ValueInput data) {
         super.readFromNBT(data);
         feedReplicationEnergy = data.getBooleanOr("feedReplicationEnergy", true);
-        priority = data.getIntOr("priority", 0);
+        priority = data.getIntOr("priority", -100);
     }
 
     @Override
@@ -414,6 +437,219 @@ public class CableRepAe2BridgePart extends AEBasePart
                 key, amount, simulate ? Actionable.SIMULATE : Actionable.MODULATE, new MachineSource(this));
     }
 
+    /**
+     * Item sink so vanilla Replicators can deliver crafted units to this cable's task source
+     * (queried as {@code Capabilities.Item.BLOCK} at the cable-bus position with {@code UP}).
+     */
+    public CableBridgeAe2ItemSink getReplicationItemSink() {
+        if (replicationItemSink == null) {
+            replicationItemSink = new CableBridgeAe2ItemSink(this);
+        }
+        return replicationItemSink;
+    }
+
+    /**
+     * Insert a crafted stack into AE2 storage (parity with block-bridge {@code receiveItemFromReplicator}).
+     */
+    @Override
+    public boolean receiveItemFromReplicator(ItemStack stack) {
+        if (stack.isEmpty() || !getMainNode().isReady() || getMainNode().getNode() == null) {
+            return false;
+        }
+        IGrid grid = getMainNode().getNode().getGrid();
+        if (grid == null) {
+            return false;
+        }
+        IStorageService storageService = grid.getStorageService();
+        if (storageService == null) {
+            return false;
+        }
+        AEItemKey key = AEItemKey.of(stack);
+        long inserted = storageService.getInventory().insert(
+                key, stack.getCount(), Actionable.MODULATE, new MachineSource(this));
+        return inserted >= stack.getCount();
+    }
+
+    @Override
+    public int insertCraftedToAe2(ItemStack stack, int count) {
+        if (stack.isEmpty() || count <= 0 || !getMainNode().isReady() || getMainNode().getNode() == null) {
+            return 0;
+        }
+        IGrid grid = getMainNode().getNode().getGrid();
+        if (grid == null) {
+            return 0;
+        }
+        IStorageService storageService = grid.getStorageService();
+        if (storageService == null) {
+            return 0;
+        }
+        AEItemKey key = AEItemKey.of(stack);
+        long inserted = storageService.getInventory().insert(
+                key, count, Actionable.MODULATE, new MachineSource(this));
+        return (int) Math.min(Integer.MAX_VALUE, inserted);
+    }
+
+    @Override
+    public boolean drainMatterForAe2Internal(ItemStack patternStack, int count) {
+        if (count <= 0 || patternStack == null || patternStack.isEmpty()) {
+            return false;
+        }
+        var matterCompound = ReplicationCalculation.getMatterCompound(patternStack);
+        if (matterCompound == null) {
+            return true;
+        }
+        MatterNetwork network = getMatterNetwork();
+        var holders = BridgeMatterFederation.localHolders(network, getBlockPos());
+        // Simulate
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (needed <= 0) {
+                continue;
+            }
+            IMatterType type = matterValue.getMatter();
+            long have = extractAe2Matter(type, needed, true);
+            if (have < needed) {
+                have += BridgeMatterFederation.sumPhysicalMatter(holders, type);
+            }
+            if (have < needed) {
+                return false;
+            }
+        }
+        // Execute
+        for (MatterValue matterValue : matterCompound.getValues().values()) {
+            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            if (needed <= 0) {
+                continue;
+            }
+            IMatterType type = matterValue.getMatter();
+            long got = extractAe2Matter(type, needed, false);
+            long left = needed - got;
+            if (left > 0) {
+                left -= BridgeMatterFederation.drainPhysicalMatter(holders, type, left, false);
+            }
+            if (left > 0) {
+                return false;
+            }
+            if (network != null) {
+                network.onTankValueChanged(type);
+            }
+        }
+        if (getMainNode().isReady()) {
+            IStorageProvider.requestUpdate(getMainNode());
+        }
+        return true;
+    }
+
+    @Override
+    public boolean hasPendingReplicationTask(UUID taskId) {
+        if (taskId == null) {
+            return false;
+        }
+        MatterNetwork network = getMatterNetwork();
+        return network != null
+                && network.getTaskManager().getPendingTasks().containsKey(taskId.toString());
+    }
+
+    @Override
+    public boolean ensureMatterReservedForWorker(UUID taskId, BlockPos workerPos) {
+        Level level = getLevel();
+        if (taskId == null || workerPos == null || level == null || level.isClientSide()) {
+            return false;
+        }
+        MatterNetwork network = getMatterNetwork();
+        if (network == null) {
+            return false;
+        }
+        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
+        if (task == null) {
+            return false;
+        }
+        if (task.getStoredMatterStack().containsKey(workerPos.asLong())) {
+            return true;
+        }
+        task.storeMatterStacksFor(level, workerPos, network);
+        return task.getStoredMatterStack().containsKey(workerPos.asLong());
+    }
+
+    @Override
+    public boolean deliverMatterAssemblerReplicationUnit(ItemStack stack, UUID taskId, BlockPos assemblerPos) {
+        Level level = getLevel();
+        if (stack.isEmpty() || taskId == null || level == null || level.isClientSide()) {
+            return false;
+        }
+        MatterNetwork network = getMatterNetwork();
+        if (network == null) {
+            return false;
+        }
+        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
+        if (task == null) {
+            return false;
+        }
+        BlockPos source = task.getSource();
+        var capability = level.getCapability(Capabilities.Item.BLOCK, source, Direction.UP);
+        if (capability == null) {
+            return false;
+        }
+        ItemStack leftover = TransferUtil.insertItem(capability, stack.copyWithCount(1), false);
+        if (!leftover.isEmpty()) {
+            return false;
+        }
+        task.finalizeReplication(level, assemblerPos, network);
+        if (level instanceof ServerLevel serverLevel) {
+            network.onTaskValueChanged(task, serverLevel);
+        }
+        return true;
+    }
+
+    @Override
+    public void cancelAe2LinkedReplicationWork() {
+        BlockPos pos = getBlockPos();
+        Level level = getLevel();
+        MatterNetwork network = getMatterNetwork();
+        if (network != null) {
+            Map<String, IReplicationTask> pending = network.getTaskManager().getPendingTasks();
+            List<String> toRemove = new ArrayList<>();
+            for (Map.Entry<String, IReplicationTask> entry : pending.entrySet()) {
+                IReplicationTask task = entry.getValue();
+                if (task != null && pos.equals(task.getSource())) {
+                    toRemove.add(entry.getKey());
+                    for (long replicatorPos : new HashSet<>(task.getReplicatorsOnTask())) {
+                        if (level == null) {
+                            continue;
+                        }
+                        BlockEntity be = level.getBlockEntity(BlockPos.of(replicatorPos));
+                        if (be instanceof MatterAssemblerBlockEntity assembler) {
+                            assembler.abortJob();
+                        } else if (be instanceof ReplicationUnitBlockEntity chamber) {
+                            chamber.abortJob();
+                        }
+                    }
+                }
+            }
+            for (String id : toRemove) {
+                pending.remove(id);
+            }
+        }
+        IGrid grid = getMainNode().getGrid();
+        if (grid != null) {
+            for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+                if (assembler != null && pos.equals(assembler.getBridgePos())) {
+                    assembler.abortJob();
+                }
+            }
+            for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
+                if (unit != null && pos.equals(unit.getBridgePos())) {
+                    unit.abortJob();
+                }
+            }
+        }
+        ae2InternalPending.clear();
+        ae2InternalPatterns.clear();
+        if (getHost() != null) {
+            getHost().markForSave();
+        }
+    }
+
     @Override
     public void notifyAe2MatterChanged(IMatterType type) {
         MatterNetwork network = getMatterNetwork();
@@ -501,7 +737,27 @@ public class CableRepAe2BridgePart extends AEBasePart
     private final class MatterItemsStorage implements MEStorage {
         @Override
         public long insert(AEKey what, long amount, Actionable mode, IActionSource source) {
-            return 0;
+            if (!isPartActive() || amount <= 0 || !(what instanceof ReplicationMatterKey matterKey)) {
+                return 0;
+            }
+            IMatterType type = matterKey.resolveMatterType();
+            if (type == null || type.equals(MatterType.EMPTY)) {
+                return 0;
+            }
+            boolean simulate = mode == Actionable.SIMULATE;
+            long inserted = BridgeMatterFederation.fillPhysicalMatter(
+                    BridgeMatterFederation.localHolders(getMatterNetwork(), getBlockPos()),
+                    type,
+                    amount,
+                    simulate);
+            if (!simulate && inserted > 0) {
+                MatterNetwork network = getMatterNetwork();
+                if (network != null) {
+                    network.onTankValueChanged(type);
+                }
+                getHost().markForSave();
+            }
+            return inserted;
         }
 
         @Override
@@ -564,26 +820,38 @@ public class CableRepAe2BridgePart extends AEBasePart
     @Override
     public List<IPatternDetails> getAvailablePatterns() {
         List<IPatternDetails> patterns = new ArrayList<>();
-        MatterNetwork network = getMatterNetwork();
-        Level level = getLevel();
-        if (network == null || level == null || !isPartActive()) {
-            return patterns;
-        }
-        for (NetworkElement chipSupplier : network.getChipSuppliers()) {
-            var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
-            if (tile instanceof ChipStorageBlockEntity chipStorage) {
-                for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
-                    if (!pattern.getStack().isEmpty() && pattern.getCompletion() == 1) {
-                        if (ReplicationCalculation.getMatterCompound(pattern.getStack()) == null) {
-                            continue;
-                        }
-                        var details = ReplicationBridgePatternDetails.of(pattern.getStack());
-                        if (details != null) {
-                            patterns.add(details);
+        try {
+            MatterNetwork network = getMatterNetwork();
+            Level level = getLevel();
+            if (network == null || level == null || !isPartActive()) {
+                return patterns;
+            }
+            Set<net.minecraft.world.item.Item> seenItems = new HashSet<>();
+            for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
+                var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
+                if (tile instanceof ChipStorageBlockEntity chipStorage) {
+                    for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
+                        if (!pattern.getStack().isEmpty() && pattern.getCompletion() == 1) {
+                            var item = pattern.getStack().getItem();
+                            if (!seenItems.add(item)) {
+                                continue;
+                            }
+                            if (ReplicationCalculation.getMatterCompound(pattern.getStack()) == null) {
+                                continue;
+                            }
+                            var details = ReplicationBridgePatternDetails.of(pattern.getStack());
+                            if (details != null) {
+                                patterns.add(details);
+                            }
                         }
                     }
                 }
             }
+        } catch (Exception e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.warn("CableBridge{}: getAvailablePatterns failed: {}", getLocationInfo(), e.getMessage());
+            }
+            return List.of();
         }
         return patterns;
     }
@@ -604,7 +872,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
 
         ItemStack patternStack = ItemStack.EMPTY;
-        for (NetworkElement chipSupplier : network.getChipSuppliers()) {
+        for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
             var tile = chipSupplier.getLevel().getBlockEntity(chipSupplier.getPos());
             if (!(tile instanceof ChipStorageBlockEntity chipStorage)) {
                 continue;
@@ -627,11 +895,40 @@ public class CableRepAe2BridgePart extends AEBasePart
             return false;
         }
 
+        IGrid grid = getMainNode().getGrid();
+        BlockPos bridgePos = getBlockPos();
+        // AE2-internal bypass when chamber/MA is on this grid (parity with block bridge).
+        if (BridgeAe2WorkerFeed.hasOnlineWorker(grid)) {
+            Item item = patternStack.getItem();
+            int before = ae2InternalPending.getOrDefault(item, 0);
+            ae2InternalPending.merge(item, 1, Integer::sum);
+            ae2InternalPatterns.put(item, patternStack.copyWithCount(1));
+            int left = BridgeAe2WorkerFeed.feedItem(
+                    grid, bridgePos, patternStack, ae2InternalPending.get(item), ae2FeedCursor);
+            if (left <= 0) {
+                ae2InternalPending.remove(item);
+            } else {
+                ae2InternalPending.put(item, left);
+            }
+            int after = ae2InternalPending.getOrDefault(item, 0);
+            if (after < before + 1) {
+                getHost().markForSave();
+                return true;
+            }
+            // Could not feed: roll back and fall through to ReplicationTask.
+            if (after <= 1) {
+                ae2InternalPending.remove(item);
+                ae2InternalPatterns.remove(item);
+            } else {
+                ae2InternalPending.put(item, after - 1);
+            }
+        }
+
         ReplicationTask task = new ReplicationTask(
                 patternStack,
                 1,
                 IReplicationTask.Mode.MULTIPLE,
-                getBlockPos(),
+                bridgePos,
                 false);
         String taskId = task.getUuid().toString();
         network.getTaskManager().getPendingTasks().put(taskId, task);
@@ -686,8 +983,13 @@ public class CableRepAe2BridgePart extends AEBasePart
                 continue;
             }
             long filled = BridgeMatterFederation.fillPhysicalMatter(holders, type, needed, false);
-            if (filled < needed) {
-                return false;
+            long left = needed - filled;
+            if (left > 0) {
+                // Physical tanks full/missing — park remainder in AE2 cells (block bridge uses craft buffer).
+                long intoAe2 = insertAe2Matter(type, left, false);
+                if (intoAe2 < left) {
+                    return false;
+                }
             }
             MatterNetwork network = getMatterNetwork();
             if (network != null) {
@@ -725,20 +1027,26 @@ public class CableRepAe2BridgePart extends AEBasePart
             }
             return TickRateModulation.SLEEP;
         }
-        if (getMatterNetwork() == null) {
-            if (Config.enableDebugLogging) {
-                LOGGER.info("CableBridge{}: Matter network missing — attempting register",
-                        getLocationInfo());
-            }
-            registerMatterElement();
-        }
+        // Same lifecycle pressure as the block bridge: (re)join MatterNetwork and refresh AE2.
+        registerMatterElement();
         feedEnergyToMatterNetwork();
+        if (!ae2InternalPending.isEmpty()) {
+            BridgeAe2WorkerFeed.feedAll(
+                    getMainNode().getGrid(),
+                    getBlockPos(),
+                    ae2InternalPending,
+                    ae2InternalPatterns,
+                    ae2FeedCursor);
+        }
+        // Same as block bridge: terminal + AE2-sourced Replication tasks → chamber/MA.
+        net.unfamily.repae2bridge.ae2.BridgeReplicationTaskAssign.assign(
+                getMatterNetwork(), getMainNode().getGrid(), getLevel(), getBlockPos());
         Level level = getLevel();
         if (level != null && level.getGameTime() % 20 == 0 && getMainNode().isReady()) {
             IStorageProvider.requestUpdate(getMainNode());
             ICraftingProvider.requestUpdate(getMainNode());
         }
-        return TickRateModulation.SAME;
+        return ae2InternalPending.isEmpty() ? TickRateModulation.SAME : TickRateModulation.FASTER;
     }
 
     private void feedEnergyToMatterNetwork() {
@@ -823,42 +1131,76 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
         NetworkElement existing = manager.getElement(pos);
         if (existing != null) {
-            // Re-queue if this cable was classified before Ae2MatterTank exposure existed.
-            if (existing.getNetwork() instanceof MatterNetwork matter) {
-                var access = (net.unfamily.repae2bridge.mixin.MatterNetworkAccessor) (Object) matter;
-                List<NetworkElement> holders = access.rep_ae2_bridge$getMatterStacksHoldersRaw();
-                List<NetworkElement> queue = access.rep_ae2_bridge$getQueueNetworkElementsRaw();
-                if (holders != null && queue != null && !holders.contains(existing) && !queue.contains(existing)) {
-                    queue.add(existing);
-                    if (Config.enableDebugLogging) {
-                        LOGGER.info("CableBridge{}: Re-queued existing matter element for tank exposure",
-                                getLocationInfo());
-                    }
-                }
-            }
+            // Prefer remount over mutating Titanium lists when the element never became a holder.
+            ensureCableElementClassified(manager, existing, level, pos);
             return;
         }
+        addFreshCableElement(manager, level, pos);
+    }
+
+    /**
+     * One-shot remount if the element never became a matter holder. Repeated remounts were
+     * disconnecting the pipe graph mid-craft and stalling AE2 replication jobs.
+     */
+    private void ensureCableElementClassified(
+            NetworkManager manager, NetworkElement existing, Level level, BlockPos pos) {
+        if (attemptedClassificationRemount) {
+            return;
+        }
+        if (!(existing.getNetwork() instanceof MatterNetwork matter)) {
+            return;
+        }
+        var access = (net.unfamily.repae2bridge.mixin.MatterNetworkAccessor) (Object) matter;
+        List<NetworkElement> holders = access.rep_ae2_bridge$getMatterStacksHoldersRaw();
+        if (holders != null && holders.contains(existing)) {
+            return;
+        }
+        List<NetworkElement> queue = access.rep_ae2_bridge$getQueueNetworkElementsRaw();
+        if (queue != null && queue.contains(existing)) {
+            return; // still pending official Titanium classification
+        }
+        attemptedClassificationRemount = true;
+        try {
+            manager.removeElement(pos);
+            addFreshCableElement(manager, level, pos);
+            notifyAdjacentPipes();
+            if (getMainNode().isReady()) {
+                IStorageProvider.requestUpdate(getMainNode());
+                ICraftingProvider.requestUpdate(getMainNode());
+            }
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Remounted matter element for holder classification",
+                        getLocationInfo());
+            }
+        } catch (RuntimeException e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Remount deferred ({}): {}",
+                        getLocationInfo(), e.getClass().getSimpleName(), e.getMessage());
+            }
+        }
+    }
+
+    private void addFreshCableElement(NetworkManager manager, Level level, BlockPos pos) {
         try {
             manager.addElement(new DefaultMatterNetworkElement(level, pos) {
                 @Override
                 public boolean canConnectFrom(Direction direction) {
+                    // Match block bridge: all pipe sides, except adjacent bridges.
                     if (level != null && !level.isLoaded(pos.relative(direction))) {
                         return false;
                     }
-                    if (level != null
-                            && level.getBlockEntity(pos.relative(direction)) instanceof RepAE2BridgeBlockEntity) {
+                    BlockEntity neighbor = level != null ? level.getBlockEntity(pos.relative(direction)) : null;
+                    if (neighbor instanceof RepAE2BridgeBlockEntity) {
                         return false;
                     }
-                    BlockEntity be = level.getBlockEntity(pos);
-                    if (be instanceof IPartHost host) {
+                    if (neighbor instanceof IPartHost host) {
                         for (Direction face : Direction.values()) {
-                            if (host.getPart(face) instanceof CableRepAe2BridgePart && face == direction) {
-                                return true;
+                            if (host.getPart(face) instanceof CableRepAe2BridgePart) {
+                                return false;
                             }
                         }
-                        return false;
                     }
-                    return false;
+                    return super.canConnectFrom(direction);
                 }
             });
             if (Config.enableDebugLogging) {
