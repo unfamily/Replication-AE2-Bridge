@@ -131,7 +131,17 @@ dependencies {
     implementation "curse.maven:replication-638351:${replication_file_id}"
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
-    implementation "curse.maven:iskanderts-library-1516512:${iska_lib_file_id}"
+    // Prefer local unpublished Iskandert Library (RecipeBlockBridge) when built beside this repo.
+    def localIskaLibDir = file("${rootProject.projectDir}/../Iskandert-Library-1.21.1/build/libs")
+    def localIskaLibJars = localIskaLibDir.exists()
+            ? localIskaLibDir.listFiles({ f -> f.name ==~ /iska_lib-.*\.jar/ && !f.name.contains('neoforge') } as FileFilter)
+            : null
+    if (localIskaLibJars != null && localIskaLibJars.length > 0) {
+        def localIskaLib = localIskaLibJars.toList().max { it.lastModified() }
+        implementation files(localIskaLib)
+    } else {
+        implementation "curse.maven:iskanderts-library-1516512:${iska_lib_file_id}"
+    }
     implementation "curse.maven:another-config-manager-1719301:${another_config_manager_file_id}"
 
     // Optional: IDE compile/runtime only (not hard deps of the published jar)

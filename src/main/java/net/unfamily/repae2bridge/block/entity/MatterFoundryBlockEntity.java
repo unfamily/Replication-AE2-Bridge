@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -69,6 +70,7 @@ import appeng.menu.ISubMenu;
 import appeng.menu.MenuOpener;
 import appeng.menu.locator.MenuLocators;
 
+import net.unfamily.iskalib.crafting.RecipeBlockBridge;
 import net.unfamily.repae2bridge.Config;
 import net.unfamily.repae2bridge.block.ModBlocks;
 import net.unfamily.repae2bridge.block.custom.MatterFoundryBlock;
@@ -154,7 +156,14 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     @Nullable
     private MatterFoundryRecipe cachedRecipe;
+    /** Child recipe id from RecipeManager (post-bundle split); never a bundle id. */
+    @Nullable
+    private ResourceLocation cachedRecipeId;
     private boolean recipeChecked;
+
+    /** First player to place or open the GUI; used only for RecipeBlockBridge gating. */
+    @Nullable
+    private UUID ownerPlayer;
 
     /** Avoid thrashing remove/add while MatterNetwork classifies the new element. */
     private long lastNetworkJoinGameTime = -1000L;
@@ -207,7 +216,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         // Re-resolve after datapack/recipe changes: a cached instance may no longer exist
         // in the RecipeManager or may no longer match the current inputs.
         if (cachedRecipe != null && !isCachedRecipeStillValid()) {
-            cachedRecipe = null;
+            clearCachedRecipe();
             recipeChecked = false;
             resetProgress();
             if (level != null) {
@@ -256,6 +265,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
      * same-tick restart after {@link #finishCraft} so continuous runs do not flicker off.
      */
     private void advanceCraft(MatterFoundryRecipe recipe) {
+        if (!ensureCachedRecipeAllowed()) {
+            return;
+        }
         if (maxProgress <= 0) {
             totalEnergyCost = recipe.getEnergy();
             energySpent = 0;
@@ -301,6 +313,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
     }
 
     private void finishCraft(MatterFoundryRecipe recipe, ItemStack result, ItemStack existingOutput) {
+        if (!ensureCachedRecipeAllowed()) {
+            return;
+        }
         if (!matterBuffer.consumeRequired(recipe)) {
             resetProgress();
             return;
@@ -319,7 +334,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         }
 
         resetProgress();
-        cachedRecipe = null;
+        clearCachedRecipe();
         recipeChecked = false;
         setChanged();
         syncToClient();
@@ -403,7 +418,10 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     @Nullable
     private MatterFoundryRecipe findMatchingRecipe() {
-        if (level == null) return null;
+        if (level == null) {
+            clearCachedRecipe();
+            return null;
+        }
 
         ItemStack[] stacks = new ItemStack[INPUT_SLOTS];
         boolean hasAny = false;
@@ -411,21 +429,34 @@ public class MatterFoundryBlockEntity extends BlockEntity
             stacks[i] = inputSlots.getStackInSlot(i);
             if (!stacks[i].isEmpty()) hasAny = true;
         }
-        if (!hasAny) return null;
+        if (!hasAny) {
+            clearCachedRecipe();
+            return null;
+        }
 
         MatterFoundryRecipeInput input = new MatterFoundryRecipeInput(stacks);
         var recipes = level.getRecipeManager().getAllRecipesFor(ModRecipes.MATTER_FOUNDRY_TYPE.get());
         for (var holder : recipes) {
-            if (holder.value().matches(input, level)) {
-                return holder.value();
+            if (!holder.value().matches(input, level)) {
+                continue;
             }
+            ResourceLocation id = holder.id();
+            if (RecipeBlockBridge.isRecipeBlocked(id, ownerPlayer, level)) {
+                continue;
+            }
+            cachedRecipeId = id;
+            return holder.value();
         }
+        clearCachedRecipe();
         return null;
     }
 
-    /** True if the cached recipe still matches current inputs and is still registered. */
+    /** True if the cached recipe still matches current inputs, is registered, and is stage-allowed. */
     private boolean isCachedRecipeStillValid() {
-        if (cachedRecipe == null || level == null) {
+        if (cachedRecipe == null || cachedRecipeId == null || level == null) {
+            return false;
+        }
+        if (RecipeBlockBridge.isRecipeBlocked(cachedRecipeId, ownerPlayer, level)) {
             return false;
         }
         ItemStack[] stacks = new ItemStack[INPUT_SLOTS];
@@ -437,7 +468,39 @@ public class MatterFoundryBlockEntity extends BlockEntity
             return false;
         }
         return level.getRecipeManager().getAllRecipesFor(ModRecipes.MATTER_FOUNDRY_TYPE.get()).stream()
-                .anyMatch(h -> h.value() == cachedRecipe);
+                .anyMatch(h -> h.id().equals(cachedRecipeId) || h.value() == cachedRecipe);
+    }
+
+    /** Abort in-progress work when the stage gate blocks the cached child recipe id. */
+    private boolean ensureCachedRecipeAllowed() {
+        if (cachedRecipeId != null
+                && !RecipeBlockBridge.isRecipeBlocked(cachedRecipeId, ownerPlayer, level)) {
+            return true;
+        }
+        clearCachedRecipe();
+        recipeChecked = false;
+        resetProgress();
+        syncToClient();
+        return false;
+    }
+
+    private void clearCachedRecipe() {
+        cachedRecipe = null;
+        cachedRecipeId = null;
+    }
+
+    @Nullable
+    public UUID getOwnerPlayer() {
+        return ownerPlayer;
+    }
+
+    /** First claim only — never overwrites an existing owner. */
+    public void tryClaimOwner(Player player) {
+        if (player == null || ownerPlayer != null) {
+            return;
+        }
+        ownerPlayer = player.getUUID();
+        setChanged();
     }
 
     // ── Energy consumption (FE buffer, fallback to AE grid) ────────────────
@@ -712,7 +775,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
     }
 
     private void onInputContentsChanged() {
-        cachedRecipe = null;
+        clearCachedRecipe();
         recipeChecked = false;
         setChanged();
         // Clear client-side Y requirements immediately when inputs no longer match a recipe.
@@ -1058,6 +1121,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
         tag.put("outputSlot", outputSlot.serializeNBT(registries));
         tag.putInt("feEnergy", feBuffer.getEnergyStored());
         matterBuffer.save(tag, registries);
+        if (ownerPlayer != null) {
+            tag.putUUID("ownerPlayer", ownerPlayer);
+        }
     }
 
     @Override
@@ -1082,6 +1148,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
             feBuffer.receiveEnergy(tag.getInt("feEnergy"), false);
         }
         matterBuffer.load(tag, registries);
+        ownerPlayer = tag.hasUUID("ownerPlayer") ? tag.getUUID("ownerPlayer") : null;
     }
 
     @Override

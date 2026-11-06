@@ -116,10 +116,10 @@ config="${mod_id}.mixins.json"
 [[dependencies.${mod_id}]]
     modId="iska_lib"
     type="required"
-    versionRange="[1.13.0.0.0,)"
+    versionRange="[1.14.0.0.0,)"
     ordering="AFTER"
     side="BOTH"
-    reason="Recipe bundle splitter for Matter Foundry datapack entries"
+    reason="Recipe bundle splitter and RecipeBlockBridge for Matter Foundry"
 
 [[dependencies.${mod_id}]]
     modId="another_config_manager"
