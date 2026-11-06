@@ -62,20 +62,13 @@ public final class Ae2MatterTank implements IMatterTank {
         return stack != null && !stack.isEmpty() && matterType.equals(stack.getMatterType());
     }
 
+    /**
+     * Read-only mirror for network balancing — never accept pipe/network fills into AE2 cells.
+     * Explicit bridge paths call {@link Ae2MatterHost#insertAe2Matter} directly.
+     */
     @Override
     public double fill(MatterStack resource, IFluidHandler.FluidAction action) {
-        if (!isMatterValid(resource)) {
-            return 0;
-        }
-        long amount = (long) Math.floor(resource.getAmount());
-        if (amount <= 0) {
-            return 0;
-        }
-        long inserted = host.insertAe2Matter(matterType, amount, !action.execute());
-        if (inserted > 0 && action.execute()) {
-            host.notifyAe2MatterChanged(matterType);
-        }
-        return inserted;
+        return 0;
     }
 
     @Override

@@ -3,8 +3,10 @@
   "category": "misc",
   "ingredients": [
     {"item": "ae2:crafting_unit"},
+    {"item": "rep_ae2_bridge:matter_assembler"},
+    {"item": "rep_ae2_bridge:matter_infused_crystal"},
     {"item": "rep_ae2_bridge:replica_processor"},
-    {"item": "rep_ae2_bridge:matter_assembler"}
+    {"item": "rep_ae2_bridge:replica_processor"}
   ],
   "result": {
     "id": "rep_ae2_bridge:replication_unit"

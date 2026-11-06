@@ -16,7 +16,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.protocol.game.ClientboundBlockEntityDataPacket;
-import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.NbtUtils;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.BlockGetter;
@@ -42,6 +41,7 @@ import appeng.blockentity.crafting.CraftingCubeModelData;
 
 import net.neoforged.neoforge.client.model.data.ModelData;
 
+import net.unfamily.repae2bridge.ae2.BridgeHostLookup;
 import net.unfamily.repae2bridge.Config;
 import net.unfamily.repae2bridge.block.chamber.ChamberAe2Display;
 import net.unfamily.repae2bridge.block.chamber.ChamberStructure;
@@ -267,8 +267,8 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         if (level == null || craftingStack.isEmpty() || bridgePos == null || want <= 0) {
             return 0;
         }
-        BlockEntity be = level.getBlockEntity(bridgePos);
-        if (!(be instanceof RepAE2BridgeBlockEntity bridge)) {
+        var bridge = BridgeHostLookup.find(level, bridgePos);
+        if (bridge == null) {
             return 0;
         }
         int batch = want;
@@ -309,8 +309,8 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         ItemStack output = craftingStack.copyWithCount(1);
         boolean delivered = false;
         if (bridgePos != null) {
-            BlockEntity be = level.getBlockEntity(bridgePos);
-            if (be instanceof RepAE2BridgeBlockEntity bridge) {
+            var bridge = BridgeHostLookup.find(level, bridgePos);
+            if (bridge != null) {
                 if (replicationTaskId != null) {
                     // Each unit needs its own matter reserve (batch jobs re-reserve after finalize).
                     if (!bridge.ensureMatterReservedForWorker(replicationTaskId, worldPosition)) {
@@ -423,9 +423,8 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         if (replicationTaskId == null || level == null || bridgePos == null) {
             return false;
         }
-        BlockEntity be = level.getBlockEntity(bridgePos);
-        return be instanceof RepAE2BridgeBlockEntity bridge
-                && bridge.hasPendingReplicationTask(replicationTaskId);
+        var bridge = BridgeHostLookup.find(level, bridgePos);
+        return bridge != null && bridge.hasPendingReplicationTask(replicationTaskId);
     }
 
     private void clearJob() {
