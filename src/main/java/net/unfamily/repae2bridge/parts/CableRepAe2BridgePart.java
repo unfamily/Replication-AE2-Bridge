@@ -123,6 +123,12 @@ public class CableRepAe2BridgePart extends AEBasePart
     private final Map<Item, Integer> ae2InternalPending = new HashMap<>();
     private final Map<Item, ItemStack> ae2InternalPatterns = new HashMap<>();
     private final AtomicInteger ae2FeedCursor = new AtomicInteger();
+    /** One AE2 inventory scan + localHolders walk per game tick (Ae2MatterTank hits this per type). */
+    private long ae2MatterViewTick = Long.MIN_VALUE;
+    @Nullable
+    private KeyCounter ae2StacksCache;
+    @Nullable
+    private List<NetworkElement> ae2LocalHoldersCache;
 
     public CableRepAe2BridgePart(IPartItem<?> partItem) {
         super(partItem);
@@ -375,15 +381,10 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (key == null || !getMainNode().isReady()) {
             return 0;
         }
-        IGrid grid = getMainNode().getGrid();
-        if (grid == null) {
+        KeyCounter stacks = getCachedAe2Stacks();
+        if (stacks == null) {
             return 0;
         }
-        IStorageService storage = grid.getStorageService();
-        if (storage == null) {
-            return 0;
-        }
-        var stacks = storage.getInventory().getAvailableStacks();
         long amount = stacks.get(key);
         if (amount <= 0) {
             long sum = 0;
@@ -394,9 +395,42 @@ public class CableRepAe2BridgePart extends AEBasePart
             }
             amount = sum;
         }
-        long externalLocal = BridgeMatterFederation.sumPhysicalMatter(
-                BridgeMatterFederation.localHolders(getMatterNetwork(), getBlockPos()), type);
+        long externalLocal = BridgeMatterFederation.sumPhysicalMatter(getCachedLocalHolders(), type);
         return Math.max(0, amount - externalLocal);
+    }
+
+    @Nullable
+    private KeyCounter getCachedAe2Stacks() {
+        refreshAe2MatterViewCache();
+        return ae2StacksCache;
+    }
+
+    private List<NetworkElement> getCachedLocalHolders() {
+        refreshAe2MatterViewCache();
+        return ae2LocalHoldersCache != null ? ae2LocalHoldersCache : List.of();
+    }
+
+    private void refreshAe2MatterViewCache() {
+        Level level = getLevel();
+        long tick = level != null ? level.getGameTime() : Long.MIN_VALUE;
+        if (ae2MatterViewTick == tick && ae2StacksCache != null && ae2LocalHoldersCache != null) {
+            return;
+        }
+        ae2MatterViewTick = tick;
+        ae2StacksCache = null;
+        ae2LocalHoldersCache = BridgeMatterFederation.localHolders(getMatterNetwork(), getBlockPos());
+        if (!getMainNode().isReady()) {
+            return;
+        }
+        IGrid grid = getMainNode().getGrid();
+        if (grid == null) {
+            return;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return;
+        }
+        ae2StacksCache = storage.getInventory().getAvailableStacks();
     }
 
     @Override
@@ -829,12 +863,13 @@ public class CableRepAe2BridgePart extends AEBasePart
             if (local == null) {
                 return;
             }
+            // One holder walk for all types (avoids N× localHolders — TPS).
+            var holders = BridgeMatterFederation.localHolders(local, getBlockPos());
             for (IMatterType matterType : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
                 if (matterType == null || matterType.equals(MatterType.EMPTY)) {
                     continue;
                 }
-                long amount = BridgeMatterFederation.sumPhysicalMatter(
-                        BridgeMatterFederation.localHolders(local, getBlockPos()), matterType);
+                long amount = BridgeMatterFederation.sumPhysicalMatter(holders, matterType);
                 if (amount <= 0) {
                     continue;
                 }
@@ -1071,10 +1106,12 @@ public class CableRepAe2BridgePart extends AEBasePart
                     ae2InternalPatterns,
                     ae2FeedCursor);
         }
-        // Same as block bridge: terminal + AE2-sourced Replication tasks → chamber/MA.
-        net.unfamily.repae2bridge.ae2.BridgeReplicationTaskAssign.assign(
-                getMatterNetwork(), getMainNode().getGrid(), getLevel(), getBlockPos());
+        // Same as block bridge: terminal + AE2-sourced Replication tasks → chamber/MA (not every tick — TPS).
         Level level = getLevel();
+        if (level != null && level.getGameTime() % 5 == 0) {
+            net.unfamily.repae2bridge.ae2.BridgeReplicationTaskAssign.assign(
+                    getMatterNetwork(), getMainNode().getGrid(), level, getBlockPos());
+        }
         if (level != null && level.getGameTime() % 20 == 0 && getMainNode().isReady()) {
             IStorageProvider.requestUpdate(getMainNode());
             ICraftingProvider.requestUpdate(getMainNode());

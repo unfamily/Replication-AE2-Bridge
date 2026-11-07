@@ -139,6 +139,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private List<MatterAssemblerBlockEntity> cachedOnlineAssemblers = List.of();
     private long ae2WorkerCacheTick = Long.MIN_VALUE;
     private static final int AE2_WORKER_CACHE_TTL = 40;
+    /** One AE2 inventory scan + localHolders walk per game tick (Ae2MatterTank hits this per type). */
+    private long ae2MatterViewTick = Long.MIN_VALUE;
+    @Nullable
+    private KeyCounter ae2StacksCache;
+    @Nullable
+    private List<NetworkElement> ae2LocalHoldersCache;
     private int ae2FeedCursor;
     private final Set<IMatterType> dirtyReplicationMatterTypes = new HashSet<>();
     private int replicationTankSyncTicks;
@@ -2604,11 +2610,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (initialized != 1 || !isActive()) {
                 return;
             }
+            // One holder walk for all types (avoids N× localHolders — TPS).
+            var holders = BridgeMatterFederation.localHolders(getNetwork(), getBlockPos());
             for (IMatterType matterType : ReplicationRegistry.MATTER_TYPES_REGISTRY) {
                 if (matterType == null || matterType.equals(MatterType.EMPTY)) {
                     continue;
                 }
-                long amount = calculateLocalExternalMatterAmount(matterType);
+                long amount = BridgeMatterFederation.sumPhysicalMatter(holders, matterType);
                 CraftMatterTank craft = findCraftMatterTank(matterType);
                 if (craft != null) {
                     amount += (long) Math.floor(craft.getMatterAmount());
@@ -3150,15 +3158,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (key == null || !mainNode.isReady()) {
             return 0;
         }
-        IGrid grid = mainNode.getGrid();
-        if (grid == null) {
+        KeyCounter stacks = getCachedAe2Stacks();
+        if (stacks == null) {
             return 0;
         }
-        IStorageService storage = grid.getStorageService();
-        if (storage == null) {
-            return 0;
-        }
-        var stacks = storage.getInventory().getAvailableStacks();
         long amount = stacks.get(key);
         if (amount <= 0) {
             long sum = 0;
@@ -3170,8 +3173,41 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             amount = sum;
         }
         // Ae2MatterTank must not re-report physical tanks already counted by MatterNetwork.
-        long externalLocal = calculateLocalExternalMatterAmount(type);
+        long externalLocal = BridgeMatterFederation.sumPhysicalMatter(getCachedLocalHolders(), type);
         return Math.max(0, amount - externalLocal);
+    }
+
+    @Nullable
+    private KeyCounter getCachedAe2Stacks() {
+        refreshAe2MatterViewCache();
+        return ae2StacksCache;
+    }
+
+    private List<NetworkElement> getCachedLocalHolders() {
+        refreshAe2MatterViewCache();
+        return ae2LocalHoldersCache != null ? ae2LocalHoldersCache : List.of();
+    }
+
+    private void refreshAe2MatterViewCache() {
+        long tick = level != null ? level.getGameTime() : Long.MIN_VALUE;
+        if (ae2MatterViewTick == tick && ae2StacksCache != null && ae2LocalHoldersCache != null) {
+            return;
+        }
+        ae2MatterViewTick = tick;
+        ae2StacksCache = null;
+        ae2LocalHoldersCache = BridgeMatterFederation.localHolders(getNetwork(), getBlockPos());
+        if (!mainNode.isReady()) {
+            return;
+        }
+        IGrid grid = mainNode.getGrid();
+        if (grid == null) {
+            return;
+        }
+        IStorageService storage = grid.getStorageService();
+        if (storage == null) {
+            return;
+        }
+        ae2StacksCache = storage.getInventory().getAvailableStacks();
     }
 
     public long getAe2MatterFreeSpace(IMatterType type) {
