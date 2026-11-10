@@ -31,8 +31,10 @@ public class Config {
     }
 
     private static final ModConfigSpec.IntValue MATTER_CELL_MAX_TYPES = BUILDER
-            .comment("Maximum distinct matter types a matter storage cell can hold (AE2 clamps to 63).")
-            .defineInRange("000_matterCellMaxTypes", 6, 1, Integer.MAX_VALUE);
+            .comment("Maximum distinct matter types a matter storage cell can hold.",
+                    "0 = all registered matter types (excluding EMPTY).",
+                    "1..Integer.MAX_VALUE = fixed cap (may exceed AE2's vanilla 63-type limit).")
+            .defineInRange("000_matterCellMaxTypes", 6, 0, Integer.MAX_VALUE);
 
     static {
         BUILDER.pop();

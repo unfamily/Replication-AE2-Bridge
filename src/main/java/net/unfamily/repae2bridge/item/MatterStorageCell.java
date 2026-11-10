@@ -1,37 +1,186 @@
 package net.unfamily.repae2bridge.item;
 
-import net.minecraft.world.item.ItemStack;
+import java.util.Optional;
+import java.util.Set;
+import java.util.function.Consumer;
 
-import appeng.items.storage.BasicStorageCell;
+import com.buuz135.replication.ReplicationRegistry;
+import com.buuz135.replication.api.IMatterType;
+import com.buuz135.replication.api.MatterType;
+
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.tooltip.TooltipComponent;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.TooltipDisplay;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.Level;
+
+import appeng.api.config.FuzzyMode;
+import appeng.api.ids.AEComponents;
+import appeng.api.storage.StorageCells;
+import appeng.api.storage.cells.CellState;
+import appeng.api.storage.cells.ICellWorkbenchItem;
+import appeng.api.upgrades.IUpgradeInventory;
+import appeng.api.upgrades.UpgradeInventories;
+import appeng.core.localization.PlayerMessages;
+import appeng.hooks.AEToolItem;
+import appeng.items.AEBaseItem;
+import appeng.items.contents.CellConfig;
+import appeng.recipes.game.StorageCellDisassemblyRecipe;
+import appeng.util.ConfigInventory;
+import appeng.util.InteractionUtil;
+import appeng.util.Platform;
 
 import net.unfamily.repae2bridge.Config;
 import net.unfamily.repae2bridge.ae2.MatterKeyType;
+import net.unfamily.repae2bridge.ae2.cells.MatterCellHandler;
 
 /**
- * Matter storage cell with an exact byte capacity so per-type capacity matches the designed tiers.
+ * Matter storage cell with configurable type limit. Uses a custom cell handler so the AE2 63-type
+ * clamp does not apply. {@code 0} in config means all registered matter types (excluding EMPTY).
  */
-public class MatterStorageCell extends BasicStorageCell {
+public class MatterStorageCell extends AEBaseItem implements ICellWorkbenchItem, AEToolItem {
 
+    private final double idleDrain;
     private final int exactBytes;
+    private final int bytesPerType;
 
     public MatterStorageCell(Properties properties, double idleDrain, int exactBytes, int bytesPerType) {
-        // kilobytes arg is unused for capacity; getBytes() returns exactBytes
-        super(properties, idleDrain, 1, bytesPerType, 6, MatterKeyType.INSTANCE);
+        super(properties);
+        this.idleDrain = idleDrain;
         this.exactBytes = exactBytes;
+        this.bytesPerType = bytesPerType;
     }
 
-    @Override
     public int getBytes(ItemStack cellItem) {
         return exactBytes;
     }
 
-    @Override
+    public int getBytesPerType(ItemStack cellItem) {
+        return bytesPerType;
+    }
+
+    public double getIdleDrain() {
+        return idleDrain;
+    }
+
     public int getTotalTypes(ItemStack cellItem) {
         int types = Config.matterCellMaxTypes;
-        if (types < 1) {
+        if (types == 0) {
+            return countRegisteredMatterTypes();
+        }
+        if (types < 0) {
             return 1;
         }
-        // AE2 BasicCellInventory clamps to 63
-        return Math.min(types, 63);
+        return types;
+    }
+
+    private static int countRegisteredMatterTypes() {
+        var registry = ReplicationRegistry.MATTER_TYPES_REGISTRY;
+        if (registry == null) {
+            return 1;
+        }
+        int count = 0;
+        for (IMatterType matterType : registry) {
+            if (matterType != null && !matterType.equals(MatterType.EMPTY)) {
+                count++;
+            }
+        }
+        return Math.max(1, count);
+    }
+
+    @Override
+    public IUpgradeInventory getUpgrades(ItemStack is) {
+        return UpgradeInventories.forItem(is, 3);
+    }
+
+    @Override
+    public ConfigInventory getConfigInventory(ItemStack is) {
+        return CellConfig.create(Set.of(MatterKeyType.INSTANCE), is);
+    }
+
+    @Override
+    public FuzzyMode getFuzzyMode(ItemStack is) {
+        return is.getOrDefault(AEComponents.STORAGE_CELL_FUZZY_MODE, FuzzyMode.IGNORE_ALL);
+    }
+
+    @Override
+    public void setFuzzyMode(ItemStack is, FuzzyMode fzMode) {
+        is.set(AEComponents.STORAGE_CELL_FUZZY_MODE, fzMode);
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, TooltipContext context, TooltipDisplay tooltipDisplay,
+            Consumer<Component> lines, TooltipFlag tooltipFlags) {
+        if (Platform.isClient()) {
+            MatterCellHandler.INSTANCE.addCellInformationToTooltip(stack, lines);
+        }
+    }
+
+    @Override
+    public Optional<TooltipComponent> getTooltipImage(ItemStack stack) {
+        return MatterCellHandler.INSTANCE.getTooltipImage(stack);
+    }
+
+    @Override
+    public InteractionResult use(Level level, Player player, InteractionHand hand) {
+        if (level instanceof ServerLevel serverLevel) {
+            this.disassembleDrive(player.getItemInHand(hand), serverLevel, player);
+        }
+        return InteractionResult.SUCCESS;
+    }
+
+    private boolean disassembleDrive(ItemStack stack, ServerLevel level, Player player) {
+        if (!InteractionUtil.isInAlternateUseMode(player)) {
+            return false;
+        }
+
+        var disassembledStacks = StorageCellDisassemblyRecipe.getDisassemblyResult(level, stack.getItem());
+        if (disassembledStacks.isEmpty()) {
+            return false;
+        }
+
+        var playerInventory = player.getInventory();
+        if (playerInventory.getSelectedItem() != stack) {
+            return false;
+        }
+
+        var inv = StorageCells.getCellInventory(stack, null);
+        if (inv != null && !inv.getAvailableStacks().isEmpty()) {
+            player.sendOverlayMessage(PlayerMessages.OnlyEmptyCellsCanBeDisassembled.text());
+            return false;
+        }
+
+        playerInventory.setItem(playerInventory.getSelectedSlot(), ItemStack.EMPTY);
+
+        for (var disassembledStack : disassembledStacks) {
+            playerInventory.placeItemBackInInventory(disassembledStack.copy());
+        }
+
+        getUpgrades(stack).forEach(playerInventory::placeItemBackInInventory);
+        return true;
+    }
+
+    @Override
+    public InteractionResult onItemUseFirst(ItemStack stack, UseOnContext context) {
+        if (context.getLevel() instanceof ServerLevel serverLevel
+                && this.disassembleDrive(stack, serverLevel, context.getPlayer())) {
+            return InteractionResult.SUCCESS;
+        }
+        return InteractionResult.PASS;
+    }
+
+    public static int getLedColor(ItemStack stack, int tintIndex) {
+        if (tintIndex == 3) {
+            var cellInv = StorageCells.getCellInventory(stack, null);
+            var cellStatus = cellInv != null ? cellInv.getStatus() : CellState.EMPTY;
+            return cellStatus.getStateColor();
+        }
+        return 0xFFFFFF;
     }
 }

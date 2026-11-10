@@ -22,7 +22,8 @@
   "client": [
     "PatternEncodingTermScreenMixin",
     "ProcessingEncodingPanelMixin",
-    "EncodePatternTransferHandlerMixin"
+    "EncodePatternTransferHandlerMixin",
+    "CellWorkbenchScreenMixin"
   ],
   "injectors": {
     "defaultRequire": 1

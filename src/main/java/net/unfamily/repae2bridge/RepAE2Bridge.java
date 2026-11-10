@@ -33,6 +33,7 @@ import net.unfamily.repae2bridge.block.entity.ChamberFrameBlockEntity;
 import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
 import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.unfamily.repae2bridge.block.entity.ReplicationUnitBlockEntity;
+import net.unfamily.repae2bridge.ae2.cells.MatterCellHandler;
 import net.unfamily.repae2bridge.ae2.cells.MatterCreativeCellHandler;
 import net.neoforged.neoforge.capabilities.RegisterCapabilitiesEvent;
 import appeng.api.AECapabilities;
@@ -135,6 +136,7 @@ public class RepAE2Bridge
             LOGGER.info("GuideME detected — standalone guide available (rep_ae2_bridge:guide)");
         }
 
+        StorageCells.addCellHandler(MatterCellHandler.INSTANCE);
         StorageCells.addCellHandler(MatterCreativeCellHandler.INSTANCE);
 
         event.enqueueWork(() -> {
@@ -149,6 +151,21 @@ public class RepAE2Bridge
                     appeng.core.definitions.AEItems.SPEED_CARD,
                     ModBlocks.MATTER_FOUNDRY,
                     5);
+
+            String storageCellGroup = appeng.core.localization.GuiText.StorageCells.getTranslationKey();
+            var matterCells = java.util.List.of(
+                    ModItems.MATTER_CELL_1K,
+                    ModItems.MATTER_CELL_4K,
+                    ModItems.MATTER_CELL_16K,
+                    ModItems.MATTER_CELL_64K,
+                    ModItems.MATTER_CELL_256K);
+            for (var cell : matterCells) {
+                appeng.api.upgrades.Upgrades.add(
+                        appeng.core.definitions.AEItems.EQUAL_DISTRIBUTION_CARD, cell.get(), 1, storageCellGroup);
+                appeng.api.upgrades.Upgrades.add(
+                        appeng.core.definitions.AEItems.VOID_CARD, cell.get(), 1, storageCellGroup);
+            }
+
             RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
         });
 
