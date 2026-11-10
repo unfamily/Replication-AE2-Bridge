@@ -6,6 +6,7 @@ import org.jetbrains.annotations.Nullable;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
@@ -135,6 +136,13 @@ public class ChamberFrameBlockEntity extends BlockEntity implements IInWorldGrid
 
     public boolean isChamberOnline() {
         return chamberOnline;
+    }
+
+    /** AE2 network owner (security / preferences); set when the frame block is placed. */
+    public void setOwningPlayer(Player player) {
+        if (player != null) {
+            mainNode.setOwningPlayer(player);
+        }
     }
 
     @Nullable

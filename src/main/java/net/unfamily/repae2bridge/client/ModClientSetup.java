@@ -12,6 +12,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
+import net.neoforged.fml.event.lifecycle.FMLCommonSetupEvent;
 import net.neoforged.neoforge.client.event.EntityRenderersEvent;
 import net.neoforged.neoforge.client.event.ModelEvent;
 import net.neoforged.neoforge.client.event.RegisterColorHandlersEvent;
@@ -19,6 +20,7 @@ import net.neoforged.neoforge.client.event.RegisterMenuScreensEvent;
 import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 import net.neoforged.neoforge.client.model.geometry.StandaloneGeometryBakingContext;
 
+import appeng.api.client.StorageCellModels;
 import appeng.init.client.InitScreens;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
@@ -86,6 +88,9 @@ public class ModClientSetup {
         event.register(FluixingReplicaAlloyRenderer.GREEN);
         event.register(FluixingReplicaAlloyRenderer.PURPLE);
         event.register(FluixingReplicaAlloyRenderer.ORANGE);
+        for (ResourceLocation model : driveCellModels()) {
+            event.register(ModelResourceLocation.standalone(model));
+        }
     }
 
     @SubscribeEvent
@@ -140,6 +145,15 @@ public class ModClientSetup {
         return "empty";
     }
 
+    /**
+     * Must run in common setup so drive cell models are mapped before first world load
+     * (same timing as MEGA Cells / Applied Replicatics).
+     */
+    @SubscribeEvent
+    public static void onCommonSetup(FMLCommonSetupEvent event) {
+        event.enqueueWork(ModClientSetup::registerDriveCellModels);
+    }
+
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         event.enqueueWork(() -> {
@@ -164,6 +178,41 @@ public class ModClientSetup {
             ItemProperties.register(ModItems.MATTER_INFUSED_CRYSTAL.get(), MATTER_CRYSTAL_PULSE,
                     MatterCrystalPulseProperty::get);
         });
+    }
+
+    /** Item-column UVs for base/creative; fluid-column UVs for mega tiers. */
+    private static void registerDriveCellModels() {
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_1K.get(), driveCell("1k_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_4K.get(), driveCell("4k_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_16K.get(), driveCell("16k_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_64K.get(), driveCell("64k_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_256K.get(), driveCell("256k_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_CREATIVE.get(), driveCell("creative_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_1M.get(), driveCell("1m_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_4M.get(), driveCell("4m_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_16M.get(), driveCell("16m_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_64M.get(), driveCell("64m_matter_cell"));
+        StorageCellModels.registerModel(ModItems.MATTER_CELL_256M.get(), driveCell("256m_matter_cell"));
+    }
+
+    private static ResourceLocation[] driveCellModels() {
+        return new ResourceLocation[] {
+                driveCell("1k_matter_cell"),
+                driveCell("4k_matter_cell"),
+                driveCell("16k_matter_cell"),
+                driveCell("64k_matter_cell"),
+                driveCell("256k_matter_cell"),
+                driveCell("creative_matter_cell"),
+                driveCell("1m_matter_cell"),
+                driveCell("4m_matter_cell"),
+                driveCell("16m_matter_cell"),
+                driveCell("64m_matter_cell"),
+                driveCell("256m_matter_cell")
+        };
+    }
+
+    private static ResourceLocation driveCell(String name) {
+        return ResourceLocation.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "block/drive/cells/" + name);
     }
 
     @SubscribeEvent

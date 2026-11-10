@@ -1,5 +1,6 @@
 package net.unfamily.repae2bridge.compat.emi;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import dev.emi.emi.api.recipe.EmiRecipe;
@@ -16,7 +17,11 @@ public final class MatterFoundryEmiRecipeHandler implements StandardRecipeHandle
 
     @Override
     public List<Slot> getInputSources(MatterFoundryMenu handler) {
-        return handler.getPlayerSlotsForTransfer();
+        // Player inventory + current Foundry inputs (same idea as typical machine handlers).
+        List<Slot> slots = new ArrayList<>();
+        slots.addAll(handler.getPlayerSlotsForTransfer());
+        slots.addAll(handler.getFoundryInputSlots());
+        return slots;
     }
 
     @Override
@@ -25,7 +30,18 @@ public final class MatterFoundryEmiRecipeHandler implements StandardRecipeHandle
     }
 
     @Override
+    public List<Slot> getCraftingSlots(EmiRecipe recipe, MatterFoundryMenu handler) {
+        List<Slot> all = handler.getFoundryInputSlots();
+        int n = recipe.getInputs().size();
+        if (n <= 0 || n >= all.size()) {
+            return all;
+        }
+        return all.subList(0, n);
+    }
+
+    @Override
     public boolean supportsRecipe(EmiRecipe recipe) {
-        return recipe.getCategory() == RepAE2BridgeEmiPlugin.FOUNDRY;
+        return recipe instanceof MatterFoundryEmiRecipe
+                || recipe.getCategory() == RepAE2BridgeEmiPlugin.FOUNDRY;
     }
 }

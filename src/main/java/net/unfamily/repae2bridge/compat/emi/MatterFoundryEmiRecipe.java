@@ -120,22 +120,24 @@ public class MatterFoundryEmiRecipe implements EmiRecipe {
             }
             int slotX = FoundryRecipeLayout.matterX(m);
             int slotY = FoundryRecipeLayout.matterY(m);
+            // Display-only: not part of getInputs(), so EMI + never transfers matter icons.
             widgets.addSlot(matter, slotX, slotY);
             long amount = m < matterAmounts.size() ? matterAmounts.get(m) : 0L;
             String label = formatCompact(Math.max(0L, amount));
             int itemX = slotX + FoundryRecipeLayout.ITEM_INSET;
             int itemY = slotY + FoundryRecipeLayout.ITEM_INSET;
+            // DrawableWidget translates to (itemX, itemY) before render — draw at local (0, 0).
             widgets.addDrawable(itemX, itemY, 16, 16, (gui, mouseX, mouseY, delta) ->
                     appeng.client.gui.me.common.StackSizeRenderer.renderSizeLabel(
-                            gui, net.minecraft.client.Minecraft.getInstance().font, itemX, itemY, label));
+                            gui, net.minecraft.client.Minecraft.getInstance().font, 0, 0, label));
             m++;
         }
 
         MatterFoundryRecipe recipe = holder.value();
         int ticks = Math.max(1, recipe.getEnergy() / Math.max(1, Config.matterFoundryEnergyPerTick));
-        widgets.addText(Component.literal(recipe.getEnergy() + " FE"),
+        widgets.addText(Component.translatable("jei.rep_ae2_bridge.matter_foundry.energy", recipe.getEnergy()),
                 FoundryRecipeLayout.TEXT_MARGIN, FoundryRecipeLayout.TEXT_ENERGY_Y, 0xFF404040, false);
-        widgets.addText(Component.literal(ticks + " t"),
+        widgets.addText(Component.translatable("jei.rep_ae2_bridge.matter_foundry.time", ticks),
                 FoundryRecipeLayout.TEXT_MARGIN, FoundryRecipeLayout.TEXT_TIME_Y, 0xFF404040, false);
     }
 

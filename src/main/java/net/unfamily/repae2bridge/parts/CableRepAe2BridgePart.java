@@ -247,18 +247,24 @@ public class CableRepAe2BridgePart extends AEBasePart
             if (manager != null) {
                 NetworkElement element = manager.getElement(pos);
                 if (element != null) {
+                    if (Config.enableDebugLogging) {
                     LOGGER.info("CableBridge{}: Removing from Titanium/Replication NetworkManager",
                             getLocationInfo());
+                    }
                     manager.removeElement(pos);
+                    if (Config.enableDebugLogging) {
                     LOGGER.info("CableBridge{}: Titanium/Replication network disconnected",
                             getLocationInfo());
+                    }
                 } else if (Config.enableDebugLogging) {
                     LOGGER.info("CableBridge{}: No matter network element to remove", getLocationInfo());
                 }
             }
         } catch (Exception e) {
+            if (Config.enableDebugLogging) {
             LOGGER.warn("CableBridge{}: Error disconnecting from Titanium/Replication network: {}",
                     getLocationInfo(), e.getMessage());
+            }
         }
     }
 
@@ -267,8 +273,10 @@ public class CableRepAe2BridgePart extends AEBasePart
      */
     public static void disconnectAllCableBridgesFromNetworks() {
         List<CableRepAe2BridgePart> parts = new ArrayList<>(activeCableBridges);
+        if (Config.enableDebugLogging) {
         LOGGER.info("CableRepAe2Bridge: Starting matter network disconnection for {} cable bridges",
                 parts.size());
+        }
 
         int disconnected = 0;
         int failed = 0;
@@ -294,19 +302,25 @@ public class CableRepAe2BridgePart extends AEBasePart
                     }
                     continue;
                 }
+                if (Config.enableDebugLogging) {
                 LOGGER.info("CableRepAe2Bridge: Disconnecting cable bridge at {}",
                         part.getLocationInfo());
+                }
                 part.disconnectFromMatterNetwork();
                 disconnected++;
             } catch (Exception e) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("CableRepAe2Bridge: Failed to disconnect cable bridge: {}", e.getMessage());
+                }
                 failed++;
             }
         }
 
         activeCableBridges.clear();
+        if (Config.enableDebugLogging) {
         LOGGER.info("CableRepAe2Bridge: Cable matter network disconnection completed - {} successful, {} failed",
                 disconnected, failed);
+        }
     }
 
     @Override

@@ -45,6 +45,7 @@
   "jei.rep_ae2_bridge.matter_foundry": "Fonderia di Materia",
   "jei.rep_ae2_bridge.matter_foundry.energy": "%s FE",
   "jei.rep_ae2_bridge.matter_foundry.time": "%s tick (base)",
+  "emi.category.rep_ae2_bridge.matter_foundry": "Fonderia di Materia",
   "gui.rep_ae2_bridge.replication_chamber": "Camera di Replicazione",
   "item.rep_ae2_bridge.guide": "Guida Replication AE2 Bridge",
   "tooltip.rep_ae2_bridge.guide.line0": "Manuale GuideME di questo addon",
