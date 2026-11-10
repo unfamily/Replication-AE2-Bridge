@@ -3113,12 +3113,6 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.info("Bridge at {}: Matter created from disintegrator - {}: {} units",
                 worldPosition, matterType.getName(), amount);
         }
-
-        // TODO: Add any additional logic here, such as:
-        // - Sending notifications to players
-        // - Updating matter creation statistics
-        // - Triggering AE2 autocrafting based on matter creation
-        // - Integration with other mods
     }
 
     // ── Feed-Replication-Energy toggle ────────────────────────────────
