@@ -27,7 +27,8 @@
       "PatternEncodingTermScreenMixin",
       "ProcessingEncodingPanelMixin",
       "EmiEncodePatternHandlerMixin",
-      "ReiEncodePatternTransferHandlerMixin"
+      "ReiEncodePatternTransferHandlerMixin",
+      "CellWorkbenchScreenMixin"
     ],
     "injectors": {
       "defaultRequire": 1

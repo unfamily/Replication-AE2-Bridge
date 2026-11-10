@@ -144,6 +144,8 @@ public class RepAE2Bridge
         }
 
         appeng.api.storage.StorageCells.addCellHandler(
+                net.unfamily.repae2bridge.ae2.cells.MatterCellHandler.INSTANCE);
+        appeng.api.storage.StorageCells.addCellHandler(
                 net.unfamily.repae2bridge.ae2.cells.MatterCreativeCellHandler.INSTANCE);
 
         event.enqueueWork(() -> {
@@ -160,6 +162,26 @@ public class RepAE2Bridge
                     appeng.core.definitions.AEItems.SPEED_CARD,
                     ModBlocks.MATTER_FOUNDRY,
                     5);
+
+            String storageCellGroup = appeng.core.localization.GuiText.StorageCells.getTranslationKey();
+            var matterCells = java.util.List.of(
+                    ModItems.MATTER_CELL_1K,
+                    ModItems.MATTER_CELL_4K,
+                    ModItems.MATTER_CELL_16K,
+                    ModItems.MATTER_CELL_64K,
+                    ModItems.MATTER_CELL_256K,
+                    ModItems.MATTER_CELL_1M,
+                    ModItems.MATTER_CELL_4M,
+                    ModItems.MATTER_CELL_16M,
+                    ModItems.MATTER_CELL_64M,
+                    ModItems.MATTER_CELL_256M);
+            for (var cell : matterCells) {
+                appeng.api.upgrades.Upgrades.add(
+                        appeng.core.definitions.AEItems.EQUAL_DISTRIBUTION_CARD, cell.get(), 1, storageCellGroup);
+                appeng.api.upgrades.Upgrades.add(
+                        appeng.core.definitions.AEItems.VOID_CARD, cell.get(), 1, storageCellGroup);
+            }
+
             RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
         });
 
