@@ -14,7 +14,7 @@ import net.minecraft.world.item.crafting.RecipeManager;
 import net.unfamily.repae2bridge.recipe.MatterFoundryRecipe;
 
 /**
- * Shared helpers for JEI / EMI / REI Matter Foundry categories on 26.x.
+ * Shared helpers for JEI / REI Matter Foundry categories on 26.x.
  */
 public final class FoundryRecipeLists {
 

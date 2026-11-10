@@ -1,7 +1,7 @@
 package net.unfamily.repae2bridge.compat;
 
 /**
- * Shared JEI/EMI/REI layout for Matter Foundry recipes.
+ * Shared JEI/REI layout for Matter Foundry recipes.
  *
  * <pre>
  * [I][I][I][I][I]                 row 1 (inputs)

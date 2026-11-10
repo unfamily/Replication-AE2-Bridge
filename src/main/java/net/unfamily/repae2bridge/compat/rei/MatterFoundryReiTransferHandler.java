@@ -33,7 +33,8 @@ public final class MatterFoundryReiTransferHandler implements SimpleTransferHand
     @Override
     public Iterable<SlotAccessor> getInputSlots(Context context) {
         MatterFoundryMenu menu = (MatterFoundryMenu) context.getMenu();
-        return menu.getFoundryInputSlots().stream().map(SlotAccessor::fromSlot).collect(Collectors.toList());
+        // AppEngSlot: empty slots fail VanillaSlotAccessor.allowModification (mayPickup=false).
+        return menu.getFoundryInputSlots().stream().map(AppEngSlotAccessor::new).collect(Collectors.toList());
     }
 
     @Override

@@ -93,6 +93,9 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
         
         if (!level.isClientSide()) {
             if (level.getBlockEntity(pos) instanceof RepAE2BridgeBlockEntity blockEntity) {
+                if (entity instanceof net.minecraft.world.entity.player.Player player) {
+                    blockEntity.getMainNode().setOwningPlayer(player);
+                }
                 blockEntity.handleNeighborChanged(pos);
             }
             updateNeighbors(level, pos, state);

@@ -12,6 +12,7 @@ import net.neoforged.neoforge.client.event.RegisterParticleProvidersEvent;
 import net.neoforged.neoforge.client.event.RegisterRangeSelectItemModelPropertyEvent;
 import net.neoforged.neoforge.client.model.standalone.SimpleUnbakedStandaloneModel;
 
+import appeng.api.client.StorageCellModels;
 import appeng.client.InitScreens;
 
 import net.unfamily.repae2bridge.RepAE2Bridge;
@@ -26,6 +27,7 @@ import net.unfamily.repae2bridge.client.render.ReplicationUnitCubeModel;
 import net.unfamily.repae2bridge.client.renderer.FluixingReplicaAlloyRenderer;
 import net.unfamily.repae2bridge.client.renderer.MatterAssemblerRenderer;
 import net.unfamily.repae2bridge.client.renderer.ReplicationUnitRenderer;
+import net.unfamily.repae2bridge.item.ModItems;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
 import net.unfamily.repae2bridge.menu.MatterAssemblerMenu;
 import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
@@ -80,5 +82,23 @@ public class ModClientSetup {
                 SimpleUnbakedStandaloneModel.blockStateModel(FluixingReplicaAlloyRenderer.PURPLE_ID));
         event.register(FluixingReplicaAlloyRenderer.ORANGE,
                 SimpleUnbakedStandaloneModel.blockStateModel(FluixingReplicaAlloyRenderer.ORANGE_ID));
+
+        // Item-column UVs for base/creative matter cells in ME drives.
+        registerDriveCell(event, ModItems.MATTER_CELL_1K.get(), "1k_matter_cell");
+        registerDriveCell(event, ModItems.MATTER_CELL_4K.get(), "4k_matter_cell");
+        registerDriveCell(event, ModItems.MATTER_CELL_16K.get(), "16k_matter_cell");
+        registerDriveCell(event, ModItems.MATTER_CELL_64K.get(), "64k_matter_cell");
+        registerDriveCell(event, ModItems.MATTER_CELL_256K.get(), "256k_matter_cell");
+        registerDriveCell(event, ModItems.MATTER_CELL_CREATIVE.get(), "creative_matter_cell");
+    }
+
+    private static void registerDriveCell(ModelEvent.RegisterStandalone event, net.minecraft.world.item.Item item,
+            String name) {
+        Identifier modelId = Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "block/drive/cells/" + name);
+        StorageCellModels.registerModel(item, modelId);
+        var key = StorageCellModels.standaloneModel(item);
+        if (key != null) {
+            event.register(key, SimpleUnbakedStandaloneModel.blockStateModel(modelId));
+        }
     }
 }

@@ -344,17 +344,23 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             String positionInfo = pos != null ? 
                 " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
             
+            if (Config.enableDebugLogging) {
             LOGGER.info("RepAE2Bridge: World unloading detected - All bridges will now shutdown{}{}", 
                         dimensionInfo, positionInfo);
+            }
+            if (Config.enableDebugLogging) {
             LOGGER.info("RepAE2Bridge: Cancelling all pending operations{}{}", 
                         dimensionInfo, positionInfo);
+            }
             
             // Cancel all pending operations
             cancelAllPendingOperations();
             
             // Disconnect ALL bridges from networks IMMEDIATELY
             // This prevents the NetworkManager from trying to save bridges during world unload
+            if (Config.enableDebugLogging) {
             LOGGER.info("RepAE2Bridge: Disconnecting {} active bridges from AE2 and Titanium/Replication networks", activeBridges.size());
+            }
             disconnectAllBridgesFromNetworks();
             // Cable bridges are not BlockEntities — disconnect them from Titanium/Replication too
             net.unfamily.repae2bridge.parts.CableRepAe2BridgePart.disconnectAllCableBridgesFromNetworks();
@@ -366,8 +372,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             String positionInfo = pos != null ? 
                 " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
             
+            if (Config.enableDebugLogging) {
             LOGGER.info("GLOBAL WORLD UNLOADING FLAG SET TO: false - Normal operation resumed{}{}", 
                        dimensionInfo, positionInfo);
+            }
             worldUnloadingWarningsHidden = 0; // Reset counter
             worldUnloading = false;
         } else {
@@ -650,7 +658,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 forceNeighborUpdates();
                 updateConnectedState();
                 ICraftingProvider.requestUpdate(mainNode);
+                if (Config.enableDebugLogging) {
                 LOGGER.debug("Bridge: AE2 node already exists in onLoad, skipping creation");
+                }
             }
         }
         // Reset the flag if it was loaded but the node no longer exists
@@ -863,7 +873,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
             updateConnectedState();
             ICraftingProvider.requestUpdate(mainNode);
+            if (Config.enableDebugLogging) {
             LOGGER.debug("Bridge: AE2 node already exists in handleNeighborChanged, skipping creation");
+            }
         }
     }
 
@@ -872,16 +884,22 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * Called when the block is removed
      */
     public void disconnectFromNetworks() {
+        if (Config.enableDebugLogging) {
         LOGGER.info("Bridge{}: Disconnecting from AE2 and Titanium/Replication networks", getLocationInfo());
+        }
         
         // Disconnect from the AE2 network
         if (level != null && !level.isClientSide() && mainNode != null) {
             try {
                 mainNode.destroy();
                 nodeCreated = false;
+                if (Config.enableDebugLogging) {
                 LOGGER.info("Bridge{}: AE2 network disconnected", getLocationInfo());
+                }
             } catch (Exception e) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: Error disconnecting from AE2 network: {}", getLocationInfo(), e.getMessage());
+                }
             }
         }
 
@@ -893,17 +911,25 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 if (networkManager != null) {
                     NetworkElement element = networkManager.getElement(worldPosition);
                     if (element != null) {
+                        if (Config.enableDebugLogging) {
                         LOGGER.info("Bridge{}: Removing from Titanium/Replication NetworkManager", getLocationInfo());
+                        }
                         networkManager.removeElement(worldPosition);
+                        if (Config.enableDebugLogging) {
                         LOGGER.info("Bridge{}: Titanium/Replication network disconnected", getLocationInfo());
+                        }
                     }
                 }
             }
         } catch (Exception e) {
+            if (Config.enableDebugLogging) {
             LOGGER.warn("Bridge{}: Error disconnecting from Titanium/Replication network: {}", getLocationInfo(), e.getMessage());
+            }
         }
         
+        if (Config.enableDebugLogging) {
         LOGGER.info("Bridge{}: Network disconnection completed", getLocationInfo());
+        }
     }
     
     /**
@@ -912,18 +938,24 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      */
     private static void disconnectAllBridgesFromNetworks() {
         List<RepAE2BridgeBlockEntity> bridgesToDisconnect = new ArrayList<>(activeBridges);
+        if (Config.enableDebugLogging) {
         LOGGER.info("RepAE2Bridge: Starting network disconnection for {} bridges", bridgesToDisconnect.size());
+        }
         
         int disconnected = 0;
         int failed = 0;
         
         for (RepAE2BridgeBlockEntity bridge : bridgesToDisconnect) {
             try {
+                if (Config.enableDebugLogging) {
                 LOGGER.info("RepAE2Bridge: Disconnecting bridge at {}", bridge.getLocationInfo());
+                }
                 bridge.disconnectFromNetworks();
                 disconnected++;
             } catch (Exception e) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("RepAE2Bridge: Failed to disconnect bridge: {}", e.getMessage());
+                }
                 failed++;
             }
         }
@@ -931,7 +963,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Clear the registry
         activeBridges.clear();
         
+        if (Config.enableDebugLogging) {
         LOGGER.info("RepAE2Bridge: Network disconnection completed - {} successful, {} failed", disconnected, failed);
+        }
     }
 
     /**
@@ -943,14 +977,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 // Force destruction of existing node before recreating it
                 if (mainNode.getNode() != null) {
                     mainNode.destroy();
+                    if (Config.enableDebugLogging) {
                     LOGGER.debug("Bridge: Destroyed existing AE2 node before recreation");
+                    }
                 }
                 
                 // Check if we're on a dedicated server
                 boolean isDedicatedServer = level.getServer() != null && level.getServer().isDedicatedServer();
                 
                 if (isDedicatedServer) {
+                    if (Config.enableDebugLogging) {
                     LOGGER.info("Bridge: Dedicated server detected, using direct node creation");
+                    }
                     // Use direct method on dedicated servers to avoid scheduling issues
                     try {
                         // Create the node directly
@@ -965,7 +1003,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         forceNeighborUpdates();
                         updateConnectedState();
                         
+                        if (Config.enableDebugLogging) {
                         LOGGER.info("Bridge: AE2 node successfully created and registered with the grid (direct method)");
+                        }
                     } catch (Exception e) {
                         LOGGER.error("Bridge: Failed to create AE2 node with direct method: {}", e.getMessage());
                     }
@@ -985,7 +1025,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             forceNeighborUpdates();
                             updateConnectedState();
 
+                            if (Config.enableDebugLogging) {
                             LOGGER.info("Bridge: AE2 node successfully created and registered with the grid");
+                            }
                         } catch (Exception e) {
                             LOGGER.error("Bridge: Failed to create AE2 node during scheduled task: {}", e.getMessage());
                         }
@@ -1026,7 +1068,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 
                 if (neighborNode != null && neighborNode.isActive()) {
                     connectedGrid = neighborNode.getGrid();
+                    if (Config.enableDebugLogging) {
                     LOGGER.info("Bridge: Found active AE2 grid connection at {}", neighborPos);
+                    }
                     break;
                 }
             }
@@ -1034,7 +1078,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         
         // If we found a grid but our node is not connected, force the connection
         if (connectedGrid != null && (mainNode.getNode() == null || mainNode.getNode().getGrid() == null)) {
+            if (Config.enableDebugLogging) {
             LOGGER.info("Bridge: Found AE2 grid but node not connected, forcing connection");
+            }
             initializeAE2Node();
             return true;
         }
@@ -1323,8 +1369,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // PRIORITY CHECK: Exit immediately if the world is unloading
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: EXITING serverTick early - world is unloading (+ {} similar warnings hidden in last 15s)", 
                            getLocationInfo(), worldUnloadingWarningsHidden);
+                }
                 worldUnloadingWarningsHidden = 0;
             } else {
                 worldUnloadingWarningsHidden++;
@@ -1413,8 +1461,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // POST-SUPER CHECK: Verify if the world has started unloading during super.serverTick()
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: World unloading detected after super.serverTick() - exiting immediately (+ {} similar warnings hidden)", 
                            getLocationInfo(), worldUnloadingWarningsHidden);
+                }
                 worldUnloadingWarningsHidden = 0;
             } else {
                 worldUnloadingWarningsHidden++;
@@ -1448,8 +1498,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
             
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: WORLD UNLOADING DETECTED - entering cleanup mode (+ {} similar warnings hidden)", 
                            getLocationInfo(), worldUnloadingWarningsHidden);
+                }
                 worldUnloadingWarningsHidden = 0;
             } else {
                 worldUnloadingWarningsHidden++;
@@ -1459,7 +1511,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // Handle reinitialization after world reload
         if (shouldReconnect && initialized == 1 && !nodeCreated) {
+            if (Config.enableDebugLogging) {
             LOGGER.warn("Bridge at {}: Reconnecting after world reload", worldPosition);
+            }
             if (mainNode.getNode() == null) {
                 try {
                     mainNode.create(level, worldPosition);
@@ -1473,7 +1527,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     ICraftingProvider.requestUpdate(mainNode);
                     IStorageProvider.requestUpdate(mainNode);
                     shouldReconnect = false;
+                    if (Config.enableDebugLogging) {
                     LOGGER.warn("Bridge at {}: Reconnection completed successfully", worldPosition);
+                    }
                 } catch (Exception e) {
                     LOGGER.error("Bridge at {}: Failed to initialize AE2 node during reconnection: {}", worldPosition, e.getMessage(), e);
                     shouldReconnect = true;
@@ -1485,7 +1541,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (initialized == 0) {
             initializationTicks++;
             if (initializationTicks >= INITIALIZATION_DELAY) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge at {}: Initialization completed after {} ticks", worldPosition, initializationTicks);
+                }
                 initialized = 1;
 
                 // Force update of patterns and connections after initialization
@@ -1495,7 +1553,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         updateConnectedState();
                         ICraftingProvider.requestUpdate(mainNode);
                         IStorageProvider.requestUpdate(mainNode);
+                        if (Config.enableDebugLogging) {
                         LOGGER.warn("Bridge at {}: Post-initialization updates completed", worldPosition);
+                        }
                     } catch (Exception e) {
                         LOGGER.error("Bridge at {}: EXCEPTION during post-initialization updates: {}", worldPosition, e.getMessage(), e);
                     }
@@ -1590,8 +1650,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     }
                     
                     if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                        if (Config.enableDebugLogging) {
                         LOGGER.warn("Bridge{}: World unloading detected during request processing - aborting (+ {} similar warnings hidden)", 
                                    getLocationInfo(), worldUnloadingWarningsHidden);
+                        }
                         worldUnloadingWarningsHidden = 0;
                     } else {
                         worldUnloadingWarningsHidden++;
@@ -1677,8 +1739,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // If the world is being unloaded, avoid accessing networks
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: getNetwork() called during world unloading - returning null (+ {} similar warnings hidden)", 
                            getLocationInfo(), worldUnloadingWarningsHidden);
+                }
                 worldUnloadingWarningsHidden = 0;
             } else {
                 worldUnloadingWarningsHidden++;
@@ -1727,8 +1791,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // If world is unloading, consider the bridge as inactive to prevent operations
         if (worldUnloading) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: isActive() returning false due to world unloading (+ {} similar warnings hidden)", 
                            getLocationInfo(), worldUnloadingWarningsHidden);
+                }
                 worldUnloadingWarningsHidden = 0;
             } else {
                 worldUnloadingWarningsHidden++;
@@ -1740,7 +1806,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             boolean active = mainNode.isActive() && mainNode.getNode() != null;
             if (!active) {
                 if (globalShouldLogDebug) {
+                    if (Config.enableDebugLogging) {
                     LOGGER.debug("Bridge at {}: isActive() = false (node inactive or null)", worldPosition);
+                    }
                 } else {
                     globalHiddenDebugMessages++; // Count this hidden debug message globally
                 }
@@ -1779,7 +1847,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         forceNeighborUpdates();
                         updateConnectedState();
                         ICraftingProvider.requestUpdate(mainNode);
+                        if (Config.enableDebugLogging) {
                         LOGGER.debug("Bridge: AE2 node already exists, skipping creation");
+                        }
                     }
                 });
             } catch (Exception e) {
@@ -2670,7 +2740,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onWorldUnload: {}", getLocationInfo(), e.getMessage(), e);
                 }
             } else {
+                if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: AE2 node was null during onWorldUnload", getLocationInfo());
+                }
             }
 
             LOGGER.error("Bridge{}: Starting Replication network element removal", getLocationInfo());
@@ -2686,10 +2758,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                             networkManager.removeElement(worldPosition);
                             LOGGER.error("Bridge{}: Replication network element removed successfully", getLocationInfo());
                         } else {
+                            if (Config.enableDebugLogging) {
                             LOGGER.debug("Bridge{}: Element not found in NetworkManager (already removed?)", getLocationInfo());
+                            }
                         }
                     } else {
+                        if (Config.enableDebugLogging) {
                         LOGGER.warn("Bridge{}: NetworkManager not available during onWorldUnload", getLocationInfo());
+                        }
                     }
                 }
             } catch (Exception e) {
@@ -4158,7 +4234,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             matterTrackingInitialized = true;
 
             if (globalShouldLogDebug) {
+                if (Config.enableDebugLogging) {
                 LOGGER.debug("Bridge at {}: Matter tracking initialized with current network amounts", worldPosition);
+                }
             }
             return;
         }
@@ -4177,8 +4255,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 onMatterCreated(matterType, createdAmount);
 
                 if (globalShouldLogDebug) {
+                    if (Config.enableDebugLogging) {
                     LOGGER.debug("Bridge at {}: Detected matter creation - {}: {} units created (total: {})",
                         worldPosition, matterType.getName(), createdAmount, currentAmount);
+                    }
                 }
             }
 

@@ -154,14 +154,6 @@ config="${mod_id}.mixins.json"
     reason="Optional: Matter Foundry recipe category"
 
 [[dependencies.${mod_id}]]
-    modId="emi"
-    type="optional"
-    versionRange="*"
-    ordering="AFTER"
-    side="CLIENT"
-    reason="Optional: Matter Foundry recipe category"
-
-[[dependencies.${mod_id}]]
     modId="roughlyenoughitems"
     type="optional"
     versionRange="*"

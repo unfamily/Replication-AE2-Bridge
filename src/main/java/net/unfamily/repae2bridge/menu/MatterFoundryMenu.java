@@ -125,7 +125,7 @@ public class MatterFoundryMenu extends UpgradeableMenu<MatterFoundryBlockEntity>
         return Math.max(1, energyCapacity);
     }
 
-    /** Item input slots only (no matter buffer) for JEI/EMI/REI + transfer. */
+    /** Item input slots only (no matter buffer) for JEI/REI + transfer. */
     public List<Slot> getFoundryInputSlots() {
         List<Slot> slots = new ArrayList<>(5);
         slots.addAll(getSlots(FOUNDRY_IN_0));

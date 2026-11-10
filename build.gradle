@@ -147,9 +147,8 @@ dependencies {
     localRuntime "curse.maven:kubejs-238086:${kubejs_file_id}"
     localRuntime "curse.maven:rhino-416294:${rhino_file_id}"
 
-    // Recipe viewers (JEI + EMI + REI APIs; one runtime viewer)
+    // Recipe viewers (JEI + REI APIs; one runtime viewer). EMI not supported on 26.x.
     compileOnly "curse.maven:jei-238222:${jei_file_id}"
-    compileOnly "curse.maven:${emi_mod_maven}:${emi_file_id}"
     compileOnly "curse.maven:${rei_mod_maven}:${rei_file_id}"
     // REI transitive (Point/Rectangle + FluidStack)
     compileOnly "maven.modrinth:cloth-config:26.1.154+neoforge"
@@ -157,8 +156,6 @@ dependencies {
     def recipeViewer = findProperty('runtime_recipe_viewer') ?: 'jei'
     if (recipeViewer == 'jei') {
         localRuntime "curse.maven:jei-238222:${jei_file_id}"
-    } else if (recipeViewer == 'emi') {
-        localRuntime "curse.maven:${emi_mod_maven}:${emi_file_id}"
     } else if (recipeViewer == 'rei') {
         localRuntime "curse.maven:${rei_mod_maven}:${rei_file_id}"
         localRuntime "maven.modrinth:cloth-config:26.1.154+neoforge"

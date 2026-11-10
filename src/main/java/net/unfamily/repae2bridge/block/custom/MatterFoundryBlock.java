@@ -72,6 +72,7 @@ public class MatterFoundryBlock extends Block implements EntityBlock, INetworkDi
         if (!level.isClientSide() && placer instanceof Player player
                 && level.getBlockEntity(pos) instanceof MatterFoundryBlockEntity foundry) {
             foundry.tryClaimOwner(player);
+            foundry.getMainNode().setOwningPlayer(player);
         }
     }
 

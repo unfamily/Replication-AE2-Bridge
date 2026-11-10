@@ -28,6 +28,11 @@ public class MatterCreativeCellItem extends AEBaseItem implements ICellWorkbench
     }
 
     @Override
+    public boolean isEditable(ItemStack is) {
+        return false;
+    }
+
+    @Override
     public ConfigInventory getConfigInventory(ItemStack is) {
         return CellConfig.create(is);
     }

@@ -164,6 +164,8 @@ public class RepAE2Bridge
                         appeng.core.definitions.AEItems.EQUAL_DISTRIBUTION_CARD, cell.get(), 1, storageCellGroup);
                 appeng.api.upgrades.Upgrades.add(
                         appeng.core.definitions.AEItems.VOID_CARD, cell.get(), 1, storageCellGroup);
+                appeng.api.upgrades.Upgrades.add(
+                        appeng.core.definitions.AEItems.INVERTER_CARD, cell.get(), 1, storageCellGroup);
             }
 
             RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
