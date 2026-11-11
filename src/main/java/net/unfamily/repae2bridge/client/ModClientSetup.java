@@ -95,7 +95,10 @@ public class ModClientSetup {
     private static void registerDriveCell(ModelEvent.RegisterStandalone event, net.minecraft.world.item.Item item,
             String name) {
         Identifier modelId = Identifier.fromNamespaceAndPath(RepAE2Bridge.MOD_ID, "block/drive/cells/" + name);
-        StorageCellModels.registerModel(item, modelId);
+        // ModelEvent$RegisterStandalone re-fires on resource-pack reload; AE2 rejects duplicate registerModel.
+        if (!StorageCellModels.models().containsKey(item)) {
+            StorageCellModels.registerModel(item, modelId);
+        }
         var key = StorageCellModels.standaloneModel(item);
         if (key != null) {
             event.register(key, SimpleUnbakedStandaloneModel.blockStateModel(modelId));

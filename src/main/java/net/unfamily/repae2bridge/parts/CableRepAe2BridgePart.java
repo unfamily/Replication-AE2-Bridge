@@ -779,33 +779,16 @@ public class CableRepAe2BridgePart extends AEBasePart
 
     @Override
     public void mountInventories(IStorageMounts storageMounts) {
-        storageMounts.mount(matterItemsStorage, 100);
+        // Low priority: extract/visibility only — matter cells must win network inserts.
+        storageMounts.mount(matterItemsStorage, Integer.MIN_VALUE / 2);
     }
 
     private final class MatterItemsStorage implements MEStorage {
         @Override
         public long insert(AEKey what, long amount, Actionable mode, IActionSource source) {
-            if (!isPartActive() || amount <= 0 || !(what instanceof ReplicationMatterKey matterKey)) {
-                return 0;
-            }
-            IMatterType type = matterKey.resolveMatterType();
-            if (type == null || type.equals(MatterType.EMPTY)) {
-                return 0;
-            }
-            boolean simulate = mode == Actionable.SIMULATE;
-            long inserted = BridgeMatterFederation.fillPhysicalMatter(
-                    BridgeMatterFederation.localHolders(getMatterNetwork(), getBlockPos()),
-                    type,
-                    amount,
-                    simulate);
-            if (!simulate && inserted > 0) {
-                MatterNetwork network = getMatterNetwork();
-                if (network != null) {
-                    network.onTankValueChanged(type);
-                }
-                getHost().markForSave();
-            }
-            return inserted;
+            // Cable bridge has no craft buffer; refuse network inserts into physical tanks
+            // so Import Bus / ME insert prefer matter cells.
+            return 0;
         }
 
         @Override
