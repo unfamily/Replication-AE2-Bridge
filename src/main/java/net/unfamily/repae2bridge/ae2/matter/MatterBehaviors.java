@@ -16,11 +16,16 @@ import net.unfamily.repae2bridge.ae2.MatterKeyType;
 public final class MatterBehaviors {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MatterBehaviors.class);
+    private static boolean registered;
 
     private MatterBehaviors() {
     }
 
     public static void register() {
+        if (registered) {
+            return;
+        }
+        registered = true;
         StackImportStrategy.register(MatterKeyType.INSTANCE, MatterImportStrategy::new);
         StackExportStrategy.register(MatterKeyType.INSTANCE, MatterExportStrategy::new);
         ExternalStorageStrategy.register(MatterKeyType.INSTANCE, MatterExternalStorageStrategy::new);

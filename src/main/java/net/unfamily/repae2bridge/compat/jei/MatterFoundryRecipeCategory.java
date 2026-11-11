@@ -1,9 +1,11 @@
 package net.unfamily.repae2bridge.compat.jei;
 
 import java.util.List;
+import java.util.Locale;
 
 import org.jetbrains.annotations.Nullable;
 
+import appeng.client.gui.me.common.StackSizeRenderer;
 import mezz.jei.api.constants.VanillaTypes;
 import mezz.jei.api.gui.builder.IRecipeLayoutBuilder;
 import mezz.jei.api.gui.drawable.IDrawable;
@@ -101,8 +103,8 @@ public class MatterFoundryRecipeCategory implements IRecipeCategory<RecipeHolder
             if (display == null) {
                 continue;
             }
+            // Count stays 1; amount is drawn as AE2-style overlay in draw().
             ItemStack stack = new ItemStack(display);
-            stack.setCount(Math.max(1, (int) Math.ceil(cost.amount())));
             builder.addSlot(RecipeIngredientRole.RENDER_ONLY,
                             FoundryRecipeLayout.matterX(m) + FoundryRecipeLayout.ITEM_INSET,
                             FoundryRecipeLayout.matterY(m) + FoundryRecipeLayout.ITEM_INSET)
@@ -122,11 +124,45 @@ public class MatterFoundryRecipeCategory implements IRecipeCategory<RecipeHolder
         background.draw(guiGraphics, 0, 0);
         MatterFoundryRecipe recipe = holder.value();
         var font = Minecraft.getInstance().font;
+        int m = 0;
+        for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
+            if (m >= FoundryRecipeLayout.MAX_MATTER_SLOTS) {
+                break;
+            }
+            if (cost.resolve() == null || MatterTypeUtil.getDisplayItemForMatterType(cost.resolve()) == null) {
+                continue;
+            }
+            int itemX = FoundryRecipeLayout.matterX(m) + FoundryRecipeLayout.ITEM_INSET;
+            int itemY = FoundryRecipeLayout.matterY(m) + FoundryRecipeLayout.ITEM_INSET;
+            String label = formatCompact(Math.max(0L, (long) Math.ceil(cost.amount())));
+            StackSizeRenderer.renderSizeLabel(guiGraphics, font, itemX, itemY, label);
+            m++;
+        }
         int energy = recipe.getEnergy();
         int ticks = Math.max(1, energy / Math.max(1, Config.matterFoundryEnergyPerTick));
         guiGraphics.text(font, Component.translatable("jei.rep_ae2_bridge.matter_foundry.energy", energy),
                 FoundryRecipeLayout.TEXT_MARGIN, FoundryRecipeLayout.TEXT_ENERGY_Y, 0xFF404040, false);
         guiGraphics.text(font, Component.translatable("jei.rep_ae2_bridge.matter_foundry.time", ticks),
                 FoundryRecipeLayout.TEXT_MARGIN, FoundryRecipeLayout.TEXT_TIME_Y, 0xFF404040, false);
+    }
+
+    private static String formatCompact(long amount) {
+        if (amount < 1_000L) {
+            return Long.toString(amount);
+        }
+        double scaled = amount;
+        char[] suffixes = { 'k', 'M', 'B', 'T' };
+        int suffix = -1;
+        while (scaled >= 1_000d && suffix < suffixes.length - 1) {
+            scaled /= 1_000d;
+            suffix++;
+        }
+        String number = scaled >= 100d
+                ? String.format(Locale.ROOT, "%.0f", scaled)
+                : String.format(Locale.ROOT, "%.1f", scaled);
+        if (number.endsWith(".0")) {
+            number = number.substring(0, number.length() - 2);
+        }
+        return number + suffixes[suffix];
     }
 }

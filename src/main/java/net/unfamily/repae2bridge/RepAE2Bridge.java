@@ -50,6 +50,8 @@ import net.neoforged.fml.ModList;
 import appeng.api.behaviors.ContainerItemStrategy;
 import net.unfamily.iskalib.crafting.RecipeBundleSplitter;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 
 // The value here should match an entry in the META-INF/neoforge.mods.toml file
 @Mod(RepAE2Bridge.MOD_ID)
@@ -59,6 +61,7 @@ public class RepAE2Bridge
     public static final String MOD_ID = "rep_ae2_bridge";
     // Directly reference a slf4j logger
     private static final Logger LOGGER = LogUtils.getLogger();
+    private static final AtomicBoolean MATTER_CELL_HANDLERS_REGISTERED = new AtomicBoolean(false);
 
     // The constructor for the mod class is the first code that is run when your mod is loaded.
     // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
@@ -136,8 +139,8 @@ public class RepAE2Bridge
             LOGGER.info("GuideME detected — standalone guide available (rep_ae2_bridge:guide)");
         }
 
-        StorageCells.addCellHandler(MatterCellHandler.INSTANCE);
-        StorageCells.addCellHandler(MatterCreativeCellHandler.INSTANCE);
+        // AE2 rejects duplicate handler instances; guard in case FMLCommonSetup runs more than once.
+        event.enqueueWork(RepAE2Bridge::registerMatterCellHandlers);
 
         event.enqueueWork(() -> {
             MatterBehaviors.register();
@@ -271,6 +274,14 @@ public class RepAE2Bridge
     /**
      * Register the mod namespace in the list of allowed namespaces for Replication cables
      */
+    private static void registerMatterCellHandlers() {
+        if (!MATTER_CELL_HANDLERS_REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
+        StorageCells.addCellHandler(MatterCellHandler.INSTANCE);
+        StorageCells.addCellHandler(MatterCreativeCellHandler.INSTANCE);
+    }
+
     private void registerWithReplicationMod() {
         try {
             // Add the mod namespace to the list of allowed namespaces

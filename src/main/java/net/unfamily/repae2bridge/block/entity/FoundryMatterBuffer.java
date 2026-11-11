@@ -220,9 +220,19 @@ public final class FoundryMatterBuffer {
         return slots;
     }
 
+    /** Cheap fingerprint for GUI sync (buffer X changes). */
+    public int displaySyncHash() {
+        int hash = amounts.size();
+        for (Map.Entry<Identifier, Double> e : amounts.entrySet()) {
+            hash = 31 * hash + e.getKey().hashCode();
+            hash = 31 * hash + Double.hashCode(e.getValue());
+        }
+        return hash;
+    }
+
     /** Client sync path: required amounts by registry id (no live recipe object). */
     public List<DisplaySlot> buildDisplayFromRequired(Map<Identifier, Integer> required) {
-        List<DisplaySlot> slots = new ArrayList<>(MAX_TYPES);
+        List<DisplaySlot> slots = buildDisplayFromRequiredRecipeOnly(required);
         LinkedHashMap<Identifier, Double> req = new LinkedHashMap<>();
         if (required != null) {
             for (Map.Entry<Identifier, Integer> e : required.entrySet()) {
@@ -231,14 +241,6 @@ public final class FoundryMatterBuffer {
                 }
             }
         }
-        for (Map.Entry<Identifier, Double> e : req.entrySet()) {
-            if (slots.size() >= MAX_TYPES) {
-                break;
-            }
-            var info = MatterTypeUtil.getMatterInfoById(e.getKey());
-            IMatterType type = info != null ? info.matterType() : null;
-            slots.add(new DisplaySlot(type, amounts.getOrDefault(e.getKey(), 0.0), e.getValue()));
-        }
         for (Map.Entry<Identifier, Double> e : amounts.entrySet()) {
             if (slots.size() >= MAX_TYPES) {
                 break;
@@ -246,9 +248,41 @@ public final class FoundryMatterBuffer {
             if (req.containsKey(e.getKey()) || e.getValue() <= 0) {
                 continue;
             }
+            int last = slots.size() - 1;
+            while (last >= 0 && slots.get(last).isEmpty()) {
+                slots.remove(last);
+                last--;
+            }
+            if (slots.size() >= MAX_TYPES) {
+                break;
+            }
             var info = MatterTypeUtil.getMatterInfoById(e.getKey());
             IMatterType type = info != null ? info.matterType() : null;
             slots.add(new DisplaySlot(type, e.getValue(), 0));
+        }
+        while (slots.size() < MAX_TYPES) {
+            slots.add(new DisplaySlot(null, 0, 0));
+        }
+        return slots;
+    }
+
+    /**
+     * Recipe matter rows only: X = buffered amount of that type (may be {@code > Y}), Y = required.
+     */
+    public List<DisplaySlot> buildDisplayFromRequiredRecipeOnly(Map<Identifier, Integer> required) {
+        List<DisplaySlot> slots = new ArrayList<>(MAX_TYPES);
+        if (required != null) {
+            for (Map.Entry<Identifier, Integer> e : required.entrySet()) {
+                if (slots.size() >= MAX_TYPES) {
+                    break;
+                }
+                if (e.getValue() == null || e.getValue() <= 0) {
+                    continue;
+                }
+                var info = MatterTypeUtil.getMatterInfoById(e.getKey());
+                IMatterType type = info != null ? info.matterType() : null;
+                slots.add(new DisplaySlot(type, amounts.getOrDefault(e.getKey(), 0.0), e.getValue().doubleValue()));
+            }
         }
         while (slots.size() < MAX_TYPES) {
             slots.add(new DisplaySlot(null, 0, 0));

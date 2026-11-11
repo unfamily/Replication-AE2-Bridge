@@ -94,6 +94,7 @@ import net.unfamily.repae2bridge.recipe.MatterFoundryRecipeInput;
  */
 public class MatterFoundryBlockEntity extends BlockEntity
         implements IInWorldGridNodeHost, IUpgradeableObject, IPriorityHost, IConfigurableObject,
+        appeng.api.networking.security.IActionHost,
         IMatterTanksSupplier, IMatterTanksConsumer {
 
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -214,6 +215,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
     private final java.util.LinkedHashMap<net.minecraft.resources.Identifier, Integer> clientRequiredMatter =
             new java.util.LinkedHashMap<>();
 
+    private int lastMatterDisplaySyncHash = Integer.MIN_VALUE;
+
     public MatterFoundryBlockEntity(BlockPos pos, BlockState state) {
         super(ModBlockEntities.MATTER_FOUNDRY_BE.get(), pos, state);
         this.feBuffer = new SimpleEnergyHandler(
@@ -241,6 +244,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
         // Inscriber-style auto-export: push finished items into adjacent inventories.
         pushOutResult();
+
+        rechargeFeFromAe();
 
         try {
             tickCraft();
@@ -283,9 +288,10 @@ public class MatterFoundryBlockEntity extends BlockEntity
             return;
         }
 
-        // Flow A: when on Replication network, pull required matter into local buffer (cap Y).
-        if (getReplicationNetwork() != null) {
-            pullMatterFromReplicationNetwork(cachedRecipe);
+        // Flow A: pull required matter into local buffer (cap Y) from Replication tanks, then AE cells.
+        pullMatterFromReplicationNetwork(cachedRecipe);
+        if (!matterBuffer.hasAllRequired(cachedRecipe)) {
+            pullMatterFromAe(cachedRecipe);
         }
 
         // Do not burn FE until the X/Y buffer can satisfy the recipe.
@@ -583,6 +589,35 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     // ── Energy consumption (FE buffer, fallback to AE grid) ────────────────
 
+    /**
+     * Idle trickle: keep the FE buffer topped from the AE grid so the machine can start crafts
+     * without waiting for the first progress tick to extract AE.
+     */
+    private void rechargeFeFromAe() {
+        if (!mainNode.isOnline()) {
+            return;
+        }
+        int current = (int) Math.min(Integer.MAX_VALUE, feBuffer.getAmountAsLong());
+        int capacity = (int) Math.min(Integer.MAX_VALUE, feBuffer.getCapacityAsLong());
+        int room = capacity - current;
+        if (room <= 0) {
+            return;
+        }
+        var grid = mainNode.getGrid();
+        if (grid == null) {
+            return;
+        }
+        IEnergyService energy = grid.getEnergyService();
+        int want = Math.min(room, Math.max(1, capacity / 20));
+        double aeNeeded = PowerUnit.FE.convertTo(PowerUnit.AE, want);
+        double aeExtracted = energy.extractAEPower(aeNeeded, Actionable.MODULATE, PowerMultiplier.CONFIG);
+        int feGot = (int) PowerUnit.AE.convertTo(PowerUnit.FE, aeExtracted);
+        if (feGot > 0) {
+            feBuffer.set(current + feGot);
+            setChanged();
+        }
+    }
+
     private int consumeEnergy(int feAmount) {
         // Extract from FE buffer directly (no transaction needed for internal use)
         int currentEnergy = (int) Math.min(Integer.MAX_VALUE, feBuffer.getAmountAsLong());
@@ -627,6 +662,47 @@ public class MatterFoundryBlockEntity extends BlockEntity
             double got = extractFromNetworkTanks(network, type, room);
             if (got > 0) {
                 matterBuffer.insert(type, got, recipe, false);
+                changed = true;
+            }
+        }
+        if (changed) {
+            setChanged();
+            syncToClient();
+        }
+    }
+
+    /** Fallback: drain matter cells / bridge mount via AE storage when Replication tanks are dry. */
+    private void pullMatterFromAe(MatterFoundryRecipe recipe) {
+        if (!mainNode.isOnline() || recipe.getMatter().isEmpty()) {
+            return;
+        }
+        var grid = mainNode.getGrid();
+        if (grid == null) {
+            return;
+        }
+        var storage = grid.getStorageService();
+        if (storage == null) {
+            return;
+        }
+        boolean changed = false;
+        var source = new appeng.me.helpers.MachineSource(this);
+        for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
+            IMatterType type = cost.resolve();
+            if (type == null) {
+                continue;
+            }
+            double room = matterBuffer.roomFor(recipe, type);
+            if (room < 1.0) {
+                continue;
+            }
+            var key = net.unfamily.repae2bridge.ae2.ReplicationMatterKey.of(type);
+            if (key == null) {
+                continue;
+            }
+            long want = (long) Math.floor(room);
+            long got = storage.getInventory().extract(key, want, Actionable.MODULATE, source);
+            if (got > 0) {
+                matterBuffer.insert(type, (double) got, recipe, false);
                 changed = true;
             }
         }
@@ -717,6 +793,28 @@ public class MatterFoundryBlockEntity extends BlockEntity
             return matterBuffer.buildDisplayFromRequired(clientRequiredMatter);
         }
         return matterBuffer.buildDisplay(cachedRecipe);
+    }
+
+    /**
+     * GUI helper: recipe-required matter slots (X buffer / Y required).
+     * Pass {@code null} when inputs do not match — hide buffer contents.
+     */
+    public List<FoundryMatterBuffer.DisplaySlot> getMatterDisplaySlots(@Nullable MatterFoundryRecipe recipe) {
+        if (recipe == null) {
+            return java.util.Collections.nCopies(
+                    FoundryMatterBuffer.MAX_TYPES, new FoundryMatterBuffer.DisplaySlot(null, 0, 0));
+        }
+        java.util.LinkedHashMap<Identifier, Integer> required = new java.util.LinkedHashMap<>();
+        for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
+            if (cost.amount() <= 0) {
+                continue;
+            }
+            required.put(cost.matterId(), cost.amount());
+            if (cost.resolve() == null) {
+                net.unfamily.repae2bridge.util.MatterTypeUtil.getMatterInfoById(cost.matterId());
+            }
+        }
+        return matterBuffer.buildDisplayFromRequiredRecipeOnly(required);
     }
 
     @Nullable
@@ -1128,11 +1226,48 @@ public class MatterFoundryBlockEntity extends BlockEntity
         return mainNode;
     }
 
+    @Override
+    @Nullable
+    public IGridNode getActionableNode() {
+        return mainNode.getNode();
+    }
+
     // ── Sync ───────────────────────────────────────────────────────────────
 
     private void syncToClient() {
-        if (level != null && !level.isClientSide()) {
-            level.sendBlockUpdated(worldPosition, getBlockState(), getBlockState(), 3);
+        if (level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            lastMatterDisplaySyncHash = Integer.MIN_VALUE;
+            sendMatterUpdatePacket(serverLevel);
+        }
+    }
+
+    /** Keep open GUIs updated (buffer X + recipe Y). No-ops when nothing changed. */
+    public void syncMatterDisplayToClient() {
+        if (!(level instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            return;
+        }
+        int hash = java.util.Objects.hash(
+                cachedRecipe == null ? 0 : System.identityHashCode(cachedRecipe),
+                matterBuffer.displaySyncHash());
+        if (hash == lastMatterDisplaySyncHash) {
+            return;
+        }
+        lastMatterDisplaySyncHash = hash;
+        sendMatterUpdatePacket(serverLevel);
+    }
+
+    /**
+     * {@code sendBlockUpdated} alone does not push BE NBT; send the update packet explicitly
+     * so {@code matterRequired} (including empty) reaches the client.
+     */
+    private void sendMatterUpdatePacket(net.minecraft.server.level.ServerLevel serverLevel) {
+        ClientboundBlockEntityDataPacket packet = ClientboundBlockEntityDataPacket.create(this);
+        if (packet == null) {
+            return;
+        }
+        for (ServerPlayer player : serverLevel.getChunkSource().chunkMap.getPlayers(
+                net.minecraft.world.level.ChunkPos.containing(worldPosition), false)) {
+            player.connection.send(packet);
         }
     }
 

@@ -8,6 +8,7 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.client.gui.GuiGraphicsExtractor;
 import net.minecraft.network.chat.Component;
 import net.minecraft.world.entity.player.Inventory;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 
 import appeng.api.config.Settings;
@@ -23,6 +24,9 @@ import guideme.PageAnchor;
 import net.unfamily.repae2bridge.block.entity.FoundryMatterBuffer;
 import net.unfamily.repae2bridge.block.entity.MatterFoundryBlockEntity;
 import net.unfamily.repae2bridge.menu.MatterFoundryMenu;
+import net.unfamily.repae2bridge.compat.FoundryRecipeLists;
+import net.unfamily.repae2bridge.recipe.MatterFoundryRecipe;
+import net.unfamily.repae2bridge.recipe.MatterFoundryRecipeInput;
 import net.unfamily.repae2bridge.util.MatterTypeUtil;
 
 /**
@@ -76,8 +80,10 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
         if (!(menu.getHost() instanceof MatterFoundryBlockEntity foundry)) {
             return;
         }
-        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots();
-        var font = this.font;
+        int relMouseX = mouseX - offsetX;
+        int relMouseY = mouseY - offsetY;
+        MatterFoundryRecipe matched = findMenuFoundryRecipe();
+        List<FoundryMatterBuffer.DisplaySlot> slots = foundry.getMatterDisplaySlots(matched);
         for (int i = 0; i < Math.min(FoundryMatterBuffer.MAX_TYPES, slots.size()); i++) {
             FoundryMatterBuffer.DisplaySlot slot = slots.get(i);
             if (slot.isEmpty()) {
@@ -90,31 +96,59 @@ public class MatterFoundryScreen extends UpgradeableScreen<MatterFoundryMenu> {
             }
             int x = MATTER_ORIGIN_X + col * MATTER_SLOT_W;
             int y = MATTER_ORIGIN_Y + row * MATTER_SLOT_H;
+            int itemX = x + 1;
+            int itemY = y;
 
             if (slot.type() != null) {
                 var displayItem = MatterTypeUtil.getDisplayItemForMatterType(slot.type());
                 if (displayItem != null) {
                     ItemStack icon = new ItemStack(displayItem);
-                    guiGraphics.item(icon, x + 1, y);
+                    guiGraphics.item(icon, itemX, itemY);
                 }
             }
 
             long xAmt = (long) Math.floor(slot.buffered());
             long yAmt = (long) Math.ceil(slot.required());
-            String label = yAmt > 0
-                    ? formatCompact(xAmt) + "/" + formatCompact(yAmt)
-                    : formatCompact(xAmt);
-            drawSmallWhiteLabel(guiGraphics, label, x + 1, y + MATTER_SLOT_H - 5);
+            if (yAmt <= 0) {
+                continue;
+            }
+            String label = formatCompact(xAmt) + "/" + formatCompact(yAmt);
+            drawSmallWhiteLabel(guiGraphics, label, itemX, itemY + 11);
 
-            int absX = offsetX + x;
-            int absY = offsetY + y;
-            if (mouseX >= absX && mouseX < absX + MATTER_SLOT_W
-                    && mouseY >= absY && mouseY < absY + MATTER_SLOT_H) {
+            if (relMouseX >= x && relMouseX < x + MATTER_SLOT_W
+                    && relMouseY >= y && relMouseY < y + MATTER_SLOT_H) {
                 String name = slot.type() != null ? slot.type().getName() : "?";
-                String full = yAmt > 0 ? (xAmt + "/" + yAmt) : String.valueOf(xAmt);
-                drawTooltip(guiGraphics, mouseX, mouseY, List.of(Component.literal(name + ": " + full)));
+                String full = xAmt + "/" + yAmt;
+                drawTooltip(guiGraphics, relMouseX, relMouseY, List.of(Component.literal(name + ": " + full)));
             }
         }
+    }
+
+    @Nullable
+    private MatterFoundryRecipe findMenuFoundryRecipe() {
+        if (getPlayer().level() == null) {
+            return null;
+        }
+        List<Slot> inputs = menu.getFoundryInputSlots();
+        ItemStack[] stacks = new ItemStack[inputs.size()];
+        boolean hasAny = false;
+        for (int i = 0; i < inputs.size(); i++) {
+            stacks[i] = inputs.get(i).getItem();
+            if (!stacks[i].isEmpty()) {
+                hasAny = true;
+            }
+        }
+        if (!hasAny) {
+            return null;
+        }
+        MatterFoundryRecipeInput input = new MatterFoundryRecipeInput(stacks);
+        var level = getPlayer().level();
+        for (var holder : FoundryRecipeLists.collect()) {
+            if (holder.value().matches(input, level)) {
+                return holder.value();
+            }
+        }
+        return null;
     }
 
     private void drawSmallWhiteLabel(GuiGraphicsExtractor guiGraphics, String label, int x, int y) {

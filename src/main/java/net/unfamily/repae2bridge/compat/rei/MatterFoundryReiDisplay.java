@@ -24,6 +24,7 @@ public class MatterFoundryReiDisplay implements Display {
     private final RecipeHolder<MatterFoundryRecipe> holder;
     private final List<EntryIngredient> itemInputs = new ArrayList<>();
     private final List<EntryIngredient> matterInputs = new ArrayList<>();
+    private final List<Long> matterAmounts = new ArrayList<>();
     private final List<EntryIngredient> outputs = new ArrayList<>();
 
     public MatterFoundryReiDisplay(RecipeHolder<MatterFoundryRecipe> holder) {
@@ -42,12 +43,15 @@ public class MatterFoundryReiDisplay implements Display {
             }
             var display = MatterTypeUtil.getDisplayItemForMatterType(type);
             if (display != null) {
-                ItemStack stack = new ItemStack(display);
-                stack.setCount(Math.max(1, (int) Math.ceil(cost.amount())));
-                matterInputs.add(EntryIngredients.of(stack));
+                matterInputs.add(EntryIngredients.of(new ItemStack(display)));
+                matterAmounts.add((long) Math.ceil(cost.amount()));
             }
         }
         outputs.add(EntryIngredients.of(recipe.getResultItem()));
+    }
+
+    public List<Long> getMatterAmounts() {
+        return matterAmounts;
     }
 
     @Override
