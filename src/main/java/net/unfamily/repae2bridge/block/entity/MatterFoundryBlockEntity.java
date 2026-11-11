@@ -160,8 +160,17 @@ public class MatterFoundryBlockEntity extends BlockEntity
     @Nullable
     private ResourceLocation cachedRecipeId;
     private boolean recipeChecked;
+    /**
+     * Set by {@link #findMatchingRecipe()}: true when inputs matched at least one Matter Foundry
+     * recipe but every match was stage-blocked (re-scan after unlock without touching slots).
+     */
+    private boolean lastFindHadStageBlockedMatch;
 
-    /** First player to place or open the GUI; used only for RecipeBlockBridge gating. */
+    /**
+     * First player to place or open the GUI; passed to {@link RecipeBlockBridge}.
+     * Null owner is normal until claim — bridge delegates to providers (world stages still apply;
+     * not a blanket fail-close).
+     */
     @Nullable
     private UUID ownerPlayer;
 
@@ -227,7 +236,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
         if (cachedRecipe == null && !recipeChecked) {
             cachedRecipe = findMatchingRecipe();
-            recipeChecked = true;
+            // Do not latch when inputs match only stage-blocked recipes — re-scan after unlock.
+            recipeChecked = cachedRecipe != null || !lastFindHadStageBlockedMatch;
             if (level != null) {
                 setChanged();
             }
@@ -349,7 +359,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
      */
     private void tryStartNextCraftSameTick() {
         cachedRecipe = findMatchingRecipe();
-        recipeChecked = true;
+        recipeChecked = cachedRecipe != null || !lastFindHadStageBlockedMatch;
         if (level != null) {
             setChanged();
         }
@@ -418,6 +428,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     @Nullable
     private MatterFoundryRecipe findMatchingRecipe() {
+        lastFindHadStageBlockedMatch = false;
         if (level == null) {
             clearCachedRecipe();
             return null;
@@ -435,6 +446,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         }
 
         MatterFoundryRecipeInput input = new MatterFoundryRecipeInput(stacks);
+        boolean hadStageBlockedMatch = false;
         var recipes = level.getRecipeManager().getAllRecipesFor(ModRecipes.MATTER_FOUNDRY_TYPE.get());
         for (var holder : recipes) {
             if (!holder.value().matches(input, level)) {
@@ -442,11 +454,14 @@ public class MatterFoundryBlockEntity extends BlockEntity
             }
             ResourceLocation id = holder.id();
             if (RecipeBlockBridge.isRecipeBlocked(id, ownerPlayer, level)) {
+                hadStageBlockedMatch = true;
                 continue;
             }
+            lastFindHadStageBlockedMatch = false;
             cachedRecipeId = id;
             return holder.value();
         }
+        lastFindHadStageBlockedMatch = hadStageBlockedMatch;
         clearCachedRecipe();
         return null;
     }
@@ -471,10 +486,19 @@ public class MatterFoundryBlockEntity extends BlockEntity
                 .anyMatch(h -> h.id().equals(cachedRecipeId) || h.value() == cachedRecipe);
     }
 
-    /** Abort in-progress work when the stage gate blocks the cached child recipe id. */
+    /**
+     * Abort in-progress work when the stage gate blocks the cached child recipe id.
+     * Re-checked every progress step so mid-craft unlocks/locks apply immediately.
+     */
     private boolean ensureCachedRecipeAllowed() {
-        if (cachedRecipeId != null
-                && !RecipeBlockBridge.isRecipeBlocked(cachedRecipeId, ownerPlayer, level)) {
+        if (cachedRecipeId == null || level == null) {
+            clearCachedRecipe();
+            recipeChecked = false;
+            resetProgress();
+            syncToClient();
+            return false;
+        }
+        if (!RecipeBlockBridge.isRecipeBlocked(cachedRecipeId, ownerPlayer, level)) {
             return true;
         }
         clearCachedRecipe();
@@ -496,10 +520,18 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     /** First claim only — never overwrites an existing owner. */
     public void tryClaimOwner(Player player) {
-        if (player == null || ownerPlayer != null) {
+        if (player == null) {
             return;
         }
-        ownerPlayer = player.getUUID();
+        tryClaimOwner(player.getUUID());
+    }
+
+    /** First claim only — never overwrites an existing owner. */
+    public void tryClaimOwner(@Nullable UUID uuid) {
+        if (uuid == null || ownerPlayer != null) {
+            return;
+        }
+        ownerPlayer = uuid;
         setChanged();
     }
 

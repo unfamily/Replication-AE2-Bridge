@@ -1387,6 +1387,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
             feedAe2InternalJobs();
             boolean craftQuiet = ae2InternalPending.isEmpty() && requestCounters.isEmpty();
+            // Leftover craft-buffer matter (e.g. old Import Bus sink) → AE2 then tanks when idle.
+            if (craftQuiet && activeTasks.isEmpty() && level.getGameTime() % 20 == 0 && hasCraftBufferMatter()) {
+                flushCraftBufferToStorage(true);
+            }
             flushReplicationTankSync(craftQuiet);
             flushAe2StorageUpdate(craftQuiet);
         }
@@ -2593,8 +2597,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return;
         }
 
-        // Mount the virtual storage with high priority to be always visible
-        storageMounts.mount(matterItemsStorage, 100);
+        // Low mount priority: visibility/extract of Replication tanks + craft refund only.
+        // Matter cells must win Import Bus / network inserts (do not use high-priority sink).
+        storageMounts.mount(matterItemsStorage, Integer.MIN_VALUE / 2);
     }
 
     /**
@@ -2603,41 +2608,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public class MatterItemsStorage implements MEStorage {
         @Override
         public long insert(AEKey what, long amount, Actionable mode, IActionSource source) {
-            if (initialized != 1 || amount <= 0 || !(what instanceof ReplicationMatterKey matterKey)) {
-                return 0;
-            }
-            IMatterType type = matterKey.resolveMatterType();
-            if (type == null || type.equals(MatterType.EMPTY)) {
-                return 0;
-            }
-            boolean simulate = mode == Actionable.SIMULATE;
-            long remaining = amount;
-            long inserted = 0;
-            // Refund into craft buffer first, then physical tanks — never void.
-            CraftMatterTank craft = findCraftMatterTank(type);
-            if (craft != null && remaining > 0) {
-                double filled = craft.fill(
-                        new com.buuz135.replication.api.matter_fluid.MatterStack(type, remaining),
-                        simulate
-                                ? net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.SIMULATE
-                                : net.neoforged.neoforge.fluids.capability.IFluidHandler.FluidAction.EXECUTE);
-                long got = (long) Math.floor(filled);
-                inserted += got;
-                remaining -= got;
-            }
-            if (remaining > 0) {
-                long filled = BridgeMatterFederation.fillPhysicalMatter(
-                        BridgeMatterFederation.localHolders(getNetworkSafe(), getBlockPos()),
-                        type,
-                        remaining,
-                        simulate);
-                inserted += filled;
-            }
-            if (!simulate && inserted > 0) {
-                setChanged();
-                scheduleReplicationTankSync(type);
-            }
-            return inserted;
+            // Craft buffer is pushPattern-only; refuse network inserts (Import Bus / ME insert).
+            // Without cells this must not become an unbounded sink — Import Bus must use cells (or fail).
+            return 0;
         }
 
         @Override
@@ -3961,6 +3934,15 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
 
     /** Moves craft-buffer matter into physical tanks first, then AE2 cells. */
+    private boolean hasCraftBufferMatter() {
+        for (CraftMatterTank craftTank : getOrCreateCraftMatterTanks()) {
+            if (craftTank.getMatterAmount() >= 1.0) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void flushCraftBufferToStorage() {
         flushCraftBufferToStorage(false);
     }

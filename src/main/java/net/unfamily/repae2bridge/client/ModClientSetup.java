@@ -182,17 +182,24 @@ public class ModClientSetup {
 
     /** Item-column UVs for base/creative; fluid-column UVs for mega tiers. */
     private static void registerDriveCellModels() {
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_1K.get(), driveCell("1k_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_4K.get(), driveCell("4k_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_16K.get(), driveCell("16k_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_64K.get(), driveCell("64k_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_256K.get(), driveCell("256k_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_CREATIVE.get(), driveCell("creative_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_1M.get(), driveCell("1m_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_4M.get(), driveCell("4m_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_16M.get(), driveCell("16m_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_64M.get(), driveCell("64m_matter_cell"));
-        StorageCellModels.registerModel(ModItems.MATTER_CELL_256M.get(), driveCell("256m_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_1K.get(), driveCell("1k_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_4K.get(), driveCell("4k_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_16K.get(), driveCell("16k_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_64K.get(), driveCell("64k_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_256K.get(), driveCell("256k_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_CREATIVE.get(), driveCell("creative_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_1M.get(), driveCell("1m_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_4M.get(), driveCell("4m_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_16M.get(), driveCell("16m_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_64M.get(), driveCell("64m_matter_cell"));
+        registerDriveCellOnce(ModItems.MATTER_CELL_256M.get(), driveCell("256m_matter_cell"));
+    }
+
+    /** Idempotent: AE2 rejects duplicate registerModel if setup/reload runs again. */
+    private static void registerDriveCellOnce(net.minecraft.world.item.Item item, ResourceLocation modelId) {
+        if (!StorageCellModels.models().containsKey(item)) {
+            StorageCellModels.registerModel(item, modelId);
+        }
     }
 
     private static ResourceLocation[] driveCellModels() {
