@@ -49,6 +49,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.chunk.LevelChunk;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import java.util.function.BiConsumer;
@@ -64,6 +65,9 @@ public class RepAE2Bridge
     public static final String MOD_ID = "rep_ae2_bridge";
     // Directly reference a slf4j logger
     private static final Logger LOGGER = LogUtils.getLogger();
+    /** FMLCommonSetup can be observed twice in some KubeJS/dev reload paths; run once. */
+    private static final AtomicBoolean COMMON_SETUP_DONE = new AtomicBoolean(false);
+    private static final AtomicBoolean AE2_INTEGRATIONS_REGISTERED = new AtomicBoolean(false);
 
     // The constructor for the mod class is the first code that is run when your mod is loaded.
     // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
@@ -106,6 +110,13 @@ public class RepAE2Bridge
 
     private void commonSetup(final FMLCommonSetupEvent event)
     {
+        // Packdev runs (notably with KubeJS double resource reload) have been observed to
+        // dispatch FMLCommonSetupEvent twice. AE2 StorageCells / StackImportStrategy /
+        // ContainerItemStrategy reject duplicate registration — bail out early.
+        if (!COMMON_SETUP_DONE.compareAndSet(false, true)) {
+            LOGGER.warn("RepAE2Bridge: Skipping duplicate FMLCommonSetupEvent");
+            return;
+        }
 
         // Register the network element factory for the Replication mod
         // This is crucial for making the connection to the Replication network work
@@ -143,49 +154,9 @@ public class RepAE2Bridge
             LOGGER.info("GuideME detected — standalone guide available (rep_ae2_bridge:guide)");
         }
 
-        appeng.api.storage.StorageCells.addCellHandler(
-                net.unfamily.repae2bridge.ae2.cells.MatterCellHandler.INSTANCE);
-        appeng.api.storage.StorageCells.addCellHandler(
-                net.unfamily.repae2bridge.ae2.cells.MatterCreativeCellHandler.INSTANCE);
-
-        event.enqueueWork(() -> {
-            net.unfamily.repae2bridge.ae2.matter.MatterBehaviors.register();
-            appeng.api.behaviors.ContainerItemStrategy.register(
-                    MatterKeyType.INSTANCE,
-                    net.unfamily.repae2bridge.ae2.ReplicationMatterKey.class,
-                    new net.unfamily.repae2bridge.ae2.matter.MatterContainerItemStrategy());
-            appeng.api.upgrades.Upgrades.add(
-                    appeng.core.definitions.AEItems.SPEED_CARD,
-                    ModBlocks.MATTER_ASSEMBLER,
-                    5);
-            appeng.api.upgrades.Upgrades.add(
-                    appeng.core.definitions.AEItems.SPEED_CARD,
-                    ModBlocks.MATTER_FOUNDRY,
-                    5);
-
-            String storageCellGroup = appeng.core.localization.GuiText.StorageCells.getTranslationKey();
-            var matterCells = java.util.List.of(
-                    ModItems.MATTER_CELL_1K,
-                    ModItems.MATTER_CELL_4K,
-                    ModItems.MATTER_CELL_16K,
-                    ModItems.MATTER_CELL_64K,
-                    ModItems.MATTER_CELL_256K,
-                    ModItems.MATTER_CELL_1M,
-                    ModItems.MATTER_CELL_4M,
-                    ModItems.MATTER_CELL_16M,
-                    ModItems.MATTER_CELL_64M,
-                    ModItems.MATTER_CELL_256M);
-            for (var cell : matterCells) {
-                appeng.api.upgrades.Upgrades.add(
-                        appeng.core.definitions.AEItems.EQUAL_DISTRIBUTION_CARD, cell.get(), 1, storageCellGroup);
-                appeng.api.upgrades.Upgrades.add(
-                        appeng.core.definitions.AEItems.VOID_CARD, cell.get(), 1, storageCellGroup);
-                appeng.api.upgrades.Upgrades.add(
-                        appeng.core.definitions.AEItems.INVERTER_CARD, cell.get(), 1, storageCellGroup);
-            }
-
-            RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
-        });
+        // AE2 registries reject duplicate keys/instances. In some packdev runs the deferred
+        // common-setup queue can execute twice (also trips AE2's own GridLinkables) — register once.
+        event.enqueueWork(RepAE2Bridge::registerAe2Integrations);
 
         LOGGER.info("RepAE2Bridge: Bridge energy consumption set to {} AE/t", Config.bridgeEnergyConsumption);
     }
@@ -318,6 +289,53 @@ public class RepAE2Bridge
         {
             // LOGGER.info("RepAE2Bridge: Client setup");
         }
+    }
+
+    private static void registerAe2Integrations() {
+        if (!AE2_INTEGRATIONS_REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
+        appeng.api.storage.StorageCells.addCellHandler(
+                net.unfamily.repae2bridge.ae2.cells.MatterCellHandler.INSTANCE);
+        appeng.api.storage.StorageCells.addCellHandler(
+                net.unfamily.repae2bridge.ae2.cells.MatterCreativeCellHandler.INSTANCE);
+
+        net.unfamily.repae2bridge.ae2.matter.MatterBehaviors.register();
+        appeng.api.behaviors.ContainerItemStrategy.register(
+                MatterKeyType.INSTANCE,
+                net.unfamily.repae2bridge.ae2.ReplicationMatterKey.class,
+                new net.unfamily.repae2bridge.ae2.matter.MatterContainerItemStrategy());
+        appeng.api.upgrades.Upgrades.add(
+                appeng.core.definitions.AEItems.SPEED_CARD,
+                ModBlocks.MATTER_ASSEMBLER,
+                5);
+        appeng.api.upgrades.Upgrades.add(
+                appeng.core.definitions.AEItems.SPEED_CARD,
+                ModBlocks.MATTER_FOUNDRY,
+                5);
+
+        String storageCellGroup = appeng.core.localization.GuiText.StorageCells.getTranslationKey();
+        var matterCells = java.util.List.of(
+                ModItems.MATTER_CELL_1K,
+                ModItems.MATTER_CELL_4K,
+                ModItems.MATTER_CELL_16K,
+                ModItems.MATTER_CELL_64K,
+                ModItems.MATTER_CELL_256K,
+                ModItems.MATTER_CELL_1M,
+                ModItems.MATTER_CELL_4M,
+                ModItems.MATTER_CELL_16M,
+                ModItems.MATTER_CELL_64M,
+                ModItems.MATTER_CELL_256M);
+        for (var cell : matterCells) {
+            appeng.api.upgrades.Upgrades.add(
+                    appeng.core.definitions.AEItems.EQUAL_DISTRIBUTION_CARD, cell.get(), 1, storageCellGroup);
+            appeng.api.upgrades.Upgrades.add(
+                    appeng.core.definitions.AEItems.VOID_CARD, cell.get(), 1, storageCellGroup);
+            appeng.api.upgrades.Upgrades.add(
+                    appeng.core.definitions.AEItems.INVERTER_CARD, cell.get(), 1, storageCellGroup);
+        }
+
+        RecipeBundleSplitter.registerType("rep_ae2_bridge:matter_foundry");
     }
 
     /**

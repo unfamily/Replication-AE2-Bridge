@@ -1,6 +1,7 @@
 package net.unfamily.repae2bridge.client;
 
 import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 
@@ -30,7 +31,12 @@ import org.joml.Matrix4f;
 @OnlyIn(Dist.CLIENT)
 public class MatterKeyRenderHandler implements AEKeyRenderHandler<ReplicationMatterKey> {
 
+    private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
+
     public static void register() {
+        if (!REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
         AEKeyRendering.register(MatterKeyType.INSTANCE, ReplicationMatterKey.class, new MatterKeyRenderHandler());
     }
 

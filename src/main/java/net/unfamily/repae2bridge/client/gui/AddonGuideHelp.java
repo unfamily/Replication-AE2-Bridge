@@ -5,8 +5,11 @@ import org.jetbrains.annotations.Nullable;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import net.neoforged.fml.ModList;
+
+import appeng.api.parts.IPart;
 
 import guideme.Guides;
 import guideme.GuidesCommon;
@@ -42,6 +45,11 @@ final class AddonGuideHelp {
         var itemIndex = guide.getIndex(ItemIndex.class);
         if (target instanceof BlockEntity be) {
             return itemIndex.get(BuiltInRegistries.BLOCK.getKey(be.getBlockState().getBlock()));
+        }
+        // Cable / part menus use the part as menu target — resolve part item for ItemIndex.
+        if (target instanceof IPart part) {
+            Item item = part.getPartItem().asItem();
+            return itemIndex.get(BuiltInRegistries.ITEM.getKey(item));
         }
         return null;
     }

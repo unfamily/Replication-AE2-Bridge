@@ -1,5 +1,7 @@
 package net.unfamily.repae2bridge.ae2.matter;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -16,11 +18,15 @@ import net.unfamily.repae2bridge.ae2.MatterKeyType;
 public final class MatterBehaviors {
 
     private static final Logger LOGGER = LoggerFactory.getLogger(MatterBehaviors.class);
+    private static final AtomicBoolean REGISTERED = new AtomicBoolean(false);
 
     private MatterBehaviors() {
     }
 
     public static void register() {
+        if (!REGISTERED.compareAndSet(false, true)) {
+            return;
+        }
         StackImportStrategy.register(MatterKeyType.INSTANCE, MatterImportStrategy::new);
         StackExportStrategy.register(MatterKeyType.INSTANCE, MatterExportStrategy::new);
         ExternalStorageStrategy.register(MatterKeyType.INSTANCE, MatterExternalStorageStrategy::new);

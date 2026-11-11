@@ -90,6 +90,7 @@ import net.unfamily.repae2bridge.recipe.ModRecipes;
  */
 public class MatterFoundryBlockEntity extends BlockEntity
         implements IInWorldGridNodeHost, IUpgradeableObject, IPriorityHost, IConfigurableObject,
+        appeng.api.networking.security.IActionHost,
         IMatterTanksSupplier, IMatterTanksConsumer {
 
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -212,6 +213,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
         // Inscriber-style auto-export: push finished items into adjacent inventories.
         pushOutResult();
 
+        // Idle AE→FE so the foundry is "powered by AE2" before a craft starts.
+        rechargeFeFromAe();
+
         try {
             tickCraft();
         } finally {
@@ -253,9 +257,10 @@ public class MatterFoundryBlockEntity extends BlockEntity
             return;
         }
 
-        // Flow A: when on Replication network, pull required matter into local buffer (cap Y).
-        if (getReplicationNetwork() != null) {
-            pullMatterFromReplicationNetwork(cachedRecipe);
+        // Flow A: pull required matter into local buffer (cap Y) from Replication tanks, then AE cells.
+        pullMatterFromReplicationNetwork(cachedRecipe);
+        if (!matterBuffer.hasAllRequired(cachedRecipe)) {
+            pullMatterFromAe(cachedRecipe);
         }
 
         // Do not burn FE until the X/Y buffer can satisfy the recipe.
@@ -537,6 +542,30 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     // ── Energy consumption (FE buffer, fallback to AE grid) ────────────────
 
+    /** Fill FE buffer from the AE grid while idle / between crafts. */
+    private void rechargeFeFromAe() {
+        if (!mainNode.isOnline()) {
+            return;
+        }
+        int space = feBuffer.getMaxEnergyStored() - feBuffer.getEnergyStored();
+        if (space <= 0) {
+            return;
+        }
+        var grid = mainNode.getGrid();
+        if (grid == null) {
+            return;
+        }
+        IEnergyService energy = grid.getEnergyService();
+        int want = Math.min(space, Math.max(1, Config.matterFoundryEnergyPerTick * 4));
+        double aeNeeded = PowerUnit.FE.convertTo(PowerUnit.AE, want);
+        double aeExtracted = energy.extractAEPower(aeNeeded, Actionable.MODULATE, PowerMultiplier.CONFIG);
+        int feGained = (int) PowerUnit.AE.convertTo(PowerUnit.FE, aeExtracted);
+        if (feGained > 0) {
+            feBuffer.receiveEnergy(feGained, false);
+            setChanged();
+        }
+    }
+
     private int consumeEnergy(int feAmount) {
         // Extract from FE buffer directly (no transaction needed for internal use)
         int currentEnergy = (int) Math.min(Integer.MAX_VALUE, feBuffer.getEnergyStored());
@@ -581,6 +610,47 @@ public class MatterFoundryBlockEntity extends BlockEntity
             double got = extractFromNetworkTanks(network, type, room);
             if (got > 0) {
                 matterBuffer.insert(type, got, recipe, false);
+                changed = true;
+            }
+        }
+        if (changed) {
+            setChanged();
+            syncToClient();
+        }
+    }
+
+    /** Fallback: drain matter cells / bridge mount via AE storage when Replication tanks are dry. */
+    private void pullMatterFromAe(MatterFoundryRecipe recipe) {
+        if (!mainNode.isOnline() || recipe.getMatter().isEmpty()) {
+            return;
+        }
+        var grid = mainNode.getGrid();
+        if (grid == null) {
+            return;
+        }
+        var storage = grid.getStorageService();
+        if (storage == null) {
+            return;
+        }
+        boolean changed = false;
+        var source = new appeng.me.helpers.MachineSource(this);
+        for (MatterFoundryRecipe.MatterCost cost : recipe.getMatter()) {
+            IMatterType type = cost.resolve();
+            if (type == null) {
+                continue;
+            }
+            double room = matterBuffer.roomFor(recipe, type);
+            if (room < 1.0) {
+                continue;
+            }
+            var key = net.unfamily.repae2bridge.ae2.ReplicationMatterKey.of(type);
+            if (key == null) {
+                continue;
+            }
+            long want = (long) Math.floor(room);
+            long got = storage.getInventory().extract(key, want, Actionable.MODULATE, source);
+            if (got > 0) {
+                matterBuffer.insert(type, (double) got, recipe, false);
                 changed = true;
             }
         }
@@ -1090,6 +1160,12 @@ public class MatterFoundryBlockEntity extends BlockEntity
 
     public IManagedGridNode getMainNode() {
         return mainNode;
+    }
+
+    @Override
+    @Nullable
+    public IGridNode getActionableNode() {
+        return mainNode.getNode();
     }
 
     // ── Sync ───────────────────────────────────────────────────────────────
