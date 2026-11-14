@@ -1,0 +1,8 @@
+{
+  "type": "ae2:storage_cell_disassembly",
+  "cell": "rep_ae2_bridge:matter_storage_cell_64k",
+  "cell_disassembly_items": [
+    { "id": "rep_ae2_bridge:matter_cell_housing" },
+    { "id": "ae2:cell_component_64k" }
+  ]
+}
