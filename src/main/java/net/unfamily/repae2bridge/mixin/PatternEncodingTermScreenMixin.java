@@ -1,5 +1,7 @@
 package net.unfamily.repae2bridge.mixin;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import org.spongepowered.asm.mixin.Final;
@@ -25,12 +27,14 @@ import appeng.client.gui.widgets.TabButton;
 import appeng.menu.me.items.PatternEncodingTermMenu;
 import appeng.parts.encoding.EncodingMode;
 
+import net.unfamily.iskalib.compat.ae2.encoding.EncodingModeTabArrows;
 import net.unfamily.repae2bridge.client.gui.MatterEncodingPanel;
 import net.unfamily.repae2bridge.menu.MatterEncodingMenuAccess;
 
 /**
  * Adds the Matter disintegration encoding tab to the AE2 Pattern Encoding Terminal.
- * Extends {@link AEBaseScreen} so the inherited {@code widgets} field is accessible.
+ * Uses iska_lib {@link EncodingModeTabArrows} so >4 modes use UP/DOWN arrow slots
+ * instead of a fifth tab under the hotbar.
  */
 @Mixin(value = PatternEncodingTermScreen.class, remap = false)
 public abstract class PatternEncodingTermScreenMixin extends AEBaseScreen<PatternEncodingTermMenu> {
@@ -61,8 +65,9 @@ public abstract class PatternEncodingTermScreenMixin extends AEBaseScreen<Patter
                 Identifier.fromNamespaceAndPath("replication", "matter_blueprint"));
         ItemStack blueprint = blueprintItem == null ? ItemStack.EMPTY : new ItemStack(blueprintItem);
 
-        repAe2Bridge$matterPanel = new MatterEncodingPanel(
-                (PatternEncodingTermScreen<?>) (Object) this, this.widgets);
+        PatternEncodingTermScreen<?> screen = (PatternEncodingTermScreen<?>) (Object) this;
+
+        repAe2Bridge$matterPanel = new MatterEncodingPanel(screen, this.widgets);
         this.widgets.add("modePanel4", repAe2Bridge$matterPanel);
 
         Component tooltip = Component.translatable("gui.rep_ae2_bridge.matter_encoding");
@@ -72,7 +77,24 @@ public abstract class PatternEncodingTermScreenMixin extends AEBaseScreen<Patter
             }
         });
         repAe2Bridge$matterTab.setStyle(TabButton.Style.HORIZONTAL);
-        this.widgets.add("modeTabButton4", repAe2Bridge$matterTab);
+        // Positioned by EncodingModeTabArrows (not a fixed bottom tab).
+        this.addRenderableWidget(repAe2Bridge$matterTab);
+
+        if (EncodingModeTabArrows.isAvailable() && modeTabButtons != null) {
+            List<TabButton> ae2Tabs = new ArrayList<>();
+            for (EncodingMode mode : EncodingMode.values()) {
+                TabButton tab = modeTabButtons.get(mode);
+                if (tab != null) {
+                    ae2Tabs.add(tab);
+                }
+            }
+            var arrows = EncodingModeTabArrows.attach(screen, ae2Tabs);
+            if (arrows != null) {
+                this.addRenderableWidget(arrows.up());
+                this.addRenderableWidget(arrows.down());
+            }
+            EncodingModeTabArrows.registerExtraTab(screen, repAe2Bridge$matterTab);
+        }
     }
 
     @Inject(method = "updateBeforeRender", at = @At("RETURN"))
@@ -100,5 +122,8 @@ public abstract class PatternEncodingTermScreenMixin extends AEBaseScreen<Patter
         if (repAe2Bridge$matterPanel != null) {
             repAe2Bridge$matterPanel.setVisible(matterMode);
         }
+
+        PatternEncodingTermScreen<?> screen = (PatternEncodingTermScreen<?>) (Object) this;
+        EncodingModeTabArrows.layout(screen);
     }
 }

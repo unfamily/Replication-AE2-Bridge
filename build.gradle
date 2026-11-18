@@ -127,13 +127,20 @@ dependencies {
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
     implementation "curse.maven:better-advanced-tooltips-1637623:${better_advanced_tooltips_file_id}"
-    // Prefer local unpublished Iskandert Library (RecipeBlockBridge) when built beside this repo.
+    // Prefer local unpublished Iskandert Library when built beside this repo (newest version name).
     def localIskaLibDir = file("${rootProject.projectDir}/../Iskandert-Library/build/libs")
     def localIskaLibJars = localIskaLibDir.exists()
-            ? localIskaLibDir.listFiles({ f -> f.name ==~ /iska_lib-.*\.jar/ && !f.name.contains('neoforge') } as FileFilter)
+            ? localIskaLibDir.listFiles({ f -> f.name ==~ /iska_lib-\d.*\.jar/ && !f.name.contains('neoforge') && !f.name.contains('sources') && !f.name.contains('javadoc') } as FileFilter)
             : null
     if (localIskaLibJars != null && localIskaLibJars.length > 0) {
-        def localIskaLib = localIskaLibJars.toList().max { it.lastModified() }
+        def localIskaLib = localIskaLibJars.toList().max { a, b ->
+            def va = (a.name =~ /iska_lib-(.+)\.jar/)[0][1]
+            def vb = (b.name =~ /iska_lib-(.+)\.jar/)[0][1]
+            [va, vb]*.tokenize('.')*.collect { it as int }.with { x, y ->
+                [x, y].transpose().collect { i, j -> i <=> j }.find { it != 0 } ?: (x.size() <=> y.size())
+            }
+        }
+        println "Using local iska_lib: ${localIskaLib.name}"
         implementation files(localIskaLib)
     } else {
         implementation "curse.maven:iskanderts-library-1516512:${iska_lib_file_id}"

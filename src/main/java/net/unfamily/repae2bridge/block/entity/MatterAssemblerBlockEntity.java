@@ -142,8 +142,11 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         progress++;
         int maxProgress = getEffectiveMaxProgress();
         if (progress >= maxProgress) {
-            progress = 0;
-            finishOneUnit();
+            // Keep progress at max until drain+deliver succeed — avoid soft-lock loop.
+            progress = maxProgress;
+            if (finishOneUnit()) {
+                progress = 0;
+            }
             // Sync only on craft-unit completion — per-tick TE packets fill the send queue and RAM.
             setChanged();
             syncToClient();
@@ -152,9 +155,10 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         }
     }
 
-    private void finishOneUnit() {
+    /** @return true if one unit was completed (matter drained and item delivered) */
+    private boolean finishOneUnit() {
         if (level == null || craftingStack.isEmpty()) {
-            return;
+            return false;
         }
 
         ItemStack output = craftingStack.copyWithCount(1);
@@ -169,7 +173,7 @@ public class MatterAssemblerBlockEntity extends BlockEntity
                             output, replicationTaskId, worldPosition);
                 } else {
                     if (!bridge.drainOneMatterForAe2Internal(craftingStack)) {
-                        return;
+                        return false;
                     }
                     delivered = bridge.receiveItemFromReplicator(output);
                 }
@@ -178,13 +182,14 @@ public class MatterAssemblerBlockEntity extends BlockEntity
 
         if (!delivered) {
             // Wait until the Bridge can accept the item.
-            return;
+            return false;
         }
 
         remainingCount--;
         if (remainingCount <= 0) {
             clearJob();
         }
+        return true;
     }
 
     /**

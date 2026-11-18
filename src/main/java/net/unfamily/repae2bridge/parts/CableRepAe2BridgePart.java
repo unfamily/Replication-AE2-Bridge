@@ -79,6 +79,7 @@ import net.unfamily.repae2bridge.ae2.IAe2BridgeCraftHost;
 import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
+import net.unfamily.repae2bridge.ae2.MatterAmountMath;
 import net.unfamily.repae2bridge.block.entity.BridgeDeviceFederation;
 import net.unfamily.repae2bridge.block.entity.BridgeMatterFederation;
 import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
@@ -550,7 +551,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         var holders = BridgeMatterFederation.localHolders(network, getBlockPos());
         // Simulate
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -565,7 +566,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
         // Execute
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }

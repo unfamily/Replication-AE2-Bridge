@@ -22,6 +22,7 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.tags.TagKey;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemStackTemplate;
 import net.minecraft.world.item.crafting.Ingredient;
 import net.minecraft.world.item.crafting.PlacementInfo;
 import net.minecraft.world.item.crafting.Recipe;
@@ -124,13 +125,14 @@ public class MatterFoundryRecipe implements Recipe<MatterFoundryRecipeInput> {
 
     private final List<CountedIngredient> inputs;
     private final List<MatterCost> matter;
-    private final ItemStack output;
+    /** Decoded without building an {@link ItemStack}. Components are not bound during recipe prepare. */
+    private final ItemStackTemplate output;
     private final int energy;
 
-    public MatterFoundryRecipe(List<CountedIngredient> inputs, List<MatterCost> matter, ItemStack output, int energy) {
+    public MatterFoundryRecipe(List<CountedIngredient> inputs, List<MatterCost> matter, ItemStackTemplate output, int energy) {
         this.inputs = List.copyOf(inputs);
         this.matter = List.copyOf(matter);
-        this.output = output.copy();
+        this.output = output;
         this.energy = Math.max(1, energy);
     }
 
@@ -147,7 +149,11 @@ public class MatterFoundryRecipe implements Recipe<MatterFoundryRecipeInput> {
     }
 
     public ItemStack getResultItem() {
-        return output.copy();
+        return output.create();
+    }
+
+    public ItemStackTemplate outputTemplate() {
+        return output;
     }
 
     @Override
@@ -180,7 +186,7 @@ public class MatterFoundryRecipe implements Recipe<MatterFoundryRecipeInput> {
 
     @Override
     public ItemStack assemble(MatterFoundryRecipeInput input) {
-        return output.copy();
+        return output.create();
     }
 
     @Override
@@ -221,14 +227,14 @@ public class MatterFoundryRecipe implements Recipe<MatterFoundryRecipeInput> {
     public static final MapCodec<MatterFoundryRecipe> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
             CountedIngredient.RAW_CODEC.listOf().fieldOf("inputs").forGetter(MatterFoundryRecipe::getInputs),
             MatterCost.CODEC.listOf().optionalFieldOf("matter", List.of()).forGetter(MatterFoundryRecipe::getMatter),
-            ItemStack.CODEC.fieldOf("output").forGetter(r -> r.output),
+            ItemStackTemplate.CODEC.fieldOf("output").forGetter(MatterFoundryRecipe::outputTemplate),
             Codec.INT.fieldOf("energy").forGetter(MatterFoundryRecipe::getEnergy)
     ).apply(instance, MatterFoundryRecipe::new));
 
     public static final StreamCodec<RegistryFriendlyByteBuf, MatterFoundryRecipe> STREAM_CODEC = StreamCodec.composite(
             CountedIngredient.STREAM_CODEC.apply(ByteBufCodecs.list()), MatterFoundryRecipe::getInputs,
             MatterCost.STREAM_CODEC.apply(ByteBufCodecs.list()), MatterFoundryRecipe::getMatter,
-            ItemStack.STREAM_CODEC, r -> r.output,
+            ItemStackTemplate.STREAM_CODEC, MatterFoundryRecipe::outputTemplate,
             ByteBufCodecs.VAR_INT, MatterFoundryRecipe::getEnergy,
             MatterFoundryRecipe::new);
 }

@@ -19,6 +19,7 @@ import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
 import net.unfamily.repae2bridge.ae2.CraftMatterTank;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
+import net.unfamily.repae2bridge.ae2.MatterAmountMath;
 import net.minecraft.resources.Identifier;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
@@ -2392,7 +2393,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         var matterType = matterValue.getMatter();
                                         var matterPerItem = matterValue.getAmount();
                                         // Match pattern encoding: ceil per item, then * count
-                                        long totalMatterNeeded = (long) Math.ceil(matterPerItem) * amount;
+                                        long totalMatterNeeded = MatterAmountMath.ceilTimesCount(matterPerItem, amount);
                                         long available = network.calculateMatterAmount(matterType);
 
                                         //LOGGER.info("Bridge: Matter needed for {}: {} {} ({} per item)",
@@ -3637,7 +3638,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         MatterNetwork network = getNetworkSafe();
         // Simulate
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -3661,7 +3662,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         // Execute
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -4435,14 +4436,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Prefer live AE2 extract-simulate over calculateMatterAmount (available-stacks cache
         // often lags right after pushPattern insert, which forced the ReplicationTask path).
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (availableMatterForCraft(network, matterValue.getMatter()) < needed) {
                 return false;
             }
         }
 
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            double needed = Math.ceil(matterValue.getAmount()) * count;
+            double needed = MatterAmountMath.ceilTimesCountAsDouble(matterValue.getAmount(), count);
             double left = needed;
             IMatterType type = matterValue.getMatter();
             CraftMatterTank craft = findCraftMatterTank(type);

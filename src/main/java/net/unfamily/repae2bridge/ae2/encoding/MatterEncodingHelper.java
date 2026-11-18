@@ -24,6 +24,7 @@ import appeng.api.stacks.AEItemKey;
 import appeng.api.stacks.AEKey;
 import appeng.api.stacks.GenericStack;
 
+import net.unfamily.repae2bridge.ae2.MatterAmountMath;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.matter.MatterTankItemHelper;
 
@@ -59,7 +60,7 @@ public final class MatterEncodingHelper {
             if (!MatterTankItemHelper.isSelectableMatter(value.getMatter())) {
                 continue;
             }
-            long amount = (long) Math.ceil(value.getAmount() * count);
+            long amount = MatterAmountMath.ceilTimesCount(value.getAmount(), count);
             if (amount <= 0) {
                 continue;
             }
