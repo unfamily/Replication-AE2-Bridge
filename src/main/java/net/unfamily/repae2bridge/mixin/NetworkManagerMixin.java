@@ -47,6 +47,29 @@ public abstract class NetworkManagerMixin {
     @Shadow
     public abstract void removeNetwork(String id);
 
+    @Shadow
+    public abstract NetworkElement getElement(BlockPos pos);
+
+    /**
+     * Titanium throws if removeElement is called for a missing position. That happens when
+     * Bridge disconnects the network first and then NetworkBlockEntity.setRemoved runs, or
+     * when Sable/Simulated moves blocks out of the world without a prior network registration.
+     * Skip quietly instead of crashing (and instead of relying on per-BE try/catch).
+     */
+    @Inject(method = "removeElement", at = @At("HEAD"), cancellable = true)
+    private void repae2bridge$safeRemoveElement(BlockPos pos, CallbackInfo ci) {
+        if (!Config.enableNetworkManagerFix) {
+            return;
+        }
+        if (getElement(pos) == null) {
+            REPAE2BRIDGE_LOGGER.debug(
+                    "Skipping removeElement at {}: no network element present (safe for Sable/unload).",
+                    pos
+            );
+            ci.cancel();
+        }
+    }
+
     /**
      * Intercepts mergeNetworksIntoOne when any candidate element has a null network.
      * In the normal case (all networks valid), the original method runs untouched.

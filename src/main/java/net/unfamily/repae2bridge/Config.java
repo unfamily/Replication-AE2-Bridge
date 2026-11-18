@@ -111,19 +111,25 @@ public class Config {
             .comment("Enable aggressive debug logging for troubleshooting")
             .define("000_enableDebugLogging", false);
 
+    private static final ModConfigSpec.BooleanValue ENABLE_SABLE_LOGGING = BUILDER
+            .comment("Enable Sable/Aeronautics plot diagnostics (shutdown/save breadcrumbs and plot hits).",
+                    "Independent of 000_enableDebugLogging. Leave false in production.")
+            .define("001_enableSableLogging", false);
+
     static {
         BUILDER.pop();
         BUILDER.comment("Compatibility / safety fixes").push("fixes");
     }
 
     private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_MANAGER_FIX = BUILDER
-            .comment("Enable the Titanium NetworkManager mixin that prevents 'Element network is null' crashes",
-                    "during world loading. Requires game restart to take effect.")
+            .comment("Enable the Titanium NetworkManager mixin that prevents network crashes",
+                    "(null networks during merge, missing elements on removeElement).",
+                    "Also helps with Sable/Simulated block moves. Requires game restart.")
             .define("000_enableNetworkManagerFix", true);
 
     private static final ModConfigSpec.BooleanValue ENABLE_NETWORK_BLOCK_ENTITY_FIX = BUILDER
-            .comment("Enable the Replication NetworkBlockEntity mixin that wraps addElement() in onLoad()",
-                    "with a try-catch safety net. Requires game restart to take effect.")
+            .comment("Enable the Replication NetworkBlockEntity mixin that wraps addElement()/removeElement()",
+                    "in onLoad()/setRemoved() with a try-catch safety net. Requires game restart.")
             .define("001_enableNetworkBlockEntityFix", true);
 
     static {
@@ -149,6 +155,7 @@ public class Config {
     public static double chamberActivePowerAe;
     public static boolean chamberAnomalyVisual;
     public static boolean enableDebugLogging;
+    public static boolean enableSableLogging;
     public static volatile boolean enableNetworkManagerFix = true;
     public static volatile boolean enableNetworkBlockEntityFix = true;
 
@@ -170,6 +177,7 @@ public class Config {
         chamberActivePowerAe = CHAMBER_ACTIVE_POWER_AE.get();
         chamberAnomalyVisual = CHAMBER_ANOMALY_VISUAL.get();
         enableDebugLogging = ENABLE_DEBUG_LOGGING.get();
+        enableSableLogging = ENABLE_SABLE_LOGGING.get();
         enableNetworkManagerFix = ENABLE_NETWORK_MANAGER_FIX.get();
         enableNetworkBlockEntityFix = ENABLE_NETWORK_BLOCK_ENTITY_FIX.get();
     }

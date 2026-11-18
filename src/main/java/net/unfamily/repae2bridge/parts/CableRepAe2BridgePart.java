@@ -84,11 +84,13 @@ import net.unfamily.repae2bridge.ae2.IAe2BridgeCraftHost;
 import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
 import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
+import net.unfamily.repae2bridge.ae2.MatterAmountMath;
 import net.unfamily.repae2bridge.block.entity.BridgeDeviceFederation;
 import net.unfamily.repae2bridge.block.entity.BridgeMatterFederation;
 import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
 import net.unfamily.repae2bridge.block.entity.ReplicationUnitBlockEntity;
+import net.unfamily.repae2bridge.compat.SableCompat;
 import net.unfamily.repae2bridge.menu.BridgeMenu;
 
 /**
@@ -190,6 +192,17 @@ public class CableRepAe2BridgePart extends AEBasePart
                         getLocationInfo(), activeCableBridges.size());
             }
         }
+        if (isInSablePlot()) {
+            if (Config.enableSableLogging) {
+                LOGGER.info("CableBridge{}: addToWorld — Sable plot: clear residual element, destroy AE2, skip register/notify",
+                        getLocationInfo());
+            }
+            // Drop any NetworkManager entry restored from NBT at plot coords
+            disconnectFromMatterNetwork();
+            // AE2 must not stay alive at plot coords (silent exit during Sable sub-level save)
+            destroyAe2NodeQuietly();
+            return;
+        }
         registerMatterElement();
         notifyAdjacentPipes();
         if (getMainNode().isReady()) {
@@ -268,8 +281,14 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
     }
 
+    /** Snapshot view for shutdown helpers (do not mutate). */
+    public static java.util.Collection<CableRepAe2BridgePart> getActiveCableBridgesView() {
+        return java.util.Collections.unmodifiableCollection(activeCableBridges);
+    }
+
     /**
-     * Disconnect all active cable bridges from Titanium/Replication during world unloading.
+     * Disconnect all active cable bridges from Titanium/Replication and destroy AE2 nodes
+     * during world unloading (parity with block bridge).
      */
     public static void disconnectAllCableBridgesFromNetworks() {
         List<CableRepAe2BridgePart> parts = new ArrayList<>(activeCableBridges);
@@ -300,6 +319,8 @@ public class CableRepAe2BridgePart extends AEBasePart
                         LOGGER.info("CableRepAe2Bridge: Skipping duplicate pos for cable bridge at {}",
                                 part.getLocationInfo());
                     }
+                    // Still destroy this part's AE2 node even if Titanium already cleared for pos
+                    part.destroyAe2NodeQuietly();
                     continue;
                 }
                 if (Config.enableDebugLogging) {
@@ -307,6 +328,7 @@ public class CableRepAe2BridgePart extends AEBasePart
                         part.getLocationInfo());
                 }
                 part.disconnectFromMatterNetwork();
+                part.destroyAe2NodeQuietly();
                 disconnected++;
             } catch (Exception e) {
                 if (Config.enableDebugLogging) {
@@ -323,11 +345,33 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
     }
 
+    private void destroyAe2NodeQuietly() {
+        try {
+            if (getMainNode() != null && getMainNode().getNode() != null) {
+                getMainNode().destroy();
+            }
+        } catch (Exception e) {
+            if (Config.enableSableLogging) {
+                LOGGER.warn("CableBridge{}: Failed destroying AE2 node: {}", getLocationInfo(), e.getMessage());
+            }
+        }
+    }
+
     @Override
     public void writeToNBT(CompoundTag data, HolderLookup.Provider registries) {
+        boolean unloading = RepAE2BridgeBlockEntity.isWorldUnloading();
+        boolean inPlot = isInSablePlot();
+        SableCompat.breadcrumb("CABLE_SAVE_BEGIN" + getLocationInfo()
+                + " plot=" + inPlot + " unloading=" + unloading);
+
+        if (unloading || inPlot) {
+            destroyAe2NodeQuietly();
+        }
         super.writeToNBT(data, registries);
         data.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
         data.putInt("priority", priority);
+
+        SableCompat.breadcrumb("CABLE_SAVE_END" + getLocationInfo());
     }
 
     @Override
@@ -580,7 +624,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         var holders = BridgeMatterFederation.localHolders(network, getBlockPos());
         // Simulate
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -595,7 +639,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         }
         // Execute
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -1093,8 +1137,11 @@ public class CableRepAe2BridgePart extends AEBasePart
             return TickRateModulation.SLEEP;
         }
         // Same lifecycle pressure as the block bridge: (re)join MatterNetwork and refresh AE2.
-        registerMatterElement();
-        feedEnergyToMatterNetwork();
+        // Never (re)register Titanium elements inside Sable plot coordinates.
+        if (!isInSablePlot()) {
+            registerMatterElement();
+            feedEnergyToMatterNetwork();
+        }
         if (!ae2InternalPending.isEmpty()) {
             BridgeAe2WorkerFeed.feedAll(
                     getMainNode().getGrid(),
@@ -1175,6 +1222,12 @@ public class CableRepAe2BridgePart extends AEBasePart
         registerMatterElement();
     }
 
+    private boolean isInSablePlot() {
+        Level level = getLevel();
+        BlockPos pos = getBlockPos();
+        return level != null && !pos.equals(BlockPos.ZERO) && SableCompat.isInSubLevelPlot(level, pos);
+    }
+
     private void registerMatterElement() {
         if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
             if (Config.enableDebugLogging) {
@@ -1186,6 +1239,13 @@ public class CableRepAe2BridgePart extends AEBasePart
         Level level = getLevel();
         BlockPos pos = getBlockPos();
         if (level == null || level.isClientSide() || pos.equals(BlockPos.ZERO)) {
+            return;
+        }
+        if (SableCompat.isInSubLevelPlot(level, pos)) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Skipping matter register — Sable sub-level plot",
+                        getLocationInfo());
+            }
             return;
         }
         NetworkManager manager = NetworkManager.get(level);
@@ -1211,6 +1271,9 @@ public class CableRepAe2BridgePart extends AEBasePart
      */
     private void ensureCableElementClassified(
             NetworkManager manager, NetworkElement existing, Level level, BlockPos pos) {
+        if (SableCompat.isInSubLevelPlot(level, pos)) {
+            return;
+        }
         if (attemptedClassificationRemount) {
             return;
         }
@@ -1248,15 +1311,26 @@ public class CableRepAe2BridgePart extends AEBasePart
     }
 
     private void addFreshCableElement(NetworkManager manager, Level level, BlockPos pos) {
+        if (SableCompat.isInSubLevelPlot(level, pos)) {
+            return;
+        }
         try {
             manager.addElement(new DefaultMatterNetworkElement(level, pos) {
                 @Override
                 public boolean canConnectFrom(Direction direction) {
                     // Match block bridge: all pipe sides, except adjacent bridges.
-                    if (level != null && !level.isLoaded(pos.relative(direction))) {
+                    if (level == null || SableCompat.isInSubLevelPlot(level, pos)) {
                         return false;
                     }
-                    BlockEntity neighbor = level != null ? level.getBlockEntity(pos.relative(direction)) : null;
+                    if (!level.isLoaded(pos.relative(direction))) {
+                        return false;
+                    }
+                    BlockEntity neighbor;
+                    try {
+                        neighbor = level.getBlockEntity(pos.relative(direction));
+                    } catch (RuntimeException e) {
+                        return false;
+                    }
                     if (neighbor instanceof RepAE2BridgeBlockEntity) {
                         return false;
                     }
@@ -1336,10 +1410,24 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (level == null || level.isClientSide() || pos.equals(BlockPos.ZERO) || side == null) {
             return;
         }
+        if (SableCompat.isInSubLevelPlot(level, pos)) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Skipping pipe neighbor notify — Sable sub-level plot",
+                        getLocationInfo());
+            }
+            return;
+        }
         BlockPos pipePos = pos.relative(side);
         if (Config.enableDebugLogging) {
             LOGGER.info("CableBridge{}: Notifying adjacent pipe at {}", getLocationInfo(), pipePos);
         }
-        level.neighborChanged(pipePos, level.getBlockState(pos).getBlock(), pos);
+        try {
+            level.neighborChanged(pipePos, level.getBlockState(pos).getBlock(), pos);
+        } catch (RuntimeException e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Pipe neighbor notify failed: {}",
+                        getLocationInfo(), e.getMessage());
+            }
+        }
     }
 }

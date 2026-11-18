@@ -39,11 +39,10 @@ public final class MatterKeyType extends AEKeyType {
 
     @Override
     public int getAmountPerByte() {
-        // Must match AE item density. Crafting simulation uses:
-        //   bytes += amount * crafts / getAmountPerByte() * 8
-        // With 1, a 15-matter emerald craft costs 120 CPU bytes (vs 1 for an item),
-        // so large requests (e.g. 1000) die early with "not enough" despite enough matter.
-        return 8;
+        // Crafting simulation uses: bytes += amount * crafts / getAmountPerByte() * 8
+        // Fluid-scale density so datapack matter costs (thousands+) do not consume CPU
+        // storage 1:1 and reject crafts with "not enough crafting storage".
+        return 1_000_000;
     }
 
     @Override

@@ -71,11 +71,13 @@ import appeng.api.networking.storage.IStorageService;
 import net.neoforged.neoforge.items.ItemHandlerHelper;
 import appeng.me.helpers.MachineSource;
 import net.unfamily.repae2bridge.Config;
+import net.unfamily.repae2bridge.compat.SableCompat;
 import net.unfamily.repae2bridge.ae2.Ae2MatterTank;
 import net.unfamily.repae2bridge.ae2.CraftMatterTank;
 import net.unfamily.repae2bridge.ae2.IRepAe2BridgeHost;
 import net.unfamily.repae2bridge.ae2.encoding.ReplicationBridgePatternDetails;
 import net.unfamily.repae2bridge.ae2.ReplicationMatterKey;
+import net.unfamily.repae2bridge.ae2.MatterAmountMath;
 import net.unfamily.repae2bridge.events.ServerLifecycleEventHandler;
 import net.minecraft.world.level.block.entity.BlockEntity;
 import appeng.helpers.IPriorityHost;
@@ -299,6 +301,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // Static registry of all active bridges for emergency cleanup during world unloading
     private static final Set<RepAE2BridgeBlockEntity> activeBridges = new HashSet<>();
 
+    /** Known Titanium element positions to purge after disconnect (no full NetworkManager scan). */
+    private record KnownNetworkPos(ServerLevel level, BlockPos pos) {}
 
     /**
      * Sets the world unloading state
@@ -334,6 +338,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.info("RepAE2Bridge: Cancelling all pending operations{}{}", 
                         dimensionInfo, positionInfo);
             }
+
+            SableCompat.breadcrumb("SHUTDOWN_BEGIN");
             
             // Cancel all pending operations
             cancelAllPendingOperations();
@@ -343,9 +349,21 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (Config.enableDebugLogging) {
             LOGGER.info("RepAE2Bridge: Disconnecting {} active bridges from AE2 and Titanium/Replication networks", activeBridges.size());
             }
+            // Snapshot known positions BEFORE registries are cleared (narrow Sable plot purge)
+            List<KnownNetworkPos> knownPositions = snapshotKnownNetworkPositions();
+            net.minecraft.server.MinecraftServer server = findServerFromActiveBridges();
+
             disconnectAllBridgesFromNetworks();
-            // Cable bridges are not BlockEntities — disconnect them from Titanium/Replication too
+            SableCompat.breadcrumb("SHUTDOWN_BLOCK_AE2_DONE");
+
+            // Cable bridges are not BlockEntities — disconnect Titanium + destroy AE2
             net.unfamily.repae2bridge.parts.CableRepAe2BridgePart.disconnectAllCableBridgesFromNetworks();
+            SableCompat.breadcrumb("SHUTDOWN_CABLE_AE2_DONE");
+
+            if (server != null) {
+                purgeKnownNetworkPositionsInSablePlots(knownPositions);
+            }
+            SableCompat.breadcrumb("SHUTDOWN_PURGE_DONE");
             
         } else if (!unloading && worldUnloading) {
             // State changed from true to false - always log
@@ -363,6 +381,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         } else {
             worldUnloading = unloading;
         }
+    }
+
+    /**
+     * AE2 grid nodes must not live at Sable sub-level plot coords (silent exit/save crash).
+     */
+    private boolean shouldSkipAe2NodeLifecycle() {
+        if (isWorldUnloading()) {
+            return true;
+        }
+        return level != null && !level.isClientSide()
+                && SableCompat.isInSubLevelPlot(level, worldPosition);
     }
 
     /**
@@ -544,13 +573,20 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return new DefaultMatterNetworkElement(level, pos) {
                 @Override
                 public boolean canConnectFrom(Direction direction) {
+                    if (level == null || SableCompat.isInSubLevelPlot(level, pos)) {
+                        return false;
+                    }
                     // Safety check: only query if the chunk is loaded
-                    if (level != null && !level.isLoaded(pos.relative(direction))) {
+                    if (!level.isLoaded(pos.relative(direction))) {
                         return false;
                     }
                     // Prevent two adjacent bridges from connecting to each other
                     // (each bridge should connect to the pipe network, not directly to another bridge)
-                    if (level != null && level.getBlockEntity(pos.relative(direction)) instanceof RepAE2BridgeBlockEntity) {
+                    try {
+                        if (level.getBlockEntity(pos.relative(direction)) instanceof RepAE2BridgeBlockEntity) {
+                            return false;
+                        }
+                    } catch (RuntimeException e) {
                         return false;
                     }
                     return super.canConnectFrom(direction);
@@ -577,7 +613,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public void onLoad() {
         // Let super.onLoad() handle the Replication network element lifecycle.
         // NetworkBlockEntity.onLoad() will create and add the element via createElement().
-        // We wrap it in try-catch to handle cases where the network isn't ready yet.
+        // Mixin skips addElement inside Sable plots; still wrap for other failures.
+        final boolean inSablePlot = level != null && !level.isClientSide()
+                && SableCompat.isInSubLevelPlot(level, worldPosition);
+        if (inSablePlot && Config.enableSableLogging) {
+            LOGGER.info("Bridge{}: onLoad in Sable plot — Titanium addElement and AE2 create will be skipped", getLocationInfo());
+        }
         try {
             super.onLoad();
         } catch (RuntimeException e) {
@@ -611,10 +652,38 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             if (Config.enableDebugLogging) {
                 LOGGER.info("Bridge{}: Registered in active bridges registry (total: {})", getLocationInfo(), activeBridges.size());
             }
+            // NBT-restored Titanium elements at plot coords must not remain in NetworkManager
+            if (inSablePlot) {
+                try {
+                    NetworkManager networkManager = NetworkManager.get(level);
+                    if (networkManager != null && networkManager.getElement(worldPosition) != null) {
+                        networkManager.removeElement(worldPosition);
+                        if (Config.enableDebugLogging) {
+                            LOGGER.info("Bridge{}: Cleared residual NetworkElement in Sable plot", getLocationInfo());
+                        }
+                    }
+                } catch (RuntimeException e) {
+                    if (Config.enableDebugLogging) {
+                        LOGGER.warn("Bridge{}: Failed clearing plot NetworkElement: {}", getLocationInfo(), e.getMessage());
+                    }
+                }
+            }
         }
 
-        // Initialize the AE2 node if it hasn't been done
-        if (!nodeCreated && level != null && !level.isClientSide()) {
+        // Initialize the AE2 node if it hasn't been done (never in Sable plots / unload)
+        if (inSablePlot || isWorldUnloading()) {
+            nodeCreated = false;
+            if (mainNode != null && mainNode.getNode() != null) {
+                try {
+                    mainNode.destroy();
+                } catch (Exception e) {
+                    if (Config.enableSableLogging) {
+                        LOGGER.warn("Bridge{}: Failed destroying residual AE2 node in plot: {}",
+                                getLocationInfo(), e.getMessage());
+                    }
+                }
+            }
+        } else if (!nodeCreated && level != null && !level.isClientSide()) {
             // Check if the node has already been initialized via AE2 APIs
             boolean nodeAlreadyExists = mainNode.getNode() != null;
             
@@ -721,6 +790,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
                 return;
             }
+            if (SableCompat.isInSubLevelPlot(level, worldPosition)) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.debug("Bridge{}: Skipping forceNeighborUpdates — Sable sub-level plot", getLocationInfo());
+                }
+                return;
+            }
             
             // Schedule block update instead of doing it immediately
             pendingBlockUpdate = true;
@@ -778,6 +853,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 }
                 return;
             }
+            if (SableCompat.isInSubLevelPlot(level, worldPosition)
+                    || SableCompat.isInSubLevelPlot(level, fromPos)) {
+                if (Config.enableDebugLogging) {
+                    LOGGER.debug("Bridge{}: Skipping handleNeighborChanged — Sable sub-level plot", getLocationInfo());
+                }
+                return;
+            }
             
             // If the changed block is another bridge, ignore the update
             Direction directionToNeighbor = null;
@@ -798,7 +880,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             boolean hasAE2Connection = hasAE2NetworkConnection();
 
             // If there is an AE2 connection and the node is not created, initialize the node
-            if (hasAE2Connection && !nodeCreated) {
+            if (hasAE2Connection && !nodeCreated && !shouldSkipAe2NodeLifecycle()) {
                 // Check if the node has already been initialized via AE2 APIs
                 boolean nodeAlreadyExists = mainNode.getNode() != null;
                 
@@ -933,10 +1015,96 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
     }
 
+    @Nullable
+    private static net.minecraft.server.MinecraftServer findServerFromActiveBridges() {
+        for (RepAE2BridgeBlockEntity bridge : activeBridges) {
+            if (bridge.level instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                return serverLevel.getServer();
+            }
+        }
+        for (net.unfamily.repae2bridge.parts.CableRepAe2BridgePart cable
+                : net.unfamily.repae2bridge.parts.CableRepAe2BridgePart.getActiveCableBridgesView()) {
+            Level cableLevel = cable.getLevel();
+            if (cableLevel instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+                return serverLevel.getServer();
+            }
+        }
+        return null;
+    }
+
+    private static List<KnownNetworkPos> snapshotKnownNetworkPositions() {
+        List<KnownNetworkPos> known = new ArrayList<>();
+        for (RepAE2BridgeBlockEntity bridge : activeBridges) {
+            if (bridge.level instanceof ServerLevel serverLevel && bridge.worldPosition != null) {
+                known.add(new KnownNetworkPos(serverLevel, bridge.worldPosition.immutable()));
+            }
+        }
+        for (net.unfamily.repae2bridge.parts.CableRepAe2BridgePart cable
+                : net.unfamily.repae2bridge.parts.CableRepAe2BridgePart.getActiveCableBridgesView()) {
+            Level cableLevel = cable.getLevel();
+            BlockPos cablePos = cable.getBlockPos();
+            if (cableLevel instanceof ServerLevel serverLevel
+                    && cablePos != null && !cablePos.equals(BlockPos.ZERO)) {
+                known.add(new KnownNetworkPos(serverLevel, cablePos.immutable()));
+            }
+        }
+        return known;
+    }
+
+    /**
+     * After disconnect, remove leftover Titanium elements only at known bridge/cable positions
+     * that sit inside Sable plot bounds (no full NetworkManager scan / getBlockEntity).
+     */
+    public static void purgeBridgeNetworkElementsInSablePlots(net.minecraft.server.MinecraftServer server) {
+        if (server == null || !SableCompat.isLoaded()) {
+            return;
+        }
+        // Prefer live registries when still populated; otherwise no-op (setWorldUnloading uses snapshot).
+        List<KnownNetworkPos> known = snapshotKnownNetworkPositions();
+        purgeKnownNetworkPositionsInSablePlots(known);
+    }
+
+    private static void purgeKnownNetworkPositionsInSablePlots(List<KnownNetworkPos> known) {
+        if (known == null || known.isEmpty() || !SableCompat.isLoaded()) {
+            return;
+        }
+        int removed = 0;
+        Set<String> seen = new HashSet<>();
+        for (KnownNetworkPos entry : known) {
+            ServerLevel serverLevel = entry.level();
+            BlockPos pos = entry.pos();
+            String key = serverLevel.dimension().location() + "|" + pos.asLong();
+            if (!seen.add(key)) {
+                continue;
+            }
+            if (!SableCompat.isInSubLevelPlot(serverLevel, pos)) {
+                continue;
+            }
+            try {
+                NetworkManager networkManager = NetworkManager.get(serverLevel);
+                if (networkManager != null && networkManager.getElement(pos) != null) {
+                    networkManager.removeElement(pos);
+                    removed++;
+                }
+            } catch (RuntimeException e) {
+                if (Config.enableSableLogging) {
+                    LOGGER.warn("RepAE2Bridge: Failed to purge plot NetworkElement at {}: {}", pos, e.getMessage());
+                }
+            }
+        }
+        if (Config.enableSableLogging && removed > 0) {
+            LOGGER.info("RepAE2Bridge: Purged {} residual bridge/cable NetworkElements from Sable plots", removed);
+        }
+    }
+
     /**
      * Initialize the AE2 node with improved mechanisms for dedicated servers
      */
     public void initializeAE2Node() {
+        if (shouldSkipAe2NodeLifecycle()) {
+            nodeCreated = false;
+            return;
+        }
         if (level != null && !level.isClientSide() && mainNode != null) {
             try {
                 // Force destruction of existing node before recreating it
@@ -978,6 +1146,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     // Use task method only in singleplayer/integrated server
                     level.getServer().tell(new net.minecraft.server.TickTask(0, () -> {
                         try {
+                            if (shouldSkipAe2NodeLifecycle()) {
+                                nodeCreated = false;
+                                return;
+                            }
                             // Create the node with priority
                             mainNode.create(level, worldPosition);
                             nodeCreated = true;
@@ -1197,8 +1369,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
     @Override
     public void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
+        final boolean inSablePlot = level != null && SableCompat.isInSubLevelPlot(level, worldPosition);
+        final boolean skipAe2Save = worldUnloading || inSablePlot
+                || mainNode == null || mainNode.getNode() == null;
+
+        SableCompat.breadcrumb("BRIDGE_SAVE_BEGIN pos=" + worldPosition
+                + " plot=" + inSablePlot
+                + " unloading=" + worldUnloading
+                + " nodeNull=" + (mainNode == null || mainNode.getNode() == null));
+
         // Skip heavy logging when not initialized to avoid performance issues
-        if (Config.enableDebugLogging && initialized == 1) {
+        if (Config.enableDebugLogging && initialized == 1 && !worldUnloading && !inSablePlot) {
             LOGGER.error("Bridge{}: saveAdditional() called", getLocationInfo());
             // Log network state at save time only when initialized
             logNetworkState("DURING saveAdditional");
@@ -1216,21 +1397,27 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             LOGGER.error("Bridge{}: EXCEPTION in super.saveAdditional(): {}", getLocationInfo(), e.getMessage(), e);
         }
         
-        // Save the state of the AE2 node
-        try {
-            if (Config.enableDebugLogging) {
-                LOGGER.error("Bridge{}: Attempting to save AE2 node to NBT", getLocationInfo());
+        // Never serialize AE2 managed node when destroyed, unloading, or in a Sable plot
+        if (skipAe2Save) {
+            SableCompat.breadcrumb("BRIDGE_SAVE_SKIP_AE2");
+        } else {
+            try {
+                if (Config.enableDebugLogging) {
+                    LOGGER.error("Bridge{}: Attempting to save AE2 node to NBT", getLocationInfo());
+                }
+                mainNode.saveToNBT(tag);
+                SableCompat.breadcrumb("BRIDGE_SAVE_AE2_DONE");
+                if (Config.enableDebugLogging) {
+                    LOGGER.error("Bridge{}: AE2 node saved to NBT", getLocationInfo());
+                }
+            } catch (Exception e) {
+                LOGGER.error("Bridge{}: EXCEPTION saving AE2 node to NBT: {}", getLocationInfo(), e.getMessage(), e);
             }
-            mainNode.saveToNBT(tag);
-            if (Config.enableDebugLogging) {
-                LOGGER.error("Bridge{}: AE2 node saved to NBT", getLocationInfo());
-            }
-        } catch (Exception e) {
-            LOGGER.error("Bridge{}: EXCEPTION saving AE2 node to NBT: {}", getLocationInfo(), e.getMessage(), e);
         }
         
-        // Also save the node creation flag
-        tag.putBoolean("nodeCreated", nodeCreated);
+        // Also save the node creation flag (force false in plot/unload)
+        boolean saveNodeCreated = skipAe2Save ? false : nodeCreated;
+        tag.putBoolean("nodeCreated", saveNodeCreated);
         tag.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
         // Save the reconnection flag
         tag.putBoolean("shouldReconnect", shouldReconnect);
@@ -1243,6 +1430,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (Config.enableDebugLogging) {
             LOGGER.error("Bridge{}: saveAdditional() completed", getLocationInfo());
         }
+        SableCompat.breadcrumb("BRIDGE_SAVE_END");
     }
 
     @Override
@@ -1447,7 +1635,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         // Handle reinitialization after world reload
-        if (shouldReconnect && initialized == 1 && !nodeCreated) {
+        if (shouldReconnect && initialized == 1 && !nodeCreated && !shouldSkipAe2NodeLifecycle()) {
             if (Config.enableDebugLogging) {
             LOGGER.warn("Bridge at {}: Reconnecting after world reload", worldPosition);
             }
@@ -1715,7 +1903,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                                     // Extract each type of matter from the network
                                                     for (MatterValue matterValue : matterCompound.getValues().values()) {
                                                         var matterType = matterValue.getMatter();
-                                                        var matterAmount = (long)Math.ceil(matterValue.getAmount()) * count;
+                                                        var matterAmount = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
                                                         Item matterItem = getItemForMatterType(matterType);
                                                         if (matterItem != null) {
                                                             AEItemKey matterKey = AEItemKey.of(matterItem);
@@ -1763,7 +1951,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
         // Check less frequently the state of the AE2 node
         if (level.getGameTime() % 40 == 0) { // Only every 2 seconds
-            if (!isActive() && shouldReconnect) {
+            if (!isActive() && shouldReconnect && !shouldSkipAe2NodeLifecycle()) {
                 try {
                     if (mainNode.getNode() == null && !nodeCreated) {
                         mainNode.create(level, worldPosition);
@@ -1905,6 +2093,10 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (level != null && !level.isClientSide()) {
             try {
                 GridHelper.onFirstTick(this, blockEntity -> {
+                    if (shouldSkipAe2NodeLifecycle()) {
+                        nodeCreated = false;
+                        return;
+                    }
                     // Check if the node has already been initialized via AE2 APIs
                     boolean nodeAlreadyExists = mainNode.getNode() != null;
                     
@@ -2395,7 +2587,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                         var matterType = matterValue.getMatter();
                                         var matterPerItem = matterValue.getAmount();
                                         // Match pattern encoding: ceil per item, then * count
-                                        long totalMatterNeeded = (long) Math.ceil(matterPerItem) * amount;
+                                        long totalMatterNeeded = MatterAmountMath.ceilTimesCount(matterPerItem, amount);
                                         long available = network.calculateMatterAmount(matterType);
 
                                         //LOGGER.info("Bridge: Matter needed for {}: {} {} ({} per item)",
@@ -3384,7 +3576,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         MatterNetwork network = getNetworkSafe();
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -3407,7 +3599,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (needed <= 0) {
                 continue;
             }
@@ -4441,14 +4633,14 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Prefer live AE2 extract-simulate over calculateMatterAmount (available-stacks cache
         // often lags right after pushPattern insert, which forced the ReplicationTask path).
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            long needed = (long) Math.ceil(matterValue.getAmount()) * count;
+            long needed = MatterAmountMath.ceilTimesCount(matterValue.getAmount(), count);
             if (availableMatterForCraft(network, matterValue.getMatter()) < needed) {
                 return false;
             }
         }
 
         for (MatterValue matterValue : matterCompound.getValues().values()) {
-            double needed = Math.ceil(matterValue.getAmount()) * count;
+            double needed = MatterAmountMath.ceilTimesCountAsDouble(matterValue.getAmount(), count);
             double left = needed;
             IMatterType type = matterValue.getMatter();
             CraftMatterTank craft = findCraftMatterTank(type);
@@ -4700,6 +4892,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
 
 
     private void tryInitAe2NodeIfNeeded(boolean allowForceNeighborUpdates) {
+        if (shouldSkipAe2NodeLifecycle()) {
+            return;
+        }
         boolean hasAE2Connection = hasAE2NetworkConnection();
         if (!hasAE2Connection || nodeCreated) {
             return;

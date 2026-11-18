@@ -224,19 +224,8 @@ public class RepAE2Bridge
     {
         LOGGER.info("RepAE2Bridge: Server stopping, notifying bridges to prepare for unload");
 
-        // Set the static flag in the BlockEntity class to signal shutdown
-        // Questo flag blocca nuove operazioni nei metodi tick delle entità
+        // Disconnect + narrow Sable purge live inside setWorldUnloading (single path)
         RepAE2BridgeBlockEntity.setWorldUnloading(true);
-        
-        try {
-            // Interruzione forzata di tutte le operazioni pendenti
-            // Questo assicura una chiusura più pulita anche in caso di operazioni massive di autocrafting
-            LOGGER.info("RepAE2Bridge: Cancelling all pending operations for rapid shutdown");
-            RepAE2BridgeBlockEntity.cancelAllPendingOperations();
-        } catch (Exception e) {
-            // Non blocchiamo la chiusura del server anche in caso di errori
-            LOGGER.warn("RepAE2Bridge: Exception during shutdown cleanup, continuing anyway", e);
-        }
 
         LOGGER.info("RepAE2Bridge: All bridges notified of world unload");
     }

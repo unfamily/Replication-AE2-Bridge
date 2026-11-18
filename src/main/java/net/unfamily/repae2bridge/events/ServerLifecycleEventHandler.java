@@ -32,8 +32,8 @@ public class ServerLifecycleEventHandler {
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
         try {
+            // Single cleanup path: disconnect + purge happen inside setWorldUnloading
             RepAE2BridgeBlockEntity.setWorldUnloading(true);
-            RepAE2BridgeBlockEntity.cancelAllPendingOperations();
 
             if (serverStoppingLogsHidden == THROTTLE_INTERVAL_TICKS) {
                 LOGGER.warn("RepAE2Bridge - Server Stopping: Server stopping detected - emergency cleanup (+ {} similar events hidden in last 15s)", serverStoppingLogsHidden);

@@ -21,6 +21,7 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.Containers;
 import org.slf4j.Logger;
+import net.unfamily.repae2bridge.compat.SableCompat;
 import net.unfamily.repae2bridge.item.MatterItem;
 
 
@@ -115,14 +116,31 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
     private void updateNeighbors(Level level, BlockPos pos, BlockState state) {
         // Update the block itself
         level.sendBlockUpdated(pos, state, state, 3);
+
+        // Never poke Titanium/Replication neighbors inside Sable plot coordinates.
+        if (SableCompat.isInSubLevelPlot(level, pos)) {
+            return;
+        }
         
         // Update all adjacent blocks to ensure they detect the connection
         for (Direction direction : Direction.values()) {
             BlockPos neighborPos = pos.relative(direction);
-            BlockState neighborState = level.getBlockState(neighborPos);
+            if (SableCompat.isInSubLevelPlot(level, neighborPos)) {
+                continue;
+            }
+            BlockState neighborState;
+            try {
+                neighborState = level.getBlockState(neighborPos);
+            } catch (RuntimeException e) {
+                continue;
+            }
             
             // Notify the neighboring block of the change
-            level.neighborChanged(neighborPos, state.getBlock(), pos);
+            try {
+                level.neighborChanged(neighborPos, state.getBlock(), pos);
+            } catch (RuntimeException e) {
+                continue;
+            }
             
             // If the neighboring block is a Replication network pipe, force it to update
             if (neighborState.getBlock() instanceof MatterPipeBlock) {
@@ -146,6 +164,9 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
         
         // If a neighboring block changes, inform the BlockEntity
         if (!level.isClientSide()) {
+            if (SableCompat.isInSubLevelPlot(level, pos) || SableCompat.isInSubLevelPlot(level, fromPos)) {
+                return;
+            }
             // Check if the adjacent block is a Replication pipe
             Direction directionToPipe = null;
             for (Direction direction : Direction.values()) {
@@ -189,9 +210,18 @@ public class RepAE2BridgeBl extends BasicTileBlock<RepAE2BridgeBlockEntity> impl
 
         super.onRemove(state, level, pos, newState, moving);
 
-        if (!state.is(newState.getBlock()) && !level.isClientSide()) {
+        if (!state.is(newState.getBlock()) && !level.isClientSide()
+                && !SableCompat.isInSubLevelPlot(level, pos)) {
             for (Direction direction : Direction.values()) {
-                level.updateNeighborsAt(pos.relative(direction), this);
+                BlockPos neighbor = pos.relative(direction);
+                if (SableCompat.isInSubLevelPlot(level, neighbor)) {
+                    continue;
+                }
+                try {
+                    level.updateNeighborsAt(neighbor, this);
+                } catch (RuntimeException ignored) {
+                    // Sable / Titanium may reject neighbor probes during assembly moves
+                }
             }
         }
     }

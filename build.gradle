@@ -131,13 +131,20 @@ dependencies {
     implementation "curse.maven:replication-638351:${replication_file_id}"
     implementation "curse.maven:applied-energistics-2-223794:${ae2_file_id}"
     implementation "curse.maven:guideme-1173950:${guideme_file_id}"
-    // Prefer local unpublished Iskandert Library (RecipeBlockBridge) when built beside this repo.
+    // Prefer local unpublished Iskandert Library when built beside this repo (newest version name).
     def localIskaLibDir = file("${rootProject.projectDir}/../Iskandert-Library-1.21.1/build/libs")
     def localIskaLibJars = localIskaLibDir.exists()
-            ? localIskaLibDir.listFiles({ f -> f.name ==~ /iska_lib-.*\.jar/ && !f.name.contains('neoforge') } as FileFilter)
+            ? localIskaLibDir.listFiles({ f -> f.name ==~ /iska_lib-\d.*\.jar/ && !f.name.contains('neoforge') && !f.name.contains('sources') && !f.name.contains('javadoc') } as FileFilter)
             : null
     if (localIskaLibJars != null && localIskaLibJars.length > 0) {
-        def localIskaLib = localIskaLibJars.toList().max { it.lastModified() }
+        def localIskaLib = localIskaLibJars.toList().max { a, b ->
+            def va = (a.name =~ /iska_lib-(.+)\.jar/)[0][1]
+            def vb = (b.name =~ /iska_lib-(.+)\.jar/)[0][1]
+            [va, vb]*.tokenize('.')*.collect { it as int }.with { x, y ->
+                [x, y].transpose().collect { i, j -> i <=> j }.find { it != 0 } ?: (x.size() <=> y.size())
+            }
+        }
+        println "Using local iska_lib: ${localIskaLib.name}"
         implementation files(localIskaLib)
     } else {
         implementation "curse.maven:iskanderts-library-1516512:${iska_lib_file_id}"
@@ -151,13 +158,18 @@ dependencies {
     localRuntime "curse.maven:mekanism-generators-268566:${mekanism_generators_file_id}"
     localRuntime "curse.maven:replicatemekanism-1562720:${replicatemekanism_file_id}"
     localRuntime "curse.maven:applied-mekanistics-574300:${applied_mekanistics_file_id}"
+    // KubeJS 2101.7.2+ requires Rhino only (Architectury no longer a hard dep)
     localRuntime "curse.maven:kubejs-238086:${kubejs_file_id}"
     localRuntime "curse.maven:rhino-416294:${rhino_file_id}"
-    localRuntime "curse.maven:architectury-api-419699:${architectury_file_id}"
 
     // Soft-dep MEGA Cells (optional runtime for testing mega matter cells)
     compileOnly "curse.maven:mega-cells-622112:${megacells_file_id}"
     localRuntime "curse.maven:mega-cells-622112:${megacells_file_id}"
+
+    // Create + Sable + Aeronautics (runtime-only repro stack; CurseMaven)
+    localRuntime "curse.maven:create-328085:${create_file_id}"
+    localRuntime "curse.maven:sable-1312371:${sable_file_id}"
+    localRuntime "curse.maven:create-aeronautics-676721:${aeronautics_file_id}"
 
     // Recipe viewers (JEI + EMI + REI APIs; one runtime viewer)
     compileOnly "curse.maven:jei-238222:${jei_file_id}"
