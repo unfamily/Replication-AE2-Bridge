@@ -7,7 +7,9 @@
   "mixins": [
     "SableSubLevelHoldingChunkMapMixin",
     "SableServerLevelPlotSaveMixin",
-    "SablePlotPlatformWriteMixin"
+    "SablePlotPlatformWriteMixin",
+    "SableSubLevelSerializeMixin",
+    "SableSubLevelStorageMixin"
   ],
   "injectors": {
     "defaultRequire": 0
