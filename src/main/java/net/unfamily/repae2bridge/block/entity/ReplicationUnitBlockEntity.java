@@ -802,7 +802,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     @Override
     public void setRemoved() {
         super.setRemoved();
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         if (mainNode.getNode() != null) {
@@ -813,7 +813,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     @Override
     public void onChunkUnloaded() {
         super.onChunkUnloaded();
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         if (mainNode.getNode() != null) {
@@ -856,6 +856,7 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         if (replicationTaskId != null) {
             tag.putUUID("taskId", replicationTaskId);
         }
+        net.unfamily.repae2bridge.compat.SableCompat.breadcrumb("CHAMBER_SAVE_END");
     }
 
     @Override

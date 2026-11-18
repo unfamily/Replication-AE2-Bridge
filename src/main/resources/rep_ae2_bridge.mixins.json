@@ -19,7 +19,9 @@
       "MatterNetworkAccessor",
       "MatterNetworkDeviceFederationMixin",
       "ReplicationTaskManagerFederationMixin",
-      "CableBusBridgeMatterMixin"
+      "CableBusBridgeMatterMixin",
+      "LevelChunkBlockEntitySaveMixin",
+      "LevelChunkTicksSerializationMixin"
     ],
     "client": [
       "SpriteLoaderMixin",

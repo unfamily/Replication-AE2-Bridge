@@ -164,7 +164,7 @@ public class ChamberFrameBlockEntity extends BlockEntity implements IInWorldGrid
     public void setRemoved() {
         super.setRemoved();
         // Soft unload: destroying AE2 at Sable plot coords during world stop can silent-kill MC
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         if (mainNode.getNode() != null) {
@@ -175,7 +175,7 @@ public class ChamberFrameBlockEntity extends BlockEntity implements IInWorldGrid
     @Override
     public void onChunkUnloaded() {
         super.onChunkUnloaded();
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         if (mainNode.getNode() != null) {

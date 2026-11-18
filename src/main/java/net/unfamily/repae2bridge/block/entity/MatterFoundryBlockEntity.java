@@ -1016,7 +1016,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
     @Override
     public void setRemoved() {
         super.setRemoved();
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         mainNode.destroy();
@@ -1238,6 +1238,7 @@ public class MatterFoundryBlockEntity extends BlockEntity
         if (ownerPlayer != null) {
             tag.putUUID("ownerPlayer", ownerPlayer);
         }
+        net.unfamily.repae2bridge.compat.SableCompat.breadcrumb("FOUNDRY_SAVE_END");
     }
 
     @Override

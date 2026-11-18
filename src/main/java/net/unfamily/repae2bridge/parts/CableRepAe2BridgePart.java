@@ -185,7 +185,7 @@ public class CableRepAe2BridgePart extends AEBasePart
     @Override
     public void addToWorld() {
         super.addToWorld();
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             if (Config.enableDebugLogging) {
                 LOGGER.info("CableBridge{}: addToWorld skipped network join — world unloading",
                         getLocationInfo());
@@ -210,7 +210,7 @@ public class CableRepAe2BridgePart extends AEBasePart
 
     @Override
     public void removeFromWorld() {
-        boolean unloading = RepAE2BridgeBlockEntity.isWorldUnloading();
+        boolean unloading = RepAE2BridgeBlockEntity.isSoftTeardown();
         if (!isClientSide()) {
             activeCableBridges.remove(this);
             if (Config.enableDebugLogging) {
@@ -219,12 +219,11 @@ public class CableRepAe2BridgePart extends AEBasePart
             }
         }
         if (unloading) {
-            // Force remove + skip pipe neighbor updates — neighborChanged during save hangs Titanium
+            // Soft teardown: leave Titanium alone (no removeElement). Skip orphan unregister + pipe notify.
             if (Config.enableDebugLogging) {
-                LOGGER.info("CableBridge{}: removeFromWorld during unload — force disconnect, skip pipe notify",
+                LOGGER.info("CableBridge{}: removeFromWorld soft teardown — skip Titanium disconnect/notify",
                         getLocationInfo());
             }
-            disconnectFromMatterNetwork();
         } else {
             unregisterMatterElementIfOrphaned();
             notifyAdjacentPipes();
@@ -356,19 +355,12 @@ public class CableRepAe2BridgePart extends AEBasePart
 
     @Override
     public void writeToNBT(CompoundTag data, HolderLookup.Provider registries) {
+        boolean soft = RepAE2BridgeBlockEntity.isSoftTeardown();
         boolean unloading = RepAE2BridgeBlockEntity.isWorldUnloading();
         SableCompat.breadcrumb("CABLE_SAVE_BEGIN" + getLocationInfo()
-                + " unloading=" + unloading);
+                + " soft=" + soft + " unloading=" + unloading);
 
-        // Soft unload: keep AE2 node alive through Sable save; skip AE2 serialization
-        // by writing only bridge fields when unloading (super may still touch the node).
-        if (unloading) {
-            data.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
-            data.putInt("priority", priority);
-            SableCompat.breadcrumb("CABLE_SAVE_SKIP_AE2" + getLocationInfo());
-            SableCompat.breadcrumb("CABLE_SAVE_END" + getLocationInfo());
-            return;
-        }
+        // Match Sable pause-save: always serialize AE2 part state (no destroy, no skip-super).
         super.writeToNBT(data, registries);
         data.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
         data.putInt("priority", priority);
@@ -1132,7 +1124,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (isClientSide()) {
             return TickRateModulation.SLEEP;
         }
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isStoppingOrUnloading()) {
             if (Config.enableDebugLogging) {
                 LOGGER.info("CableBridge{}: Tick skipped — world unloading", getLocationInfo());
             }
@@ -1279,7 +1271,7 @@ public class CableRepAe2BridgePart extends AEBasePart
     }
 
     private void registerMatterElement() {
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             if (Config.enableDebugLogging) {
                 LOGGER.info("CableBridge{}: Skipping matter register — world unloading",
                         getLocationInfo());
@@ -1314,7 +1306,7 @@ public class CableRepAe2BridgePart extends AEBasePart
      */
     private void ensureCableElementClassified(
             NetworkManager manager, NetworkElement existing, Level level, BlockPos pos) {
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         if (!(existing.getNetwork() instanceof MatterNetwork matter)) {
@@ -1404,8 +1396,8 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (level == null || level.isClientSide() || pos.equals(BlockPos.ZERO)) {
             return;
         }
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
-            disconnectFromMatterNetwork();
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
+            // Soft teardown: do not force removeElement — leave Titanium alone during Sable saveAll
             return;
         }
         BlockEntity be = level.getBlockEntity(pos);
@@ -1439,7 +1431,7 @@ public class CableRepAe2BridgePart extends AEBasePart
     }
 
     private void notifyAdjacentPipes() {
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             if (Config.enableDebugLogging) {
                 LOGGER.info("CableBridge{}: Skipping pipe neighbor notify — world unloading",
                         getLocationInfo());

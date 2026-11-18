@@ -222,12 +222,12 @@ public class RepAE2Bridge
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event)
     {
-        LOGGER.info("RepAE2Bridge: Server stopping, notifying bridges to prepare for unload");
+        LOGGER.info("RepAE2Bridge: Server stopping — defer soft/unload until after Sable saveAll");
 
-        // Disconnect + narrow Sable purge live inside setWorldUnloading (single path)
-        RepAE2BridgeBlockEntity.setWorldUnloading(true);
+        // Pending cancel only; soft+unload rise on saveAll RETURN
+        RepAE2BridgeBlockEntity.setServerStopping(true);
 
-        LOGGER.info("RepAE2Bridge: All bridges notified of world unload");
+        LOGGER.info("RepAE2Bridge: Server stopping flag set (soft deferred)");
     }
 
     /**

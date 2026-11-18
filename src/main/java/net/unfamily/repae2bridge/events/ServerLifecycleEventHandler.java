@@ -32,11 +32,11 @@ public class ServerLifecycleEventHandler {
     @SubscribeEvent
     public static void onServerStopping(ServerStoppingEvent event) {
         try {
-            // Single cleanup path: disconnect + purge happen inside setWorldUnloading
-            RepAE2BridgeBlockEntity.setWorldUnloading(true);
+            // Pending cancel only — soft+unload deferred until after Sable saveAll
+            RepAE2BridgeBlockEntity.setServerStopping(true);
 
             if (serverStoppingLogsHidden == THROTTLE_INTERVAL_TICKS) {
-                LOGGER.warn("RepAE2Bridge - Server Stopping: Server stopping detected - emergency cleanup (+ {} similar events hidden in last 15s)", serverStoppingLogsHidden);
+                LOGGER.warn("RepAE2Bridge - Server Stopping: Server stopping detected - soft deferred (+ {} similar events hidden in last 15s)", serverStoppingLogsHidden);
                 serverStoppingLogsHidden = 0;
             } else {
                 serverStoppingLogsHidden++;

@@ -379,7 +379,7 @@ public class MatterAssemblerBlockEntity extends BlockEntity
     @Override
     public void setRemoved() {
         super.setRemoved();
-        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+        if (RepAE2BridgeBlockEntity.isSoftTeardown()) {
             return;
         }
         mainNode.destroy();
@@ -421,6 +421,7 @@ public class MatterAssemblerBlockEntity extends BlockEntity
         if (replicationTaskId != null) {
             tag.putUUID("replicationTaskId", replicationTaskId);
         }
+        net.unfamily.repae2bridge.compat.SableCompat.breadcrumb("MA_SAVE_END");
     }
 
     @Override

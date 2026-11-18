@@ -301,7 +301,21 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private static int worldUnloadingWarningsHidden = 0;
     private static int globalOperationLogsHidden = 0;
 
-    // Static flag to track world unloading state
+    /**
+     * Raised on ServerStopping without soft/unload so plot saveAll matches pause.
+     * Used only to raise soft+unload after Sable saveAll returns.
+     */
+    private static boolean serverStopping = false;
+
+    /**
+     * Raised after Sable saveAll during stop: skip destroy/remount.
+     * Must NOT be raised before plot saveAll (keep pause-identical).
+     */
+    private static boolean softTeardown = false;
+
+    /**
+     * Raised after Sable saveAll returns during stop — true unload after plots are saved.
+     */
     private static boolean worldUnloading = false;
 
     // Static registry of all active bridges for emergency cleanup during world unloading
@@ -311,8 +325,63 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private record KnownNetworkPos(ServerLevel level, BlockPos pos) {}
 
     /**
-     * Sets the world unloading state
-     * Called from the mod main class when the server is stopping
+     * Mark server stopping without raising soft/unload (pause-identical during saveAll).
+     * Cancels pending craft work only.
+     */
+    public static void setServerStopping(boolean stopping) {
+        if (stopping && !serverStopping) {
+            serverStopping = true;
+            SableCompat.breadcrumb("SHUTDOWN_PENDING_CANCEL");
+            cancelAllPendingOperations();
+            if (Config.enableDebugLogging) {
+                LOGGER.info("RepAE2Bridge: Server stopping — pending cancel only (soft/unload deferred after save)");
+            }
+        } else if (!stopping) {
+            serverStopping = false;
+        }
+    }
+
+    public static boolean isServerStopping() {
+        return serverStopping;
+    }
+
+    /**
+     * Soft teardown: gate destroy/remount. Raised after Sable saveAll during stop.
+     */
+    public static void setSoftTeardown(boolean teardown) {
+        setSoftTeardown(teardown, null, null);
+    }
+
+    public static void setSoftTeardown(boolean teardown, @Nullable net.minecraft.world.level.Level level, @Nullable BlockPos pos) {
+        if (teardown && !softTeardown) {
+            softTeardown = true;
+
+            String dimensionInfo = level != null ?
+                " [Dimension: " + level.dimension().location() + "]" : "";
+            String positionInfo = pos != null ?
+                " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
+
+            if (Config.enableDebugLogging) {
+                LOGGER.info("RepAE2Bridge: Soft teardown raised{}{}",
+                        dimensionInfo, positionInfo);
+            }
+
+            if (serverStopping) {
+                SableCompat.breadcrumb("SHUTDOWN_SOFT_AFTER_SAVEALL");
+            } else {
+                SableCompat.breadcrumb("SHUTDOWN_SOFT_BEGIN");
+                cancelAllPendingOperations();
+                SableCompat.breadcrumb("SHUTDOWN_SOFT_FLAG_ONLY");
+            }
+        } else if (!teardown) {
+            softTeardown = false;
+        }
+    }
+
+    /**
+     * Sets the world unloading state. On stop this should be raised only after
+     * Sable saveAll returns (see {@link net.unfamily.repae2bridge.mixin.SableSubLevelHoldingChunkMapMixin}).
+     * Clearing false also clears soft teardown (server starting).
      */
     public static void setWorldUnloading(boolean unloading) {
         setWorldUnloading(unloading, null, null);
@@ -325,61 +394,64 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * @param pos the position where this was triggered (can be null)
      */
     public static void setWorldUnloading(boolean unloading, @Nullable net.minecraft.world.level.Level level, @Nullable BlockPos pos) {
-        // Only log once when set to true or if more than 15 seconds have passed
         if (unloading && !worldUnloading) {
-            // Soft unload: raise flag + cancel work only. Destroy/removeElement at Sable plot
-            // coords before Saving sub-levels is a silent native kill vector — skip AE2 NBT
-            // during save instead (see Ae2ManagedNodeSave / cable writeToNBT).
             worldUnloading = true;
 
-            String dimensionInfo = level != null ? 
+            String dimensionInfo = level != null ?
                 " [Dimension: " + level.dimension().location() + "]" : "";
-            String positionInfo = pos != null ? 
+            String positionInfo = pos != null ?
                 " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
-            
-            if (Config.enableDebugLogging) {
-            LOGGER.info("RepAE2Bridge: World unloading detected - soft unload (flag only){}{}", 
-                        dimensionInfo, positionInfo);
-            }
-            if (Config.enableDebugLogging) {
-            LOGGER.info("RepAE2Bridge: Cancelling all pending operations{}{}", 
-                        dimensionInfo, positionInfo);
-            }
 
-            SableCompat.breadcrumb("SHUTDOWN_SOFT_BEGIN");
-            cancelAllPendingOperations();
-            SableCompat.breadcrumb("SHUTDOWN_SOFT_FLAG_ONLY");
-            
-        } else if (!unloading && worldUnloading) {
-            // State changed from true to false - always log
-            String dimensionInfo = level != null ? 
-                " [Dimension: " + level.dimension().location() + "]" : "";
-            String positionInfo = pos != null ? 
-                " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
-            
             if (Config.enableDebugLogging) {
-            LOGGER.info("GLOBAL WORLD UNLOADING FLAG SET TO: false - Normal operation resumed{}{}", 
+                LOGGER.info("RepAE2Bridge: World unloading flag raised (after save){}{}",
+                        dimensionInfo, positionInfo);
+            }
+            if (softTeardown) {
+                SableCompat.breadcrumb("SHUTDOWN_UNLOAD_AFTER_SAVEALL");
+            }
+        } else if (!unloading) {
+            String dimensionInfo = level != null ?
+                " [Dimension: " + level.dimension().location() + "]" : "";
+            String positionInfo = pos != null ?
+                " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
+
+            if (Config.enableDebugLogging && (worldUnloading || softTeardown)) {
+                LOGGER.info("GLOBAL WORLD UNLOADING FLAG SET TO: false - Normal operation resumed{}{}",
                        dimensionInfo, positionInfo);
             }
-            worldUnloadingWarningsHidden = 0; // Reset counter
+            worldUnloadingWarningsHidden = 0;
             worldUnloading = false;
-        } else {
-            worldUnloading = unloading;
+            softTeardown = false;
+            serverStopping = false;
         }
     }
 
     /**
-     * Skip AE2 create/reconnect only during world unload (not while playing in Sable plots).
+     * Skip AE2 create/reconnect during soft teardown or unload (not while playing in Sable plots).
      */
     private boolean shouldSkipAe2NodeLifecycle() {
-        return isWorldUnloading();
+        return isStoppingOrUnloading();
+    }
+
+    /** Soft teardown after saveAll during stop — gates destroy/remount only. */
+    public static boolean isSoftTeardown() {
+        return softTeardown;
     }
 
     /**
-     * Checks if the world is currently unloading
+     * True after Sable saveAll during stop (deferred). False during plot saveAll so
+     * serialization matches pause.
      */
     public static boolean isWorldUnloading() {
         return worldUnloading;
+    }
+
+    /**
+     * Soft teardown or deferred unload — skip ticks / craft work only.
+     * Do not use for getNetwork()/isActive(); those stay pause-identical until worldUnloading.
+     */
+    public static boolean isStoppingOrUnloading() {
+        return softTeardown || worldUnloading;
     }
 
     /**
@@ -482,6 +554,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         // Log internal state
         LOGGER.error("Bridge{}: Internal State:", getLocationInfo());
         LOGGER.error("Bridge{}: - initialized: {}", getLocationInfo(), initialized);
+        LOGGER.error("Bridge{}: - softTeardown (static): {}", getLocationInfo(), softTeardown);
         LOGGER.error("Bridge{}: - worldUnloading (static): {}", getLocationInfo(), worldUnloading);
         LOGGER.error("Bridge{}: - level null: {}", getLocationInfo(), level == null);
         LOGGER.error("Bridge{}: - level client side: {}", getLocationInfo(), level != null && level.isClientSide());
@@ -630,8 +703,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
 
-        // Initialize the AE2 node if it hasn't been done (skip only during world unload)
-        if (isWorldUnloading()) {
+        // Initialize the AE2 node if it hasn't been done (skip during stop/unload)
+        if (isStoppingOrUnloading()) {
             nodeCreated = false;
         } else if (!nodeCreated && level != null && !level.isClientSide()) {
             // Check if the node has already been initialized via AE2 APIs
@@ -1180,8 +1253,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             logNetworkState("BEFORE setRemoved cleanup");
         }
 
-        // Soft unload: do not destroy AE2 / leave Titanium — skip NBT instead (Sable plot kill)
-        if (!worldUnloading) {
+        // Soft teardown: do not destroy AE2 / leave Titanium during stop (Sable plot kill)
+        if (!isSoftTeardown()) {
             try {
                 if (shouldLog) {
                     LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
@@ -1248,7 +1321,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             logNetworkState("BEFORE onChunkUnloaded cleanup");
         }
 
-        if (!worldUnloading) {
+        if (!isSoftTeardown()) {
             try {
                 if (shouldLog) {
                     LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
@@ -1305,11 +1378,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         SableCompat.breadcrumb("BRIDGE_SAVE_BEGIN pos=" + worldPosition
+                + " soft=" + softTeardown
                 + " unloading=" + worldUnloading
                 + " nodeNull=" + (mainNode == null || mainNode.getNode() == null));
 
-        // Skip heavy logging when not initialized / unloading to avoid performance issues
-        if (Config.enableDebugLogging && initialized == 1 && !worldUnloading) {
+        // Skip heavy logging when not initialized / stopping to avoid performance issues
+        if (Config.enableDebugLogging && initialized == 1 && !isStoppingOrUnloading()) {
             LOGGER.error("Bridge{}: saveAdditional() called", getLocationInfo());
             // Log network state at save time only when initialized
             logNetworkState("DURING saveAdditional");
@@ -1343,7 +1417,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             }
         }
         
-        // Force nodeCreated false only when unloading / node already gone
+        // Match pause during softTeardown+saveAll: only force false when deferred unload / node gone
         boolean saveNodeCreated = worldUnloading || mainNode == null || mainNode.getNode() == null
                 ? false
                 : nodeCreated;
@@ -1418,7 +1492,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     @Override
     public void serverTick(Level level, BlockPos pos, BlockState state, RepAE2BridgeBlockEntity blockEntity) {
         // PRIORITY CHECK: Exit immediately if the world is unloading
-        if (worldUnloading) {
+        if (isStoppingOrUnloading()) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: EXITING serverTick early - world is unloading (+ {} similar warnings hidden in last 15s)", 
@@ -1487,7 +1561,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         // Revalidate AE2 crafting/storage when Titanium or chips become ready (Sable structure enter)
-        if (initialized == 1 && !level.isClientSide() && !worldUnloading) {
+        if (initialized == 1 && !level.isClientSide() && !isStoppingOrUnloading()) {
             revalidateAe2ServicesIfNeeded();
         }
 
@@ -1519,7 +1593,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         // POST-SUPER CHECK: Verify if the world has started unloading during super.serverTick()
-        if (worldUnloading) {
+        if (isStoppingOrUnloading()) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: World unloading detected after super.serverTick() - exiting immediately (+ {} similar warnings hidden)", 
@@ -1551,7 +1625,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         
         // CONTINUOUS CHECK: If the world starts unloading during our operations
-        if (worldUnloading) {
+        if (isStoppingOrUnloading()) {
             // Still need to call cleanup even if we don't log
             if (initialized == 1) {
                 onWorldUnload();
@@ -1705,7 +1779,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (requestCounterTicks >= REQUEST_ACCUMULATION_TICKS) {
             try {
                 // SAFETY CHECK: Verify again if the world is unloading
-                if (worldUnloading) {
+                if (isStoppingOrUnloading()) {
                     if (initialized == 1) {
                         onWorldUnload();
                     }
@@ -1739,7 +1813,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     // For each source block
                     for (UUID sourceId : requestCounters.keySet()) {
                         // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
-                        if (worldUnloading) {
+                        if (isStoppingOrUnloading()) {
                             // Already throttled by the parent check above, just count and exit
                             worldUnloadingWarningsHidden++;
                             if (initialized == 1) {
@@ -1753,7 +1827,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         // For each item with pending requests from this source
                         for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
                             // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
-                            if (worldUnloading) {
+                            if (isStoppingOrUnloading()) {
                                 // Already throttled by the parent check above, just count and exit
                                 worldUnloadingWarningsHidden++;
                                 if (initialized == 1) {
@@ -1770,7 +1844,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                 // Search for the corresponding pattern in Replication
                                 for (NetworkElement chipSupplier : BridgeDeviceFederation.localChipSuppliers(network)) {
                                     // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
-                                    if (worldUnloading) {
+                                    if (isStoppingOrUnloading()) {
                                         // Already throttled by the parent check above, just count and exit
                                         worldUnloadingWarningsHidden++;
                                         if (initialized == 1) {
@@ -1783,7 +1857,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                                     if (tile instanceof ChipStorageBlockEntity chipStorage) {
                                         for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
                                             // CONTROLLO SICUREZZA: Controlla di nuovo se il mondo si sta scaricando
-                                            if (worldUnloading) {
+                                            if (isStoppingOrUnloading()) {
                                                 // Already throttled by the parent check above, just count and exit
                                                 worldUnloadingWarningsHidden++;
                                                 if (initialized == 1) {
@@ -1934,8 +2008,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return null;
         }
         
-        // If the world is being unloaded, avoid accessing networks
-        if (worldUnloading) {
+        // Only after deferred unload (post-saveAll). Soft teardown must not poison network reads mid-save.
+        if (isWorldUnloading()) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: getNetwork() called during world unloading - returning null (+ {} similar warnings hidden)", 
@@ -1986,8 +2060,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     // =================== Utility methods ===================
 
     public boolean isActive() {
-        // If world is unloading, consider the bridge as inactive to prevent operations
-        if (worldUnloading) {
+        // Only after deferred unload (post-saveAll). Soft teardown must stay pause-identical mid-save.
+        if (isWorldUnloading()) {
             if (worldUnloadingWarningsHidden == WARNING_THROTTLE_INTERVAL) {
                 if (Config.enableDebugLogging) {
                 LOGGER.warn("Bridge{}: isActive() returning false due to world unloading (+ {} similar warnings hidden)", 
@@ -2920,7 +2994,8 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         
         try {
-            worldUnloading = true;
+            // Keep worldUnloading deferred until after Sable saveAll
+            softTeardown = true;
 
             try {
                 patternRequests.clear();
@@ -3726,7 +3801,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * at AE2 push rate without scanning the grid every call.
      */
     private void lightFeedAe2InternalOnPush(ItemStack patternStack) {
-        if (patternStack.isEmpty() || worldUnloading) {
+        if (patternStack.isEmpty() || isStoppingOrUnloading()) {
             return;
         }
         ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
@@ -3766,7 +3841,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * jobs and clear pending/prefill so work does not keep running.
      */
     private void pruneOrphanedAe2InternalWork() {
-        if (worldUnloading || mainNode.getGrid() == null) {
+        if (isStoppingOrUnloading() || mainNode.getGrid() == null) {
             return;
         }
         IGrid grid = mainNode.getGrid();
@@ -3821,7 +3896,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      * Matter is drained per crafted unit. Never creates {@link ReplicationTask} entries.
      */
     private void feedAe2InternalJobs() {
-        if (ae2InternalPending.isEmpty() || worldUnloading) {
+        if (ae2InternalPending.isEmpty() || isStoppingOrUnloading()) {
             return;
         }
         if (mainNode.getGrid() == null || getNetworkSafe() == null) {
@@ -3829,7 +3904,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
 
         for (ItemWithSourceId key : new ArrayList<>(ae2InternalPending.keySet())) {
-            if (worldUnloading) {
+            if (isStoppingOrUnloading()) {
                 break;
             }
             Integer boxed = ae2InternalPending.get(key);
@@ -4216,11 +4291,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             requestCounterTicks = 0;
             return;
         }
-        if (worldUnloading) {
+        if (isStoppingOrUnloading()) {
             return;
         }
         for (UUID sourceId : new ArrayList<>(requestCounters.keySet())) {
-            if (worldUnloading) {
+            if (isStoppingOrUnloading()) {
                 return;
             }
             Map<ItemWithSourceId, Integer> sourceCounters = requestCounters.get(sourceId);
@@ -4228,7 +4303,7 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                 continue;
             }
             for (Map.Entry<ItemWithSourceId, Integer> entry : sourceCounters.entrySet()) {
-                if (worldUnloading) {
+                if (isStoppingOrUnloading()) {
                     return;
                 }
                 int count = entry.getValue();
