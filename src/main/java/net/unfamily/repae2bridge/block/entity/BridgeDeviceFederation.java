@@ -36,7 +36,7 @@ public final class BridgeDeviceFederation {
 
     /**
      * Local chip storages only — never the AE2-federated {@link MatterNetwork#getChipSuppliers()} list.
-     * Bridge AE2 pattern paths must bind tasks to chips on this Titanium network alone.
+     * Use for matter/task binding that must stay on one Titanium network.
      */
     public static List<NetworkElement> localChipSuppliers(@Nullable MatterNetwork network) {
         if (network == null) {
@@ -44,6 +44,44 @@ public final class BridgeDeviceFederation {
         }
         List<NetworkElement> raw =
                 ((MatterNetworkAccessor) (Object) network).rep_ae2_bridge$getChipSuppliersRaw();
+        return raw != null ? raw : List.of();
+    }
+
+    /**
+     * Chip storages for AE2 pattern exposure: local + peer networks sharing the same AE2 grid
+     * when {@link Config#federateDevicesAcrossAe2} is enabled (assembled Sable crafts often
+     * keep Titanium islands while AE2 is continuous).
+     */
+    public static List<NetworkElement> chipsForAe2Patterns(@Nullable MatterNetwork network) {
+        if (network == null) {
+            return List.of();
+        }
+        if (!Config.federateDevicesAcrossAe2) {
+            return localChipSuppliers(network);
+        }
+        java.util.LinkedHashMap<BlockPos, NetworkElement> merged = new java.util.LinkedHashMap<>();
+        for (NetworkElement element : localChipSuppliers(network)) {
+            if (element != null) {
+                merged.put(element.getPos(), element);
+            }
+        }
+        for (MatterNetwork peer : peerNetworks(network)) {
+            for (NetworkElement element : localChipSuppliers(peer)) {
+                if (element != null) {
+                    merged.putIfAbsent(element.getPos(), element);
+                }
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    /** Raw local replicators (not AE2-federated {@link MatterNetwork#getReplicators()}). */
+    public static List<NetworkElement> localReplicators(@Nullable MatterNetwork network) {
+        if (network == null) {
+            return List.of();
+        }
+        List<NetworkElement> raw =
+                ((MatterNetworkAccessor) (Object) network).rep_ae2_bridge$getReplicatorsRaw();
         return raw != null ? raw : List.of();
     }
 

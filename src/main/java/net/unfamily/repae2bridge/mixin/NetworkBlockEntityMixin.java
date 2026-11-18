@@ -4,9 +4,7 @@ import com.buuz135.replication.block.tile.NetworkBlockEntity;
 import com.hrznstudio.titanium.block_network.NetworkManager;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 import net.minecraft.core.BlockPos;
-import net.minecraft.world.level.Level;
 import net.unfamily.repae2bridge.Config;
-import net.unfamily.repae2bridge.compat.SableCompat;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.spongepowered.asm.mixin.Mixin;
@@ -58,21 +56,7 @@ public abstract class NetworkBlockEntityMixin {
             return;
         }
 
-        // Sable plot coords share the host Level with Titanium NetworkManager — never register there.
-        if (element != null) {
-            Level level = element.getLevel();
-            BlockPos pos = element.getPos();
-            if (SableCompat.isInSubLevelPlot(level, pos)) {
-                if (Config.enableSableLogging) {
-                    REPAE2BRIDGE_LOGGER.debug(
-                            "Skipping addElement at {} during onLoad — Sable sub-level plot",
-                            pos
-                    );
-                }
-                return;
-            }
-        }
-
+        // Assembled Sable crafts keep plot coords — always attempt addElement (Bridge included).
         try {
             networkManager.addElement(element);
         } catch (RuntimeException e) {

@@ -813,7 +813,10 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
-        mainNode.saveToNBT(tag);
+        if (!net.unfamily.repae2bridge.ae2.Ae2ManagedNodeSave.prepareForSave(mainNode, "CHAMBER_SAVE")) {
+            mainNode.saveToNBT(tag);
+            net.unfamily.repae2bridge.compat.SableCompat.breadcrumb("CHAMBER_SAVE_AE2_DONE");
+        }
         tag.putBoolean("formed", formed);
         tag.putString("mode", mode.name());
         if (!craftingStack.isEmpty()) {

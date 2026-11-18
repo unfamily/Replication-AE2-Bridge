@@ -4,6 +4,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.WeakHashMap;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -16,14 +17,22 @@ import net.minecraft.world.level.Level;
 import com.buuz135.replication.api.task.IReplicationTask;
 import com.buuz135.replication.network.MatterNetwork;
 
+import net.unfamily.repae2bridge.Config;
+import net.unfamily.repae2bridge.block.entity.BridgeDeviceFederation;
 import net.unfamily.repae2bridge.block.entity.MatterAssemblerBlockEntity;
 import net.unfamily.repae2bridge.block.entity.ReplicationUnitBlockEntity;
 
 /**
  * Assigns pending Replication-network tasks (terminal or AE2-sourced) to idle AE2 chambers / MAs.
- * Shared by block and cable bridges — same budget rules as vanilla {@code findTaskForReplicator}.
+ * Shared by block and cable bridges — peer-aware like {@code findTaskForReplicator} federation,
+ * with a single assigner per AE2 grid per game tick.
  */
 public final class BridgeReplicationTaskAssign {
+
+    private static final ThreadLocal<Boolean> SEARCHING_PEERS = ThreadLocal.withInitial(() -> false);
+
+    /** Per-grid last tick that already ran assign (identity of IGrid). */
+    private static final WeakHashMap<IGrid, Long> LAST_ASSIGN_TICK = new WeakHashMap<>();
 
     private BridgeReplicationTaskAssign() {
     }
@@ -35,6 +44,16 @@ public final class BridgeReplicationTaskAssign {
             @Nullable BlockPos bridgePos) {
         if (network == null || grid == null || level == null || level.isClientSide() || bridgePos == null) {
             return;
+        }
+
+        // One assigner per AE2 grid per tick — avoids block+cable race on the same craft
+        long gameTime = level.getGameTime();
+        synchronized (LAST_ASSIGN_TICK) {
+            Long last = LAST_ASSIGN_TICK.get(grid);
+            if (last != null && last == gameTime) {
+                return;
+            }
+            LAST_ASSIGN_TICK.put(grid, gameTime);
         }
 
         List<ReplicationUnitBlockEntity> idleChambers = new ArrayList<>();
@@ -65,16 +84,17 @@ public final class BridgeReplicationTaskAssign {
         }
         idle.sort((a, b) -> Integer.compare(b.getPriority(), a.getPriority()));
 
-        int maxWorkersPerMultipleTask = computeBudget(
-                network, onlineAssemblers.size() + onlineChamberLeaders);
+        int onlineWorkerCount = onlineAssemblers.size() + onlineChamberLeaders;
 
         Map<String, Integer> chamberClaimed = new HashMap<>();
         for (int ci = 0; ci < idleChambers.size(); ci++) {
             ReplicationUnitBlockEntity chamber = idleChambers.get(ci);
-            IReplicationTask task = findTask(network, chamber.getBlockPos(), maxWorkersPerMultipleTask);
-            if (task == null) {
+            TaskPick pick = findTask(network, chamber.getBlockPos(), onlineWorkerCount);
+            if (pick == null) {
                 continue;
             }
+            IReplicationTask task = pick.task();
+            MatterNetwork taskNetwork = pick.network();
             ItemStack pattern = task.getReplicatingStack();
             if (pattern == null || pattern.isEmpty()) {
                 continue;
@@ -91,7 +111,7 @@ public final class BridgeReplicationTaskAssign {
             }
             chamberClaimed.merge(taskKey, batch, Integer::sum);
             task.acceptReplicator(chamber.getBlockPos());
-            task.storeMatterStacksFor(level, chamber.getBlockPos(), network);
+            task.storeMatterStacksFor(level, chamber.getBlockPos(), taskNetwork);
             if (!task.getStoredMatterStack().containsKey(chamber.getBlockPos().asLong())) {
                 task.getReplicatorsOnTask().remove(chamber.getBlockPos().asLong());
                 chamberClaimed.merge(taskKey, -batch, Integer::sum);
@@ -100,10 +120,12 @@ public final class BridgeReplicationTaskAssign {
         }
 
         for (MatterAssemblerBlockEntity assembler : idle) {
-            IReplicationTask task = findTask(network, assembler.getBlockPos(), maxWorkersPerMultipleTask);
-            if (task == null) {
+            TaskPick pick = findTask(network, assembler.getBlockPos(), onlineWorkerCount);
+            if (pick == null) {
                 continue;
             }
+            IReplicationTask task = pick.task();
+            MatterNetwork taskNetwork = pick.network();
             ItemStack pattern = task.getReplicatingStack();
             if (pattern == null || pattern.isEmpty()) {
                 continue;
@@ -112,7 +134,7 @@ public final class BridgeReplicationTaskAssign {
                 continue;
             }
             task.acceptReplicator(assembler.getBlockPos());
-            task.storeMatterStacksFor(level, assembler.getBlockPos(), network);
+            task.storeMatterStacksFor(level, assembler.getBlockPos(), taskNetwork);
             if (!task.getStoredMatterStack().containsKey(assembler.getBlockPos().asLong())) {
                 task.getReplicatorsOnTask().remove(assembler.getBlockPos().asLong());
                 assembler.abortJob();
@@ -120,15 +142,17 @@ public final class BridgeReplicationTaskAssign {
         }
     }
 
-    private static int computeBudget(MatterNetwork network, int onlineAssemblerCount) {
-        int workers = network.getReplicators().size() + Math.max(0, onlineAssemblerCount);
+    private static int computeBudget(MatterNetwork taskNetwork, int onlineAssemblerCount) {
+        // Use raw local replicators of the task's network — not AE2-federated getReplicators()
+        int workers = BridgeDeviceFederation.localReplicators(taskNetwork).size()
+                + Math.max(0, onlineAssemblerCount);
         long multipleTasks = 0;
-        for (IReplicationTask pending : network.getTaskManager().getPendingTasks().values()) {
+        for (IReplicationTask pending : taskNetwork.getTaskManager().getPendingTasks().values()) {
             if (pending.getMode() == IReplicationTask.Mode.MULTIPLE) {
                 multipleTasks++;
             }
         }
-        long reservedForSingle = network.getTaskManager().getPendingTasks().size() - multipleTasks;
+        long reservedForSingle = taskNetwork.getTaskManager().getPendingTasks().size() - multipleTasks;
         workers -= (int) reservedForSingle;
         if (multipleTasks == 0) {
             multipleTasks = 1;
@@ -137,13 +161,40 @@ public final class BridgeReplicationTaskAssign {
     }
 
     @Nullable
-    private static IReplicationTask findTask(
-            MatterNetwork network, BlockPos workerPos, int maxWorkersPerMultipleTask) {
+    private static TaskPick findTask(MatterNetwork network, BlockPos workerPos, int onlineWorkerCount) {
+        TaskPick local = findTaskOnNetwork(network, workerPos, onlineWorkerCount);
+        if (local != null) {
+            return local;
+        }
+        if (!Config.federateDevicesAcrossAe2 || SEARCHING_PEERS.get()) {
+            return null;
+        }
+        SEARCHING_PEERS.set(true);
+        try {
+            for (MatterNetwork peer : BridgeDeviceFederation.peerNetworks(network)) {
+                TaskPick peerPick = findTaskOnNetwork(peer, workerPos, onlineWorkerCount);
+                if (peerPick != null) {
+                    return peerPick;
+                }
+            }
+        } finally {
+            SEARCHING_PEERS.set(false);
+        }
+        return null;
+    }
+
+    @Nullable
+    private static TaskPick findTaskOnNetwork(
+            MatterNetwork network, BlockPos workerPos, int onlineWorkerCount) {
+        int maxWorkersPerMultipleTask = computeBudget(network, onlineWorkerCount);
         for (IReplicationTask task : network.getTaskManager().getPendingTasks().values()) {
             if (task.canAcceptReplicator(workerPos, maxWorkersPerMultipleTask)) {
-                return task;
+                return new TaskPick(task, network);
             }
         }
         return null;
+    }
+
+    private record TaskPick(IReplicationTask task, MatterNetwork network) {
     }
 }

@@ -400,7 +400,10 @@ public class MatterAssemblerBlockEntity extends BlockEntity
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
-        mainNode.saveToNBT(tag);
+        if (!net.unfamily.repae2bridge.ae2.Ae2ManagedNodeSave.prepareForSave(mainNode, "MA_SAVE")) {
+            mainNode.saveToNBT(tag);
+            net.unfamily.repae2bridge.compat.SableCompat.breadcrumb("MA_SAVE_AE2_DONE");
+        }
         upgrades.writeToNBT(tag, "upgrades", registries);
         if (!craftingStack.isEmpty()) {
             tag.put("craft", craftingStack.save(registries));

@@ -1216,7 +1216,10 @@ public class MatterFoundryBlockEntity extends BlockEntity
     @Override
     protected void saveAdditional(CompoundTag tag, HolderLookup.Provider registries) {
         super.saveAdditional(tag, registries);
-        mainNode.saveToNBT(tag);
+        if (!net.unfamily.repae2bridge.ae2.Ae2ManagedNodeSave.prepareForSave(mainNode, "FOUNDRY_SAVE")) {
+            mainNode.saveToNBT(tag);
+            net.unfamily.repae2bridge.compat.SableCompat.breadcrumb("FOUNDRY_SAVE_AE2_DONE");
+        }
         upgrades.writeToNBT(tag, "upgrades", registries);
         configManager.writeToNBT(tag, registries);
         tag.putInt("progress", progress);
