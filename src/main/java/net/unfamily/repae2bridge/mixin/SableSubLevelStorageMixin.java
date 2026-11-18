@@ -10,17 +10,23 @@ import net.minecraft.world.level.ChunkPos;
 import net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity;
 import net.unfamily.repae2bridge.compat.SableCompat;
 
+import dev.ryanhcode.sable.sublevel.storage.holding.GlobalSavedSubLevelPointer;
+import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelData;
+import dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelStorage;
+
 /**
- * Breadcrumbs around Sable region I/O after serialize/toData (hypothesis B: kill in disk write).
+ * Breadcrumbs around Sable region I/O after serialize/toData.
+ * Exact Sable parameter types required — {@code Object} handlers fail mixin apply.
  */
-@Mixin(targets = "dev.ryanhcode.sable.sublevel.storage.serialization.SubLevelStorage", remap = false)
+@Mixin(value = SubLevelStorage.class, remap = false)
 public abstract class SableSubLevelStorageMixin {
 
     @Inject(
             method = "attemptSaveSubLevel(Ldev/ryanhcode/sable/sublevel/storage/holding/GlobalSavedSubLevelPointer;Ldev/ryanhcode/sable/sublevel/storage/serialization/SubLevelData;)V",
             at = @At("HEAD")
     )
-    private void repAe2Bridge$attemptSavePtrBegin(Object pointer, Object data, CallbackInfo ci) {
+    private void repAe2Bridge$attemptSavePtrBegin(GlobalSavedSubLevelPointer pointer, SubLevelData data,
+                                                  CallbackInfo ci) {
         if (RepAE2BridgeBlockEntity.isServerStopping()) {
             SableCompat.breadcrumb("ATTEMPT_SAVE_SUBLEVEL_BEGIN");
         }
@@ -30,7 +36,8 @@ public abstract class SableSubLevelStorageMixin {
             method = "attemptSaveSubLevel(Ldev/ryanhcode/sable/sublevel/storage/holding/GlobalSavedSubLevelPointer;Ldev/ryanhcode/sable/sublevel/storage/serialization/SubLevelData;)V",
             at = @At("RETURN")
     )
-    private void repAe2Bridge$attemptSavePtrEnd(Object pointer, Object data, CallbackInfo ci) {
+    private void repAe2Bridge$attemptSavePtrEnd(GlobalSavedSubLevelPointer pointer, SubLevelData data,
+                                                CallbackInfo ci) {
         if (RepAE2BridgeBlockEntity.isServerStopping()) {
             SableCompat.breadcrumb("ATTEMPT_SAVE_SUBLEVEL_END");
         }
@@ -40,8 +47,8 @@ public abstract class SableSubLevelStorageMixin {
             method = "attemptSaveSubLevel(Lnet/minecraft/world/level/ChunkPos;Ldev/ryanhcode/sable/sublevel/storage/serialization/SubLevelData;)Ldev/ryanhcode/sable/sublevel/storage/holding/GlobalSavedSubLevelPointer;",
             at = @At("HEAD")
     )
-    private void repAe2Bridge$attemptSaveChunkBegin(ChunkPos pos, Object data,
-                                                    CallbackInfoReturnable<?> cir) {
+    private void repAe2Bridge$attemptSaveChunkBegin(ChunkPos pos, SubLevelData data,
+                                                    CallbackInfoReturnable<GlobalSavedSubLevelPointer> cir) {
         if (RepAE2BridgeBlockEntity.isServerStopping()) {
             SableCompat.breadcrumb("ATTEMPT_SAVE_SUBLEVEL_CHUNK_BEGIN");
         }
@@ -51,8 +58,8 @@ public abstract class SableSubLevelStorageMixin {
             method = "attemptSaveSubLevel(Lnet/minecraft/world/level/ChunkPos;Ldev/ryanhcode/sable/sublevel/storage/serialization/SubLevelData;)Ldev/ryanhcode/sable/sublevel/storage/holding/GlobalSavedSubLevelPointer;",
             at = @At("RETURN")
     )
-    private void repAe2Bridge$attemptSaveChunkEnd(ChunkPos pos, Object data,
-                                                  CallbackInfoReturnable<?> cir) {
+    private void repAe2Bridge$attemptSaveChunkEnd(ChunkPos pos, SubLevelData data,
+                                                  CallbackInfoReturnable<GlobalSavedSubLevelPointer> cir) {
         if (RepAE2BridgeBlockEntity.isServerStopping()) {
             SableCompat.breadcrumb("ATTEMPT_SAVE_SUBLEVEL_CHUNK_END");
         }

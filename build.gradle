@@ -166,8 +166,9 @@ dependencies {
     compileOnly "curse.maven:mega-cells-622112:${megacells_file_id}"
     localRuntime "curse.maven:mega-cells-622112:${megacells_file_id}"
 
-    // Create + Sable + Aeronautics (runtime-only repro stack; CurseMaven)
+    // Create + Sable + Aeronautics (CurseMaven; compileOnly so mixin handlers use exact types)
     localRuntime "curse.maven:create-328085:${create_file_id}"
+    compileOnly "curse.maven:sable-1312371:${sable_file_id}"
     localRuntime "curse.maven:sable-1312371:${sable_file_id}"
     localRuntime "curse.maven:create-aeronautics-676721:${aeronautics_file_id}"
 
