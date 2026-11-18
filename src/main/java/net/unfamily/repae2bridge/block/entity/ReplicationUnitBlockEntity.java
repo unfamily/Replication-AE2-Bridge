@@ -441,6 +441,26 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
         return bridgePos;
     }
 
+    /**
+     * Minimum formed chamber size (replication units) required for the bridge AE2-internal
+     * high-speed bypass path.
+     */
+    public static final int MIN_UNITS_FOR_AE2_BYPASS = 8;
+
+    /** Number of replication units in this formed chamber (0 if not formed). */
+    public int getChamberUnitCount() {
+        if (!formed || lastBox == null || level == null) {
+            return 0;
+        }
+        return Math.max(0, ChamberAe2Display.countUnits(level, lastBox));
+    }
+
+    /** True when this leader chamber is large enough for AE2-internal high-speed bypass. */
+    public boolean qualifiesForAe2Bypass() {
+        return isFormed() && isChamberLeader() && getMainNode().isOnline()
+                && getChamberUnitCount() >= MIN_UNITS_FOR_AE2_BYPASS;
+    }
+
     /** Progress points added each tick (item completes at {@link #PROGRESS_PER_ITEM}). */
     public int getProgressPointsPerTick() {
         int speed = Math.max(1, Config.chamberSpeed);
@@ -782,6 +802,9 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     @Override
     public void setRemoved() {
         super.setRemoved();
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            return;
+        }
         if (mainNode.getNode() != null) {
             mainNode.destroy();
         }
@@ -790,6 +813,9 @@ public class ReplicationUnitBlockEntity extends BlockEntity implements IInWorldG
     @Override
     public void onChunkUnloaded() {
         super.onChunkUnloaded();
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            return;
+        }
         if (mainNode.getNode() != null) {
             mainNode.destroy();
         }

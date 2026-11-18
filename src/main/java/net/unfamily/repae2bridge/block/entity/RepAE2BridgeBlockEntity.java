@@ -276,6 +276,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     private int patternUpdateTicks = 0;
     private static final int PATTERN_UPDATE_INTERVAL = 100; // Update every 5 seconds (100 ticks)
 
+    /** Detect MatterNetwork / chip / AE2 online edges (Sable enter often needs a forced refresh). */
+    private boolean lastMatterNetworkReady;
+    private boolean lastAe2Online;
+    /** Content signature of chip patterns (not device count — cache can be empty after load). */
+    private long lastPatternSignature = Long.MIN_VALUE;
+
     // Cache of matter insufficient warnings to avoid repetitions
     private Map<String, Long> lastMatterWarnings = new HashMap<>();
     // Minimum time between consecutive warnings for the same item (in ticks)
@@ -321,17 +327,18 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     public static void setWorldUnloading(boolean unloading, @Nullable net.minecraft.world.level.Level level, @Nullable BlockPos pos) {
         // Only log once when set to true or if more than 15 seconds have passed
         if (unloading && !worldUnloading) {
-            // Raise the flag FIRST so ticks / neighbor updates cannot re-register during disconnect
+            // Soft unload: raise flag + cancel work only. Destroy/removeElement at Sable plot
+            // coords before Saving sub-levels is a silent native kill vector — skip AE2 NBT
+            // during save instead (see Ae2ManagedNodeSave / cable writeToNBT).
             worldUnloading = true;
 
-            // First time it's set to true - always log
             String dimensionInfo = level != null ? 
                 " [Dimension: " + level.dimension().location() + "]" : "";
             String positionInfo = pos != null ? 
                 " [Position: " + pos.getX() + ", " + pos.getY() + ", " + pos.getZ() + "]" : "";
             
             if (Config.enableDebugLogging) {
-            LOGGER.info("RepAE2Bridge: World unloading detected - All bridges will now shutdown{}{}", 
+            LOGGER.info("RepAE2Bridge: World unloading detected - soft unload (flag only){}{}", 
                         dimensionInfo, positionInfo);
             }
             if (Config.enableDebugLogging) {
@@ -339,31 +346,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                         dimensionInfo, positionInfo);
             }
 
-            SableCompat.breadcrumb("SHUTDOWN_BEGIN");
-            
-            // Cancel all pending operations
+            SableCompat.breadcrumb("SHUTDOWN_SOFT_BEGIN");
             cancelAllPendingOperations();
-            
-            // Disconnect ALL bridges from networks IMMEDIATELY
-            // This prevents the NetworkManager from trying to save bridges during world unload
-            if (Config.enableDebugLogging) {
-            LOGGER.info("RepAE2Bridge: Disconnecting {} active bridges from AE2 and Titanium/Replication networks", activeBridges.size());
-            }
-            // Snapshot known positions BEFORE registries are cleared (narrow Sable plot purge)
-            List<KnownNetworkPos> knownPositions = snapshotKnownNetworkPositions();
-            net.minecraft.server.MinecraftServer server = findServerFromActiveBridges();
-
-            disconnectAllBridgesFromNetworks();
-            SableCompat.breadcrumb("SHUTDOWN_BLOCK_AE2_DONE");
-
-            // Cable bridges are not BlockEntities — disconnect Titanium + destroy AE2
-            net.unfamily.repae2bridge.parts.CableRepAe2BridgePart.disconnectAllCableBridgesFromNetworks();
-            SableCompat.breadcrumb("SHUTDOWN_CABLE_AE2_DONE");
-
-            if (server != null) {
-                purgeKnownNetworkPositionsInSablePlots(knownPositions);
-            }
-            SableCompat.breadcrumb("SHUTDOWN_PURGE_DONE");
+            SableCompat.breadcrumb("SHUTDOWN_SOFT_FLAG_ONLY");
             
         } else if (!unloading && worldUnloading) {
             // State changed from true to false - always log
@@ -1195,31 +1180,31 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             logNetworkState("BEFORE setRemoved cleanup");
         }
 
-        try {
-            if (shouldLog) {
-                LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
-            }
-            // Destroy the AE2 node first
-            if (mainNode != null) {
-                mainNode.destroy();
+        // Soft unload: do not destroy AE2 / leave Titanium — skip NBT instead (Sable plot kill)
+        if (!worldUnloading) {
+            try {
                 if (shouldLog) {
-                    LOGGER.error("Bridge{}: AE2 node destruction completed", getLocationInfo());
+                    LOGGER.error("Bridge{}: Attempting to destroy AE2 node", getLocationInfo());
                 }
-            } else {
-                if (shouldLog) {
+                if (mainNode != null) {
+                    mainNode.destroy();
+                    if (shouldLog) {
+                        LOGGER.error("Bridge{}: AE2 node destruction completed", getLocationInfo());
+                    }
+                } else if (shouldLog) {
                     LOGGER.warn("Bridge{}: AE2 node was null during setRemoved", getLocationInfo());
                 }
+            } catch (Exception e) {
+                if (shouldLog) {
+                    LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node: {}", getLocationInfo(), e.getMessage(), e);
+                }
             }
-        } catch (Exception e) {
-            if (shouldLog) {
-                LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node: {}", getLocationInfo(), e.getMessage(), e);
-            }
-            // Continue with cleanup even if node destruction fails
-        }
 
-        // Log network state AFTER AE2 node destruction only for initialized bridges
-        if (shouldLog) {
-            logNetworkState("AFTER AE2 node destruction");
+            if (shouldLog) {
+                logNetworkState("AFTER AE2 node destruction");
+            }
+        } else {
+            SableCompat.breadcrumb("BRIDGE_SET_REMOVED_SOFT_SKIP pos=" + worldPosition);
         }
 
         try {
@@ -1263,26 +1248,26 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             logNetworkState("BEFORE onChunkUnloaded cleanup");
         }
 
-        try {
-            if (shouldLog) {
-                LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
-            }
-            // Clean up the AE2 node when the chunk is unloaded
-            if (mainNode != null) {
-                mainNode.destroy();
+        if (!worldUnloading) {
+            try {
                 if (shouldLog) {
-                    LOGGER.error("Bridge{}: AE2 node destruction in onChunkUnloaded completed", getLocationInfo());
+                    LOGGER.error("Bridge{}: Attempting to destroy AE2 node in onChunkUnloaded", getLocationInfo());
                 }
-            } else {
-                if (shouldLog) {
+                if (mainNode != null) {
+                    mainNode.destroy();
+                    if (shouldLog) {
+                        LOGGER.error("Bridge{}: AE2 node destruction in onChunkUnloaded completed", getLocationInfo());
+                    }
+                } else if (shouldLog) {
                     LOGGER.warn("Bridge{}: AE2 node was null during onChunkUnloaded", getLocationInfo());
                 }
+            } catch (Exception e) {
+                if (shouldLog) {
+                    LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", getLocationInfo(), e.getMessage(), e);
+                }
             }
-        } catch (Exception e) {
-            if (shouldLog) {
-                LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onChunkUnloaded: {}", getLocationInfo(), e.getMessage(), e);
-            }
-            // Continue with cleanup even if node destruction fails
+        } else {
+            SableCompat.breadcrumb("BRIDGE_CHUNK_UNLOAD_SOFT_SKIP pos=" + worldPosition);
         }
 
         // Log network state AFTER AE2 node destruction only for initialized bridges
@@ -1499,6 +1484,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
                     LOGGER.debug("Bridge{}: Error during periodic network validation: {}", getLocationInfo(), e.getMessage());
                 }
             }
+        }
+
+        // Revalidate AE2 crafting/storage when Titanium or chips become ready (Sable structure enter)
+        if (initialized == 1 && !level.isClientSide() && !worldUnloading) {
+            revalidateAe2ServicesIfNeeded();
         }
 
         // Track matter creation from disintegrators only if networks are available
@@ -2218,6 +2208,63 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
     }
 
+    /**
+     * Force AE2 crafting/storage refresh when MatterNetwork, AE2 online state, or chip
+     * pattern content changes. ChipStorage caches patterns at setLevel (often before NBT
+     * load); every 20 ticks we refresh caches and compare a content signature so AE2
+     * updates without requiring a chip toggle (Sable craft or overworld).
+     */
+    private void revalidateAe2ServicesIfNeeded() {
+        if (mainNode == null || mainNode.getNode() == null) {
+            lastMatterNetworkReady = false;
+            lastAe2Online = false;
+            lastPatternSignature = Long.MIN_VALUE;
+            return;
+        }
+        MatterNetwork network = getNetwork();
+        boolean networkReady = network != null;
+        boolean ae2Online = isActive();
+
+        boolean networkEdge = networkReady != lastMatterNetworkReady || ae2Online != lastAe2Online;
+        lastMatterNetworkReady = networkReady;
+        lastAe2Online = ae2Online;
+
+        if (!networkReady || !ae2Online) {
+            return;
+        }
+
+        // Periodic content check (Sable or not) — rebuild ChipStorage cachedPatters then hash
+        boolean periodic = level != null && level.getGameTime() % 20 == 0;
+        if (!periodic && !networkEdge) {
+            return;
+        }
+
+        long signature = lastPatternSignature;
+        if (periodic || networkEdge) {
+            BridgeDeviceFederation.refreshChipPatternCaches(network);
+            signature = BridgeDeviceFederation.patternSignature(network);
+        }
+
+        boolean changed = networkEdge || signature != lastPatternSignature;
+        lastPatternSignature = signature;
+        if (!changed) {
+            return;
+        }
+        try {
+            ICraftingProvider.requestUpdate(mainNode);
+            IStorageProvider.requestUpdate(mainNode);
+            updateConnectedState();
+            if (Config.enableSableLogging || Config.enableDebugLogging) {
+                LOGGER.info("Bridge{}: Revalidated AE2 services (patternSignature={}, network ready)",
+                        getLocationInfo(), signature);
+            }
+        } catch (Exception e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.warn("Bridge{}: AE2 revalidation failed: {}", getLocationInfo(), e.getMessage());
+            }
+        }
+    }
+
     // =================== Utility methods ===================
 
     public static class TerminalPlayerTracker {
@@ -2865,93 +2912,36 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
     }
 
-    // Method to handle world unload event
+    // Soft unload when mid-tick detects world stop — flag + clear work only (no AE2/Titanium teardown)
     public void onWorldUnload() {
-        LOGGER.error("Bridge{}: onWorldUnload() called - CRITICAL CLEANUP STARTING", getLocationInfo());
+        SableCompat.breadcrumb("BRIDGE_ON_WORLD_UNLOAD_SOFT pos=" + worldPosition);
+        if (Config.enableDebugLogging) {
+            LOGGER.error("Bridge{}: onWorldUnload() soft cleanup (no AE2 destroy / Titanium remove)", getLocationInfo());
+        }
         
         try {
-            LOGGER.error("Bridge{}: Setting world unloading flag locally", getLocationInfo());
-            // Set the flag to indicate that the world is unloading
             worldUnloading = true;
 
-            LOGGER.error("Bridge{}: Starting AE2 node destruction", getLocationInfo());
-            // Clean up AE2 connections with timeout protection
-            if (mainNode != null) {
-                try {
-                    // Clean up AE2 node without timing - just ensure it gets destroyed
-                    mainNode.destroy();
-                    LOGGER.error("Bridge{}: AE2 node destruction successful", getLocationInfo());
-                } catch (Exception e) {
-                    LOGGER.error("Bridge{}: EXCEPTION destroying AE2 node in onWorldUnload: {}", getLocationInfo(), e.getMessage(), e);
-                }
-            } else {
-                if (Config.enableDebugLogging) {
-                LOGGER.warn("Bridge{}: AE2 node was null during onWorldUnload", getLocationInfo());
-                }
-            }
-
-            LOGGER.error("Bridge{}: Starting Replication network element removal", getLocationInfo());
-            // CRITICAL: Remove element from Replication NetworkManager to prevent corruption
-            // This ensures the element doesn't remain with network == null after world reload
             try {
-                if (level != null && !level.isClientSide()) {
-                    NetworkManager networkManager = NetworkManager.get(level);
-                    if (networkManager != null) {
-                        NetworkElement element = networkManager.getElement(worldPosition);
-                        if (element != null) {
-                            LOGGER.error("Bridge{}: Removing element from Replication NetworkManager", getLocationInfo());
-                            networkManager.removeElement(worldPosition);
-                            LOGGER.error("Bridge{}: Replication network element removed successfully", getLocationInfo());
-                        } else {
-                            if (Config.enableDebugLogging) {
-                            LOGGER.debug("Bridge{}: Element not found in NetworkManager (already removed?)", getLocationInfo());
-                            }
-                        }
-                    } else {
-                        if (Config.enableDebugLogging) {
-                        LOGGER.warn("Bridge{}: NetworkManager not available during onWorldUnload", getLocationInfo());
-                        }
-                    }
-                }
-            } catch (Exception e) {
-                LOGGER.error("Bridge{}: EXCEPTION removing Replication network element in onWorldUnload: {}", getLocationInfo(), e.getMessage(), e);
-                // Continue with cleanup even if removal fails
-            }
-
-            LOGGER.error("Bridge{}: Clearing data structures", getLocationInfo());
-            // Clear any pending operations and data structures
-            try {
-                // pendingPatterns and pendingInputs removed - no longer used
                 patternRequests.clear();
                 activeTasks.clear();
                 patternRequestsBySource.clear();
                 requestCounters.clear();
                 
-                // Clear terminal tracker and other data
                 if (terminalPlayerTracker != null) {
                     terminalPlayerTracker = null;
                 }
                 
-                // Clear matter warnings and other caches
                 lastMatterWarnings.clear();
-                
-                // Reset initialization state
                 initializationTicks = 0;
-                
-                LOGGER.error("Bridge{}: Data structures cleared successfully", getLocationInfo());
             } catch (Exception e) {
                 LOGGER.error("Bridge{}: EXCEPTION clearing data structures: {}", getLocationInfo(), e.getMessage(), e);
             }
 
-            LOGGER.error("Bridge{}: Resetting connection flags", getLocationInfo());
-            // Reset connection flags
             nodeCreated = false;
             shouldReconnect = false;
             initialized = 0;
-
-            LOGGER.error("Bridge{}: Parent class cleanup not needed (no super.onWorldUnload)", getLocationInfo());
-
-            LOGGER.error("Bridge{}: onWorldUnload() CRITICAL CLEANUP COMPLETED", getLocationInfo());
+            SableCompat.breadcrumb("BRIDGE_ON_WORLD_UNLOAD_SOFT_DONE pos=" + worldPosition);
         } catch (Exception e) {
             LOGGER.error("Bridge{}: FATAL EXCEPTION in onWorldUnload(): {}", getLocationInfo(), e.getMessage(), e);
         }
@@ -3695,10 +3685,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
     }
 
 
-    /** Online chamber leader or Matter Assembler on this AE2 grid (idle or busy). */
+    /**
+     * AE2-internal high-speed bypass: requires at least one online chamber leader with
+     * {@link ReplicationUnitBlockEntity#MIN_UNITS_FOR_AE2_BYPASS}+ replication units.
+     */
     private boolean hasAe2GridWorker() {
         refreshAe2WorkerCache();
-        return !cachedChamberLeaders.isEmpty() || !cachedOnlineAssemblers.isEmpty();
+        return !cachedChamberLeaders.isEmpty();
     }
 
     /** True if a chamber/MA owned by this bridge is already running AE2-internal work for {@code item}. */
@@ -4268,14 +4261,17 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         java.util.ArrayList<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
         for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit != null && unit.isFormed() && unit.isChamberLeader() && unit.getMainNode().isOnline()) {
+            if (unit != null && unit.qualifiesForAe2Bypass()) {
                 chambers.add(unit);
             }
         }
+        // MAs only participate in bypass feed when a large chamber unlocked the path
         java.util.ArrayList<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler != null && assembler.getMainNode().isOnline()) {
-                assemblers.add(assembler);
+        if (!chambers.isEmpty()) {
+            for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+                if (assembler != null && assembler.getMainNode().isOnline()) {
+                    assemblers.add(assembler);
+                }
             }
         }
         cachedChamberLeaders = chambers;

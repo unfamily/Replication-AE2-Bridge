@@ -22,17 +22,10 @@ public final class Ae2ManagedNodeSave {
     }
 
     /**
-     * Destroy the node when unloading, then report whether NBT serialization must be skipped.
+     * Soft unload: never destroy the node here — report whether NBT serialization must be skipped.
      * Emits {@code prefix_SKIP_AE2} when skipping; caller emits {@code prefix_AE2_DONE} after a successful save.
      */
     public static boolean prepareForSave(@Nullable IManagedGridNode node, String breadcrumbPrefix) {
-        if (RepAE2BridgeBlockEntity.isWorldUnloading() && node != null && node.getNode() != null) {
-            try {
-                node.destroy();
-            } catch (Exception ignored) {
-                // Best-effort
-            }
-        }
         boolean skip = shouldSkipSave(node);
         if (skip) {
             SableCompat.breadcrumb(breadcrumbPrefix + "_SKIP_AE2");

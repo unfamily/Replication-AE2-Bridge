@@ -122,6 +122,12 @@ public class CableRepAe2BridgePart extends AEBasePart
     private long lastClassificationRemountTick = Long.MIN_VALUE;
     private static final long REMOUNT_RETRY_TICKS = 100;
 
+    /** Detect MatterNetwork / chip / AE2 online edges (Sable enter often needs a forced refresh). */
+    private boolean lastMatterNetworkReady;
+    private boolean lastAe2Online;
+    /** Content signature of chip patterns (not device count — cache can be empty after load). */
+    private long lastPatternSignature = Long.MIN_VALUE;
+
     /** AE2-internal bypass queue (chamber / MA) — parity with block bridge. */
     private final Map<Item, Integer> ae2InternalPending = new HashMap<>();
     private final Map<Item, ItemStack> ae2InternalPatterns = new HashMap<>();
@@ -354,9 +360,14 @@ public class CableRepAe2BridgePart extends AEBasePart
         SableCompat.breadcrumb("CABLE_SAVE_BEGIN" + getLocationInfo()
                 + " unloading=" + unloading);
 
-        // Destroy AE2 only on unload — keep nodes alive while playing in plot crafts
+        // Soft unload: keep AE2 node alive through Sable save; skip AE2 serialization
+        // by writing only bridge fields when unloading (super may still touch the node).
         if (unloading) {
-            destroyAe2NodeQuietly();
+            data.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
+            data.putInt("priority", priority);
+            SableCompat.breadcrumb("CABLE_SAVE_SKIP_AE2" + getLocationInfo());
+            SableCompat.breadcrumb("CABLE_SAVE_END" + getLocationInfo());
+            return;
         }
         super.writeToNBT(data, registries);
         data.putBoolean("feedReplicationEnergy", feedReplicationEnergy);
@@ -1130,6 +1141,7 @@ public class CableRepAe2BridgePart extends AEBasePart
         // Same lifecycle pressure as the block bridge: (re)join MatterNetwork and refresh AE2.
         registerMatterElement();
         feedEnergyToMatterNetwork();
+        revalidateAe2ServicesIfNeeded();
         if (!ae2InternalPending.isEmpty()) {
             BridgeAe2WorkerFeed.feedAll(
                     getMainNode().getGrid(),
@@ -1149,6 +1161,62 @@ public class CableRepAe2BridgePart extends AEBasePart
             ICraftingProvider.requestUpdate(getMainNode());
         }
         return ae2InternalPending.isEmpty() ? TickRateModulation.SAME : TickRateModulation.FASTER;
+    }
+
+    /**
+     * Force AE2 crafting/storage refresh when MatterNetwork, AE2 online, or chip pattern
+     * content changes. Refreshes ChipStorage caches every 20 ticks so AE2 sees patterns
+     * without a chip toggle (works in Sable crafts and overworld).
+     */
+    private void revalidateAe2ServicesIfNeeded() {
+        if (!getMainNode().isReady()) {
+            lastMatterNetworkReady = false;
+            lastAe2Online = false;
+            lastPatternSignature = Long.MIN_VALUE;
+            return;
+        }
+        MatterNetwork network = getMatterNetwork();
+        boolean networkReady = network != null;
+        boolean ae2Online = isPartActive();
+
+        boolean networkEdge = networkReady != lastMatterNetworkReady || ae2Online != lastAe2Online;
+        lastMatterNetworkReady = networkReady;
+        lastAe2Online = ae2Online;
+
+        if (!networkReady || !ae2Online) {
+            return;
+        }
+
+        Level level = getLevel();
+        boolean periodic = level != null && level.getGameTime() % 20 == 0;
+        if (!periodic && !networkEdge) {
+            return;
+        }
+
+        long signature = lastPatternSignature;
+        if (periodic || networkEdge) {
+            BridgeDeviceFederation.refreshChipPatternCaches(network);
+            signature = BridgeDeviceFederation.patternSignature(network);
+        }
+
+        boolean changed = networkEdge || signature != lastPatternSignature;
+        lastPatternSignature = signature;
+        if (!changed) {
+            return;
+        }
+        try {
+            ICraftingProvider.requestUpdate(getMainNode());
+            IStorageProvider.requestUpdate(getMainNode());
+            if (Config.enableSableLogging || Config.enableDebugLogging) {
+                LOGGER.info("CableBridge{}: Revalidated AE2 services (patternSignature={})",
+                        getLocationInfo(), signature);
+            }
+        } catch (Exception e) {
+            if (Config.enableDebugLogging) {
+                LOGGER.warn("CableBridge{}: AE2 revalidation failed: {}",
+                        getLocationInfo(), e.getMessage());
+            }
+        }
     }
 
     private void feedEnergyToMatterNetwork() {

@@ -1016,6 +1016,9 @@ public class MatterFoundryBlockEntity extends BlockEntity
     @Override
     public void setRemoved() {
         super.setRemoved();
+        if (RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            return;
+        }
         mainNode.destroy();
         leaveReplicationNetwork();
     }

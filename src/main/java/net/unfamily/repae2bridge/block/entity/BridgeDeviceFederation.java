@@ -13,11 +13,15 @@ import appeng.api.networking.IGridNode;
 import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;
 
+import com.buuz135.replication.api.pattern.MatterPattern;
+import com.buuz135.replication.block.tile.ChipStorageBlockEntity;
 import com.buuz135.replication.network.MatterNetwork;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.entity.BlockEntity;
 
@@ -73,6 +77,70 @@ public final class BridgeDeviceFederation {
             }
         }
         return new ArrayList<>(merged.values());
+    }
+
+    /**
+     * Replication ChipStorage caches patterns in {@code cachedPatters}, filled by
+     * {@link ChipStorageBlockEntity#cachePatterns()} on {@code setLevel} (often before NBT
+     * inventory load) and on slot change. Without a refresh after load, AE2 sees empty
+     * patterns until the player toggles a chip — call this periodically from bridges.
+     */
+    public static void refreshChipPatternCaches(@Nullable MatterNetwork network) {
+        if (network == null) {
+            return;
+        }
+        for (NetworkElement element : chipsForAe2Patterns(network)) {
+            if (element == null) {
+                continue;
+            }
+            Level level = element.getLevel();
+            BlockPos pos = element.getPos();
+            if (level == null || pos == null || !level.isLoaded(pos)) {
+                continue;
+            }
+            BlockEntity be = level.getBlockEntity(pos);
+            if (be instanceof ChipStorageBlockEntity chipStorage) {
+                chipStorage.cachePatterns();
+            }
+        }
+    }
+
+    /**
+     * Content signature of completed patterns across federated chip storages.
+     * Used to decide when AE2 crafting/storage providers must requestUpdate.
+     */
+    public static long patternSignature(@Nullable MatterNetwork network) {
+        if (network == null) {
+            return 0L;
+        }
+        long hash = 1L;
+        for (NetworkElement element : chipsForAe2Patterns(network)) {
+            if (element == null) {
+                continue;
+            }
+            Level level = element.getLevel();
+            BlockPos pos = element.getPos();
+            if (level == null || pos == null || !level.isLoaded(pos)) {
+                continue;
+            }
+            BlockEntity be = level.getBlockEntity(pos);
+            if (!(be instanceof ChipStorageBlockEntity chipStorage)) {
+                continue;
+            }
+            hash = 31L * hash + pos.asLong();
+            for (MatterPattern pattern : chipStorage.getPatterns(level, chipStorage)) {
+                if (pattern == null) {
+                    continue;
+                }
+                ItemStack stack = pattern.getStack();
+                if (stack == null || stack.isEmpty()) {
+                    continue;
+                }
+                hash = 31L * hash + BuiltInRegistries.ITEM.getKey(stack.getItem()).hashCode();
+                hash = 31L * hash + Float.hashCode(pattern.getCompletion());
+            }
+        }
+        return hash;
     }
 
     /** Raw local replicators (not AE2-federated {@link MatterNetwork#getReplicators()}). */
@@ -158,14 +226,13 @@ public final class BridgeDeviceFederation {
         addGrid(grids, cable.getGridNode());
     }
 
+    /**
+     * Read-only peer lookup. Must NOT call {@code ensureMatterNetworkRegistered()} —
+     * pattern/storage queries hit this path every AE2 tick and remounting Titanium here
+     * thrashs the matter graph (broken validation even without Sable).
+     */
     @Nullable
     private static MatterNetwork resolveCableNetwork(CableRepAe2BridgePart cable) {
-        MatterNetwork network = cable.getMatterNetwork();
-        if (network != null) {
-            return network;
-        }
-        // Part may be online on AE2 before the Titanium element is registered.
-        cable.ensureMatterNetworkRegistered();
         return cable.getMatterNetwork();
     }
 

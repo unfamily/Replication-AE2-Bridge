@@ -50,6 +50,11 @@ public abstract class NetworkBlockEntityMixin {
             )
     )
     private void repae2bridge$safeAddElement(NetworkManager networkManager, NetworkElement element) {
+        // Soft unload: never remount Titanium while the world is stopping
+        if (net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            return;
+        }
+
         // Config check: if disabled, call the original method directly (no try-catch)
         if (!Config.enableNetworkBlockEntityFix) {
             networkManager.addElement(element);
@@ -83,6 +88,11 @@ public abstract class NetworkBlockEntityMixin {
             )
     )
     private void repae2bridge$safeRemoveElement(NetworkManager networkManager, BlockPos pos) {
+        // Soft unload: removeElement at Sable plot coords during world stop can silent-kill MC
+        if (net.unfamily.repae2bridge.block.entity.RepAE2BridgeBlockEntity.isWorldUnloading()) {
+            return;
+        }
+
         if (!Config.enableNetworkBlockEntityFix) {
             networkManager.removeElement(pos);
             return;
