@@ -1956,14 +1956,9 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
      *
      * @return true if the item was fully inserted and the task unit was finalized
      */
-    /** True while the Replication UI task is still in the pending map. */
+    /** True while the Replication UI task is still pending (local or AE2-federated peer). */
     public boolean hasPendingReplicationTask(UUID taskId) {
-        if (taskId == null) {
-            return false;
-        }
-        MatterNetwork network = getNetworkSafe();
-        return network != null
-                && network.getTaskManager().getPendingTasks().containsKey(taskId.toString());
+        return BridgeDeviceFederation.findPendingTask(getNetworkSafe(), taskId) != null;
     }
 
     /**
@@ -1974,14 +1969,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (taskId == null || workerPos == null || level == null || level.isClientSide()) {
             return false;
         }
-        MatterNetwork network = getNetworkSafe();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref =
+                BridgeDeviceFederation.findPendingTask(getNetworkSafe(), taskId);
+        if (ref == null) {
             return false;
         }
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return false;
-        }
+        IReplicationTask task = ref.task();
+        MatterNetwork network = ref.network();
         if (task.getStoredMatterStack().containsKey(workerPos.asLong())) {
             return true;
         }
@@ -1994,15 +1988,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return false;
         }
 
-        MatterNetwork network = getNetworkSafe();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref =
+                BridgeDeviceFederation.findPendingTask(getNetworkSafe(), taskId);
+        if (ref == null) {
             return false;
         }
-
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return false;
-        }
+        IReplicationTask task = ref.task();
 
         BlockPos source = task.getSource();
         var capability = level.getCapability(Capabilities.Item.BLOCK, source, Direction.UP);
@@ -3275,24 +3266,31 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         java.util.ArrayList<ReplicationUnitBlockEntity> chambers = new java.util.ArrayList<>();
         for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit != null && unit.isFormed() && unit.isChamberLeader() && unit.getMainNode().isOnline()) {
+            if (unit != null && unit.qualifiesForAe2Bypass()) {
                 chambers.add(unit);
             }
         }
+        // MAs only participate in AE2-internal bypass when a large chamber unlocked the path.
         java.util.ArrayList<MatterAssemblerBlockEntity> assemblers = new java.util.ArrayList<>();
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler != null && assembler.getMainNode().isOnline()) {
-                assemblers.add(assembler);
+        if (!chambers.isEmpty()) {
+            for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
+                if (assembler != null && assembler.getMainNode().isOnline()) {
+                    assemblers.add(assembler);
+                }
             }
         }
         cachedChamberLeaders = chambers;
         cachedOnlineAssemblers = assemblers;
     }
 
-    /** Online chamber leader or Matter Assembler on this AE2 grid (idle or busy). */
+    /**
+     * AE2-internal high-speed bypass: requires at least one online chamber leader with
+     * {@link ReplicationUnitBlockEntity#MIN_UNITS_FOR_AE2_BYPASS}+ replication units.
+     * Matter Assemblers alone do not unlock the bypass (they take Replication tasks instead).
+     */
     private boolean hasAe2GridWorker() {
         refreshAe2WorkerCache();
-        return !cachedChamberLeaders.isEmpty() || !cachedOnlineAssemblers.isEmpty();
+        return !cachedChamberLeaders.isEmpty();
     }
 
     /** True if a chamber/MA owned by this bridge is already running AE2-internal work for {@code item}. */
@@ -3779,13 +3777,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         count += mergeLeft;
 
-        int remaining = dispatchToMatterAssemblers(patternStack, count);
-        if (remaining <= 0) {
-            return;
-        }
+        // Do not pre-assign Matter Assemblers here (that skipped ReplicationTask visibility).
+        // MAs/small chambers pick up via BridgeReplicationTaskAssign with a real task id.
+        int remaining = count;
 
-        // Prefer AE2-internal workers when present; anything they cannot take now becomes a
-        // ReplicationTask so CPUs are never parked forever in ae2InternalPending alone.
+        // Prefer AE2-internal workers when an 8+ chamber unlocked bypass; leftovers become
+        // a ReplicationTask so CPUs are never parked forever in ae2InternalPending alone.
         if (hasAe2GridWorker()) {
             ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
             ae2InternalPending.merge(key, remaining, Integer::sum);
@@ -4122,14 +4119,13 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (level == null || level.isClientSide() || taskId == null) {
             return;
         }
-        MatterNetwork network = getNetworkSafe();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref =
+                BridgeDeviceFederation.findPendingTask(getNetworkSafe(), taskId);
+        if (ref == null) {
             return;
         }
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return;
-        }
+        IReplicationTask task = ref.task();
+        MatterNetwork network = ref.network();
         task.finalizeReplication(level, assemblerPos, network);
         if (level instanceof ServerLevel serverLevel) {
             network.onTaskValueChanged(task, serverLevel);

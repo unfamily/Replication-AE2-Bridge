@@ -24,17 +24,17 @@ public final class BridgeAe2WorkerFeed {
     private BridgeAe2WorkerFeed() {
     }
 
+    /**
+     * AE2-internal high-speed bypass is allowed only when the grid has at least one formed
+     * chamber with {@link ReplicationUnitBlockEntity#MIN_UNITS_FOR_AE2_BYPASS}+ units.
+     * Matter Assemblers alone do not unlock the bypass.
+     */
     public static boolean hasOnlineWorker(@Nullable IGrid grid) {
         if (grid == null) {
             return false;
         }
         for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit != null && unit.isFormed() && unit.isChamberLeader() && unit.getMainNode().isOnline()) {
-                return true;
-            }
-        }
-        for (MatterAssemblerBlockEntity assembler : grid.getMachines(MatterAssemblerBlockEntity.class)) {
-            if (assembler != null && assembler.getMainNode().isOnline()) {
+            if (unit != null && unit.qualifiesForAe2Bypass()) {
                 return true;
             }
         }
@@ -57,9 +57,14 @@ public final class BridgeAe2WorkerFeed {
         }
         Item item = patternStack.getItem();
 
+        // Bypass feed only for large chambers; MAs ride along once a qualifying chamber exists.
+        if (!hasOnlineWorker(grid)) {
+            return count;
+        }
+
         List<ReplicationUnitBlockEntity> chambers = new ArrayList<>();
         for (ReplicationUnitBlockEntity unit : grid.getMachines(ReplicationUnitBlockEntity.class)) {
-            if (unit == null || !unit.isFormed() || !unit.isChamberLeader() || !unit.getMainNode().isOnline()) {
+            if (unit == null || !unit.qualifiesForAe2Bypass()) {
                 continue;
             }
             if (unit.isChamberWorkerReady()) {

@@ -591,12 +591,7 @@ public class CableRepAe2BridgePart extends AEBasePart
 
     @Override
     public boolean hasPendingReplicationTask(UUID taskId) {
-        if (taskId == null) {
-            return false;
-        }
-        MatterNetwork network = getMatterNetwork();
-        return network != null
-                && network.getTaskManager().getPendingTasks().containsKey(taskId.toString());
+        return BridgeDeviceFederation.findPendingTask(getMatterNetwork(), taskId) != null;
     }
 
     @Override
@@ -605,14 +600,13 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (taskId == null || workerPos == null || level == null || level.isClientSide()) {
             return false;
         }
-        MatterNetwork network = getMatterNetwork();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref =
+                BridgeDeviceFederation.findPendingTask(getMatterNetwork(), taskId);
+        if (ref == null) {
             return false;
         }
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return false;
-        }
+        IReplicationTask task = ref.task();
+        MatterNetwork network = ref.network();
         if (task.getStoredMatterStack().containsKey(workerPos.asLong())) {
             return true;
         }
@@ -626,14 +620,13 @@ public class CableRepAe2BridgePart extends AEBasePart
         if (stack.isEmpty() || taskId == null || level == null || level.isClientSide()) {
             return false;
         }
-        MatterNetwork network = getMatterNetwork();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref =
+                BridgeDeviceFederation.findPendingTask(getMatterNetwork(), taskId);
+        if (ref == null) {
             return false;
         }
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return false;
-        }
+        IReplicationTask task = ref.task();
+        MatterNetwork network = ref.network();
         BlockPos source = task.getSource();
         var capability = level.getCapability(Capabilities.Item.BLOCK, source, Direction.UP);
         if (capability == null) {
