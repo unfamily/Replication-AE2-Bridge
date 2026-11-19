@@ -3323,16 +3323,11 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
             return false;
         }
 
-        MatterNetwork network = getNetwork();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref = BridgeDeviceFederation.findPendingTask(getNetwork(), taskId);
+        if (ref == null) {
             return false;
         }
-
-        com.buuz135.replication.api.task.IReplicationTask task =
-                network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return false;
-        }
+        IReplicationTask task = ref.task();
 
         BlockPos source = task.getSource();
         var capability = level.getCapability(
@@ -3356,28 +3351,21 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (level == null || level.isClientSide() || taskId == null) {
             return;
         }
-        MatterNetwork network = getNetwork();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref = BridgeDeviceFederation.findPendingTask(getNetwork(), taskId);
+        if (ref == null) {
             return;
         }
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return;
-        }
+        IReplicationTask task = ref.task();
+        MatterNetwork network = ref.network();
         task.finalizeReplication(level, assemblerPos, network);
         if (level instanceof ServerLevel serverLevel) {
             network.onTaskValueChanged(task, serverLevel);
         }
     }
 
-    /** True while the Replication UI task is still in the pending map. */
+    /** True while the Replication UI task is still pending (local or AE2-federated peer). */
     public boolean hasPendingReplicationTask(UUID taskId) {
-        if (taskId == null) {
-            return false;
-        }
-        MatterNetwork network = getNetwork();
-        return network != null
-                && network.getTaskManager().getPendingTasks().containsKey(taskId.toString());
+        return BridgeDeviceFederation.findPendingTask(getNetwork(), taskId) != null;
     }
 
     /**
@@ -3387,14 +3375,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         if (taskId == null || workerPos == null || level == null || level.isClientSide()) {
             return false;
         }
-        MatterNetwork network = getNetwork();
-        if (network == null) {
+        BridgeDeviceFederation.PendingTaskRef ref = BridgeDeviceFederation.findPendingTask(getNetwork(), taskId);
+        if (ref == null) {
             return false;
         }
-        IReplicationTask task = network.getTaskManager().getPendingTasks().get(taskId.toString());
-        if (task == null) {
-            return false;
-        }
+        IReplicationTask task = ref.task();
+        MatterNetwork network = ref.network();
         if (task.getStoredMatterStack().containsKey(workerPos.asLong())) {
             return true;
         }
@@ -4797,13 +4783,12 @@ public class RepAE2BridgeBlockEntity extends ReplicationMachine<RepAE2BridgeBloc
         }
         count += mergeLeft;
 
-        int remaining = dispatchToMatterAssemblers(patternStack, count);
-        if (remaining <= 0) {
-            return;
-        }
+        // Do not pre-assign Matter Assemblers here (that skipped ReplicationTask visibility).
+        // MAs/small chambers pick up via BridgeReplicationTaskAssign with a real task id.
+        int remaining = count;
 
-        // Prefer AE2-internal workers when present; anything they cannot take now becomes a
-        // ReplicationTask so CPUs are never parked forever in ae2InternalPending alone.
+        // Prefer AE2-internal workers when an 8+ chamber unlocked bypass; leftovers become
+        // a ReplicationTask so CPUs are never parked forever in ae2InternalPending alone.
         if (hasAe2GridWorker()) {
             ItemWithSourceId key = new ItemWithSourceId(patternStack, this.blockId);
             ae2InternalPending.merge(key, remaining, Integer::sum);

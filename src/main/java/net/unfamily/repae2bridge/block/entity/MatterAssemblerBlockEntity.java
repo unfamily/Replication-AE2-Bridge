@@ -1,5 +1,6 @@
 package net.unfamily.repae2bridge.block.entity;
 
+import java.util.EnumSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -64,9 +65,11 @@ public class MatterAssemblerBlockEntity extends BlockEntity
                     nodeOwner.setChanged();
                 }
             })
+            .setVisualRepresentation(ModBlocks.MATTER_ASSEMBLER.get())
             .setFlags(GridFlags.REQUIRE_CHANNEL)
             .setIdlePowerUsage(1.0)
             .setInWorldNode(true)
+            .setExposedOnSides(EnumSet.allOf(Direction.class))
             .setTagName("matter_assembler");
 
     private final IUpgradeInventory upgrades = UpgradeInventories.forMachine(

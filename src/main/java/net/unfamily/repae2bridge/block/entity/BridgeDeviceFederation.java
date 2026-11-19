@@ -5,6 +5,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
+import java.util.UUID;
 
 import org.jetbrains.annotations.Nullable;
 
@@ -14,6 +15,7 @@ import appeng.api.parts.IPart;
 import appeng.api.parts.IPartHost;
 
 import com.buuz135.replication.api.pattern.MatterPattern;
+import com.buuz135.replication.api.task.IReplicationTask;
 import com.buuz135.replication.block.tile.ChipStorageBlockEntity;
 import com.buuz135.replication.network.MatterNetwork;
 import com.hrznstudio.titanium.block_network.element.NetworkElement;
@@ -151,6 +153,39 @@ public final class BridgeDeviceFederation {
         List<NetworkElement> raw =
                 ((MatterNetworkAccessor) (Object) network).rep_ae2_bridge$getReplicatorsRaw();
         return raw != null ? raw : List.of();
+    }
+
+    /**
+     * Pending task + owning MatterNetwork. When two Titanium nets share one AE2 grid,
+     * assign may run on bridge A while the task lives on peer B — callers must use the
+     * returned network for store/finalize, not only {@code home}.
+     */
+    public record PendingTaskRef(IReplicationTask task, MatterNetwork network) {
+    }
+
+    /**
+     * Find a pending Replication task on {@code home} or any AE2-federated peer network.
+     */
+    @Nullable
+    public static PendingTaskRef findPendingTask(@Nullable MatterNetwork home, @Nullable UUID taskId) {
+        if (home == null || taskId == null) {
+            return null;
+        }
+        String id = taskId.toString();
+        IReplicationTask local = home.getTaskManager().getPendingTasks().get(id);
+        if (local != null) {
+            return new PendingTaskRef(local, home);
+        }
+        if (!Config.federateDevicesAcrossAe2) {
+            return null;
+        }
+        for (MatterNetwork peer : peerNetworks(home)) {
+            IReplicationTask peerTask = peer.getTaskManager().getPendingTasks().get(id);
+            if (peerTask != null) {
+                return new PendingTaskRef(peerTask, peer);
+            }
+        }
+        return null;
     }
 
     /** Distinct peer networks reachable via the same AE2 grid(s) as {@code source}. */

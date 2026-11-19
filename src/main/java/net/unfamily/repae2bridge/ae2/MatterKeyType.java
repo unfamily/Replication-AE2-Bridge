@@ -39,14 +39,16 @@ public final class MatterKeyType extends AEKeyType {
 
     @Override
     public int getAmountPerByte() {
-        // Crafting simulation uses: bytes += amount * crafts / getAmountPerByte() * 8
-        // Fluid-scale density so datapack matter costs (thousands+) do not consume CPU
-        // storage 1:1 and reject crafts with "not enough crafting storage".
+        // Crafting simulation: bytes += amount * crafts / getAmountPerByte() * 8
+        // Fluid-scale density so high datapack matter costs do not exhaust CPU storage.
         return 1_000_000;
     }
 
     @Override
     public int getAmountPerOperation() {
-        return 1;
+        // Crafting CPU pattern power: sum(inputAmount / getAmountPerOperation()).
+        // Must match fluid-scale density — value 1 made a 1500×8-type craft demand ~12k AE
+        // in one extract and blocked pushPattern when the network buffer was smaller.
+        return 1_000_000;
     }
 }

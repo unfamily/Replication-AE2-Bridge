@@ -105,7 +105,8 @@ public class MatterFoundryBlockEntity extends BlockEntity
                     nodeOwner.setChanged();
                 }
             })
-                        .setFlags(GridFlags.REQUIRE_CHANNEL)
+            .setVisualRepresentation(ModBlocks.MATTER_FOUNDRY.get())
+            .setFlags(GridFlags.REQUIRE_CHANNEL)
             .setIdlePowerUsage(2.0)
             .setInWorldNode(true)
             .setExposedOnSides(EnumSet.allOf(Direction.class))
